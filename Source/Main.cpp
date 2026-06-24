@@ -46,11 +46,11 @@ int main(int, char**) {
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
 #else
-	const char* glsl_version = "#version 130";
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+	const char* glsl_version = "#version 330 core";
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 #endif
 
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
@@ -75,6 +75,14 @@ int main(int, char**) {
 	SDL_GL_SetSwapInterval(1);
 	SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 	SDL_ShowWindow(window);
+
+	// DIAGNOSTIC PRINTS
+	const char* gl_ver = (const char*)glGetString(GL_VERSION);
+	const char* gl_vendor = (const char*)glGetString(GL_VENDOR);
+	const char* gl_renderer = (const char*)glGetString(GL_RENDERER);
+	printf("DEBUG - GL Version: %s\n", gl_ver ? gl_ver : "NULL");
+	printf("DEBUG - GL Vendor: %s\n", gl_vendor ? gl_vendor : "NULL");
+	printf("DEBUG - GL Renderer: %s\n", gl_renderer ? gl_renderer : "NULL");
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -151,6 +159,8 @@ int main(int, char**) {
 			SDL_Delay(10);
 			continue;
 		}
+
+		SDL_GL_MakeCurrent(window, gl_context);
 
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplSDL3_NewFrame();

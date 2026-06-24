@@ -70,6 +70,7 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 			ImGui::SetCursorScreenPos(pMin);
 			ImGui::PushID(clip.get());
 
+			ImGui::SetNextItemAllowOverlap();
 			ImGui::InvisibleButton("##ClipHit", ImVec2(clipWidth, context.layout.trackRowHeight - 2));
 
 			if (ImGui::BeginPopupContextItem()) {

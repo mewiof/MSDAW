@@ -3,6 +3,7 @@
 #include "Project.h"
 #include "ProcessorFactory.h"
 #include "Processors/VSTProcessor.h"
+#include "Processors/VST3Processor.h"
 #include <algorithm>
 #include <vector>
 #include <cmath>
@@ -26,8 +27,10 @@ void TrackListView::Render(const ImVec2& pos, float width, float height) {
 		}
 		ImGui::Separator();
 
-		float masterHeight = mContext.layout.trackRowHeight + mContext.layout.trackGap;
-		float listHeight = height - (35 * mContext.state.mainScale) - masterHeight; // reserve space for master
+		float rowFullHeight = mContext.layout.trackRowHeight + mContext.layout.trackGap;
+		float masterHeight = rowFullHeight;
+		float hScrollbarSize = ImGui::GetStyle().ScrollbarSize;
+		float listHeight = height - (30 * mContext.state.mainScale) - masterHeight - hScrollbarSize;
 
 		ImGui::BeginChild("TrackListContent", ImVec2(0, listHeight), false, ImGuiWindowFlags_None);
 
@@ -40,8 +43,6 @@ void TrackListView::Render(const ImVec2& pos, float width, float height) {
 					  Delete,
 					  Ungroup };
 		Action action = None;
-
-		float rowFullHeight = mContext.layout.trackRowHeight + mContext.layout.trackGap;
 
 		// adjust available width for controls to account for potential scrollbar
 		float contentWidth = ImGui::GetContentRegionAvail().x;
@@ -163,6 +164,21 @@ void TrackListView::Render(const ImVec2& pos, float width, float height) {
 						track->AddProcessor(vST);
 						if (project->GetTransport().GetSampleRate() > 0)
 							vST->PrepareToPlay(project->GetTransport().GetSampleRate());
+					}
+				}
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("VST3_PLUGIN")) {
+					std::string data = (const char*)payload->Data;
+					size_t pipe = data.find('|');
+					if (pipe != std::string::npos) {
+						std::string path = data.substr(0, pipe);
+						std::string classID = data.substr(pipe + 1);
+						auto vST = std::make_shared<VST3Processor>(path, classID);
+						if (vST->Load()) {
+							std::lock_guard<std::mutex> lock(project->GetMutex());
+							track->AddProcessor(vST);
+							if (project->GetTransport().GetSampleRate() > 0)
+								vST->PrepareToPlay(project->GetTransport().GetSampleRate());
+						}
 					}
 				}
 				// 3. dropping internal effect from library
@@ -385,8 +401,10 @@ void TrackListView::Render(const ImVec2& pos, float width, float height) {
 
 		ImGui::EndChild();
 
+		float masterY = pos.y + height - masterHeight - hScrollbarSize;
+		ImGui::SetCursorScreenPos(ImVec2(pos.x, masterY));
+
 		// master track
-		ImGui::Separator();
 		auto master = project->GetMasterTrack();
 		if (master) {
 			bool isMasterSelected = (mContext.state.selectedTrackIndex == -1);
@@ -418,6 +436,21 @@ void TrackListView::Render(const ImVec2& pos, float width, float height) {
 							vST->PrepareToPlay(project->GetTransport().GetSampleRate());
 					}
 				}
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("VST3_PLUGIN")) {
+					std::string data = (const char*)payload->Data;
+					size_t pipe = data.find('|');
+					if (pipe != std::string::npos) {
+						std::string path = data.substr(0, pipe);
+						std::string classID = data.substr(pipe + 1);
+						auto vST = std::make_shared<VST3Processor>(path, classID);
+						if (vST->Load()) {
+							std::lock_guard<std::mutex> lock(project->GetMutex());
+							master->AddProcessor(vST);
+							if (project->GetTransport().GetSampleRate() > 0)
+								vST->PrepareToPlay(project->GetTransport().GetSampleRate());
+						}
+					}
+				}
 				// 2. dropping internal effect
 				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("INTERNAL_PLUGIN")) {
 					std::string type = (const char*)payload->Data;
@@ -436,13 +469,24 @@ void TrackListView::Render(const ImVec2& pos, float width, float height) {
 			ImGui::SetCursorScreenPos(ImVec2(curPos.x + 10, curPos.y + 5));
 			ImGui::Text("MASTER");
 
-			// volume
+			// automation toggle
 			ImGui::SetCursorScreenPos(ImVec2(curPos.x + 10, curPos.y + 25));
+			bool showAuto = master->mShowAutomation;
+			if (showAuto)
+				ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(200, 50, 50, 255));
+			if (ImGui::SmallButton("A##Master"))
+				master->mShowAutomation = !showAuto;
+			if (showAuto)
+				ImGui::PopStyleColor();
+
+			// volume
+			ImGui::SetCursorScreenPos(ImVec2(curPos.x + 10, curPos.y + 45));
 			ImGui::SetNextItemWidth(120 * mContext.state.mainScale);
 			float vol = master->GetVolumeParameter()->value;
 			if (ImGui::SliderFloat("##MVol", &vol, -60.0f, 6.0f, "%.1f dB")) {
 				master->GetVolumeParameter()->value = vol;
 			}
+			master->GetVolumeParameter()->HandleCommonInteractions();
 
 			// meter
 			float peakL = master->GetPeakL();

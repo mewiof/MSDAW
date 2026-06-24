@@ -10,3 +10,6 @@
 [submodule "External/Submodules/rtaudio"]
 	path = External/Submodules/rtaudio
 	url = https://github.com/thestk/rtaudio.git
+[submodule "External/Submodules/vst3sdk"]
+	path = External/Submodules/vst3sdk
+	url = https://github.com/steinbergmedia/vst3sdk.git

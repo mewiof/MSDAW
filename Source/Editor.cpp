@@ -1,6 +1,7 @@
 #include "PrecompHeader.h"
 #include "Editor.h"
 #include "Processors/VSTProcessor.h"
+#include "Processors/VST3Processor.h"
 
 #include <filesystem>
 #include <algorithm>
@@ -431,7 +432,7 @@ void Editor::RenderSettingsWindow() {
 				ImGui::EndTabItem();
 			}
 			if (ImGui::BeginTabItem("Plugins")) {
-				ImGui::Text("VST2 Search Paths:");
+				ImGui::Text("VST2/VST3 Search Paths:");
 				ImGui::Separator();
 				PluginManager& pm = mContext.pluginManager;
 				std::vector<std::string> paths = pm.GetSearchPaths();
@@ -552,13 +553,30 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 					}
 				}
 			}
+		} else if (ext == ".vst3") {
+			Project* project = GetProject();
+			if (project) {
+				auto vST = std::make_shared<VST3Processor>(mContext.state.droppedPath);
+				if (vST->Load()) {
+					project->CreateTrack();
+					auto& tracks = project->GetTracks();
+					if (!tracks.empty()) {
+						auto track = tracks.back();
+						track->SetName(p.filename().stem().string());
+						track->AddProcessor(vST);
+						if (project->GetTransport().GetSampleRate() > 0)
+							vST->PrepareToPlay(project->GetTransport().GetSampleRate());
+					}
+				}
+			}
 		}
 		mContext.state.processDrop = false;
 	}
 
 	Parameter* requestedParameter = Parameter::GetAndClearAutomationRequestParameter();
 	if (requestedParameter)
-		if (Project* p = GetProject())
+		if (Project* p = GetProject()) {
+			bool found = false;
 			for (size_t i = 0; i < p->GetTracks().size(); ++i) {
 				auto track = p->GetTracks()[i];
 				auto params = track->GetAllParameters();
@@ -566,7 +584,20 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 					track->mShowAutomation = true;
 					track->mSelectedAutomationParam = requestedParameter;
 					mContext.state.selectedTrackIndex = (int)i;
+					found = true;
 					break;
 				}
 			}
+			if (!found) {
+				auto master = p->GetMasterTrack();
+				if (master) {
+					auto params = master->GetAllParameters();
+					if (std::find(params.begin(), params.end(), requestedParameter) != params.end()) {
+						master->mShowAutomation = true;
+						master->mSelectedAutomationParam = requestedParameter;
+						mContext.state.selectedTrackIndex = -1;
+					}
+				}
+			}
+		}
 }

@@ -77,6 +77,7 @@ private:
 
 	// internal helper
 	void PrepareToPlayInternal(double sampleRate);
+	void SetBpmInternal(double bpm);
 
 	std::mutex mMutex;
 };

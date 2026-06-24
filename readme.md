@@ -4,15 +4,15 @@ https://github.com/user-attachments/assets/1edac651-7c0c-4511-9eb0-d284dfb59650
 
 ## Features
 
--   **plugin hosting:** support for VST 2 instruments/effects
--   **built-in plugins:** Eq Eight, OTT, Delay & Reverb, Bit Crusher, other
--   **timeline engine:** audio/MIDI clips (with linking)
--   **track management:** hierarchical track grouping and routing
--   **automation:** parameter automation with curved tension
--   **mixing:** per-track volume, panning, solo/mute, live peak metering
--   **export:** offline rendering to 16-bit WAV files
--   **UI:** hardware-accelerated interface
--   **input:** computer MIDI keyboard
+- **plugin hosting:** support for VST2 and VST3 instruments/effects
+- **built-in plugins:** Eq Eight, OTT, Delay & Reverb, Bit Crusher, other
+- **timeline engine:** audio/MIDI clips (with linking)
+- **track management:** hierarchical track grouping and routing
+- **automation:** parameter automation with curved tension
+- **mixing:** per-track volume, panning, solo/mute, live peak metering
+- **export:** offline rendering to 16-bit WAV files
+- **UI:** hardware-accelerated interface
+- **input:** computer MIDI keyboard
 
 ## Community
 
@@ -36,8 +36,9 @@ Install [LLVM](https://github.com/llvm/llvm-project/releases) & [CMake](https://
 
 MSDAW is released under the [MIT License](LICENSE) and relies on:
 
--   **[SDL3](https://github.com/libsdl-org/SDL):** platform window management & input (zlib License)
--   **[Dear ImGui](https://github.com/ocornut/imgui):** user interface (MIT License)
--   **[RtAudio](https://github.com/thestk/rtaudio):** audio I/O abstraction (MIT-style License)
--   **[FreeType](https://github.com/freetype/freetype):** font engine (FreeType License/GPL)
--   **VST 2.4 SDK:** Plugin interface logic (Proprietary/Legacy Steinberg license; contact `mewiof@gmail.com` for instant removal)
+- **[SDL3](https://github.com/libsdl-org/SDL):** platform window management & input (zlib License)
+- **[Dear ImGui](https://github.com/ocornut/imgui):** user interface (MIT License)
+- **[RtAudio](https://github.com/thestk/rtaudio):** audio I/O abstraction (MIT-style License)
+- **[FreeType](https://github.com/freetype/freetype):** font engine (FreeType License/GPL)
+- **[VST3 SDK](https://github.com/steinbergmedia/vst3sdk):** VST3 plugin hosting (GPLv3 License)
+- **VST 2.4 SDK:** VST2 plugin interface logic (Proprietary/Legacy Steinberg license; contact `mewiof@gmail.com` for instant removal)

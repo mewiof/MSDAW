@@ -25,6 +25,7 @@ void Project::Initialize() {
 
 	mMasterTrack = std::make_shared<Track>();
 	mMasterTrack->SetName("Master");
+	mMasterTrack->InitMasterTrackParameters(mTransport.GetBpm());
 }
 
 void Project::CreateTrack() {
@@ -245,9 +246,7 @@ void Project::PrepareToPlay(double sampleRate) {
 	PrepareToPlayInternal(sampleRate);
 }
 
-void Project::SetBpm(double bpm) {
-	std::lock_guard<std::mutex> lock(mMutex);
-
+void Project::SetBpmInternal(double bpm) {
 	double oldBpm = mTransport.GetBpm();
 	double sampleRate = mTransport.GetSampleRate();
 
@@ -272,14 +271,20 @@ void Project::SetBpm(double bpm) {
 	// 2. update transport bpm
 	mTransport.SetBpm(bpm);
 
+	if (mMasterTrack) {
+		if (auto bpmParam = mMasterTrack->GetBpmParameter()) {
+			bpmParam->value = bpm;
+		}
+	}
+
 	// 3. convert beats back to samples using new bpm
 	if (sampleRate > 0.0 && bpm > 0.0) {
 		double newSecondsPerBeat = 60.0 / bpm;
-		int64_t newPos = (int64_t)(currentBeat * newSecondsPerBeat * sampleRate);
+		int64_t newPos = (int64_t)std::round(currentBeat * newSecondsPerBeat * sampleRate);
 		mTransport.SetPosition(newPos);
 
-		int64_t newLoopStart = (int64_t)(loopStartBeat * newSecondsPerBeat * sampleRate);
-		int64_t newLoopEnd = (int64_t)(loopEndBeat * newSecondsPerBeat * sampleRate);
+		int64_t newLoopStart = (int64_t)std::round(loopStartBeat * newSecondsPerBeat * sampleRate);
+		int64_t newLoopEnd = (int64_t)std::round(loopEndBeat * newSecondsPerBeat * sampleRate);
 		mTransport.SetLoopRange(newLoopStart, newLoopEnd);
 	}
 
@@ -291,6 +296,11 @@ void Project::SetBpm(double bpm) {
 			}
 		}
 	}
+}
+
+void Project::SetBpm(double bpm) {
+	std::lock_guard<std::mutex> lock(mMutex);
+	SetBpmInternal(bpm);
 }
 
 void Project::ProcessTrackRecursively(std::shared_ptr<Track> track, float* destinationBuffer, int numFrames, int numChannels, const ProcessContext& context, const std::vector<MIDIMessage>& liveMIDIEvents, bool anySolo) {
@@ -398,6 +408,26 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 			mMasterTrack->Reset();
 	}
 	mWasPlaying = isPlaying;
+
+	if (mMasterTrack) {
+		if (auto bpmParam = mMasterTrack->GetBpmParameter()) {
+			double newBpm = bpmParam->value;
+			if (std::abs(newBpm - mTransport.GetBpm()) > 0.001) {
+				SetBpmInternal(newBpm);
+			}
+		}
+
+		if (isPlaying) {
+			double currentBeat = (double)mTransport.GetPosition() / mTransport.GetSampleRate() * (mTransport.GetBpm() / 60.0);
+			mMasterTrack->EvaluateAutomation(currentBeat);
+			if (auto bpmParam = mMasterTrack->GetBpmParameter()) {
+				double newBpm = bpmParam->value;
+				if (std::abs(newBpm - mTransport.GetBpm()) > 0.001) {
+					SetBpmInternal(newBpm);
+				}
+			}
+		}
+	}
 
 	bool anySolo = false;
 	for (auto& track : mTracks) {
@@ -697,6 +727,8 @@ void Project::Load(const std::string& path) {
 			mTracks.push_back(t);
 		} else if (token == "MASTER_BEGIN") {
 			mMasterTrack = std::make_shared<Track>();
+			mMasterTrack->SetName("Master");
+			mMasterTrack->InitMasterTrackParameters(mTransport.GetBpm());
 			mMasterTrack->Load(in); // master track scope
 			std::string endTag;
 			std::getline(in, endTag); // consume MASTER_END

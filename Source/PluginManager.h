@@ -8,6 +8,8 @@ struct PluginInfo {
 	std::string path;
 	bool isSynth;
 	std::string vendor;
+	std::string format;	 // "VST2" or "VST3"
+	std::string classID; // for VST3
 };
 
 class PluginManager {
@@ -22,7 +24,10 @@ public:
 	// recursive plugin scan
 	void ScanPlugins();
 
-	const std::vector<PluginInfo>& GetKnownPlugins() const { return mPlugins; }
+	std::vector<PluginInfo> GetKnownPlugins() {
+		std::lock_guard<std::mutex> lock(mMutex);
+		return mPlugins;
+	}
 private:
 	std::vector<std::string> mSearchPaths;
 	std::vector<PluginInfo> mPlugins;

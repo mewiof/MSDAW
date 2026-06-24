@@ -6,6 +6,7 @@
 #include "Clips/AudioClip.h"
 #include "ProcessorFactory.h"
 #include "Processors/VSTProcessor.h"
+#include "Processors/VST3Processor.h"
 #include <cmath>
 #include <algorithm>
 #include <sstream>
@@ -61,6 +62,11 @@ Track::Track() {
 	mColor = IM_COL32(r, g, b, 255);
 }
 Track::~Track() {}
+
+void Track::InitMasterTrackParameters(float initialBpm) {
+	mBpmParam = std::make_unique<SliderParameter>("BPM", initialBpm, 20.0f, 300.0f);
+}
+
 void Track::PrepareToPlay(double sampleRate) {
 	for (auto& proc : mProcessors) {
 		proc->PrepareToPlay(sampleRate);
@@ -111,6 +117,15 @@ void Track::MoveProcessor(int fromIndex, int toIndex) {
 	mProcessors.insert(mProcessors.begin() + toIndex, proc);
 }
 
+void Track::EvaluateAutomation(double currentBeat) {
+	for (auto& curve : mAutomationCurves) {
+		if (curve.targetParam) {
+			float val = curve.Evaluate(currentBeat);
+			curve.targetParam->value = val;
+		}
+	}
+}
+
 void Track::Process(float* buffer, int numFrames, int numChannels,
 					std::vector<MIDIMessage>& mIDIMessages,
 					const ProcessContext& context,
@@ -119,12 +134,7 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 	// automation processing
 	if (context.isPlaying) {
 		double currentBeat = (double)context.currentSample / context.sampleRate * (context.bpm / 60.0);
-		for (auto& curve : mAutomationCurves) {
-			if (curve.targetParam) {
-				float val = curve.Evaluate(currentBeat);
-				curve.targetParam->value = val;
-			}
-		}
+		EvaluateAutomation(currentBeat);
 	}
 
 	// accumulate group inputs
@@ -408,6 +418,9 @@ std::vector<Parameter*> Track::GetAllParameters() {
 	std::vector<Parameter*> params;
 	params.push_back(mVolumeParam.get());
 	params.push_back(mPanParam.get());
+	if (mBpmParam) {
+		params.push_back(mBpmParam.get());
+	}
 	for (auto& proc : mProcessors) {
 		const auto& procParams = proc->GetParameters();
 		for (auto& p : procParams) {
@@ -434,6 +447,8 @@ Parameter* Track::FindParameter(const std::string& name) {
 		return mVolumeParam.get();
 	if (mPanParam->name == name)
 		return mPanParam.get();
+	if (mBpmParam && mBpmParam->name == name)
+		return mBpmParam.get();
 	for (auto& proc : mProcessors) {
 		for (auto& p : proc->GetParameters()) {
 			if (p->name == name)
@@ -575,6 +590,8 @@ void Track::Load(std::istream& in) {
 			// VST is special
 			if (!proc && type == "VST")
 				proc = std::make_shared<VSTProcessor>("");
+			else if (!proc && type == "VST3")
+				proc = std::make_shared<VST3Processor>("", "");
 
 			if (proc) {
 				proc->Load(in);

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.25.0)
 
 project(MSDAW LANGUAGES CXX)
 
@@ -45,8 +45,13 @@ set(VST2_SDK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/External/vstsdk2.4")
 file(GLOB VST2_SDK_SOURCE_FILES CONFIGURE_DEPENDS
 	"${VST2_SDK_PATH}/public.sdk/source/vst2.x/audioeffect.cpp"
 	"${VST2_SDK_PATH}/public.sdk/source/vst2.x/audioeffectx.cpp"
-	# vstplugmain.cpp is excluded because it defines VSTPluginMain export which conflicts with our host
 )
+
+# local
+set(MSDAW_SOURCE_PATH "${CMAKE_SOURCE_DIR}/Source")
+file(GLOB_RECURSE MSDAW_SOURCE_FILES CONFIGURE_DEPENDS "${MSDAW_SOURCE_PATH}/*.cpp")
+
+set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
 
 # workaround for VST2 SDK legacy code issues
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
@@ -55,12 +60,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
 	set_source_files_properties(${VST2_SDK_SOURCE_FILES} PROPERTIES COMPILE_OPTIONS "-Wno-writable-strings;-Wno-c++11-narrowing")
 endif()
 
-# local
-set(MSDAW_SOURCE_PATH "${CMAKE_SOURCE_DIR}/Source")
-file(GLOB_RECURSE MSDAW_SOURCE_FILES CONFIGURE_DEPENDS "${MSDAW_SOURCE_PATH}/*.cpp")
-
-set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
-
 add_executable(MSDAW
 	# external
 	${IMGUI_SOURCE_FILES}
@@ -68,6 +67,12 @@ add_executable(MSDAW
 	# local
 	${MSDAW_SOURCE_FILES}
 )
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+	# VST3 SDK uses #pragma pack which triggers warnings in Clang/GCC, disable them for MSDAW
+	target_compile_options(MSDAW PRIVATE "-Wno-pragma-pack")
+endif()
+
 target_include_directories(MSDAW
 	PRIVATE
 		${MSDAW_SOURCE_PATH}
@@ -76,6 +81,7 @@ target_include_directories(MSDAW
 		${SUBMODULES_PATH}/imgui
 		${SUBMODULES_PATH}/rtaudio/include
 		${SUBMODULES_PATH}/freetype/include
+		${SUBMODULES_PATH}/vst3sdk
 		${VST2_SDK_PATH}
 		${VST2_SDK_PATH}/public.sdk/source/vst2.x
 )

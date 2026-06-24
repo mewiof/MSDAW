@@ -4,6 +4,7 @@
 #include "Track.h"
 #include "ProcessorFactory.h"
 #include "Processors/VSTProcessor.h"
+#include "Processors/VST3Processor.h"
 #include <algorithm>
 #include <cmath>
 
@@ -87,6 +88,20 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 					t->AddProcessor(vST);
 					if (project->GetTransport().GetSampleRate() > 0)
 						vST->PrepareToPlay(project->GetTransport().GetSampleRate());
+				}
+			}
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("VST3_PLUGIN")) {
+				std::string data = (const char*)payload->Data;
+				size_t pipe = data.find('|');
+				if (pipe != std::string::npos) {
+					std::string path = data.substr(0, pipe);
+					std::string classID = data.substr(pipe + 1);
+					auto vST = std::make_shared<VST3Processor>(path, classID);
+					if (vST->Load()) {
+						t->AddProcessor(vST);
+						if (project->GetTransport().GetSampleRate() > 0)
+							vST->PrepareToPlay(project->GetTransport().GetSampleRate());
+					}
 				}
 			}
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("INTERNAL_PLUGIN")) {

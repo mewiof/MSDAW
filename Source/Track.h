@@ -9,6 +9,7 @@
 #include "MIDITypes.h"
 #include "Clip.h"
 #include "imgui.h" // for ImU32
+#include "Parameter.h"
 
 // automation structures
 struct AutomationPoint {
@@ -42,6 +43,9 @@ public:
 	// mixer controls
 	Parameter* GetVolumeParameter() { return mVolumeParam.get(); }
 	Parameter* GetPanParameter() { return mPanParam.get(); }
+	Parameter* GetBpmParameter() { return mBpmParam.get(); }
+
+	void InitMasterTrackParameters(float initialBpm);
 
 	void SetMute(bool mute) { mMute = mute; }
 	bool GetMute() const { return mMute; }
@@ -93,6 +97,7 @@ public:
 	void RemoveAutomationPoint(Parameter* param, int index);
 	void SortAutomationPoints(Parameter* param);
 	Parameter* FindParameter(const std::string& name);
+	void EvaluateAutomation(double currentBeat);
 
 	bool HasInstrument() const;
 
@@ -127,6 +132,7 @@ private:
 	// mixer state
 	std::unique_ptr<Parameter> mVolumeParam; // dB
 	std::unique_ptr<Parameter> mPanParam;	 // -1 to 1
+	std::unique_ptr<Parameter> mBpmParam;	 // BPM (Master Track only)
 	bool mMute = false;
 	bool mSolo = false;
 

@@ -58,6 +58,7 @@ private:
 #endif
 
 	AEffect* mAEffect = nullptr;
+	VstTimeInfo mTimeInfo;
 
 	// parameter sync tracking
 	std::vector<float> mLastSentValues;

@@ -77,7 +77,7 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 
 	// VST plugins
 	ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(180, 180, 180, 255));
-	ImGui::Text("PLUGINS (VST)");
+	ImGui::Text("PLUGINS");
 	ImGui::Separator();
 	ImGui::PopStyleColor();
 
@@ -105,19 +105,24 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 		else
 			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(220, 220, 200, 255));
 
-		if (ImGui::Selectable(plugin.name.c_str())) {
+		std::string label = plugin.name + " (" + plugin.format + ")";
+		if (ImGui::Selectable(label.c_str())) {
 		}
 
 		ImGui::PopStyleColor();
 
 		// drag source for VST
 		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-			// payload is the full path to the dll
-			ImGui::SetDragDropPayload("VST_PLUGIN", plugin.path.c_str(), plugin.path.size() + 1);
+			if (plugin.format == "VST3") {
+				std::string payloadStr = plugin.path + "|" + plugin.classID;
+				ImGui::SetDragDropPayload("VST3_PLUGIN", payloadStr.c_str(), payloadStr.size() + 1);
+			} else {
+				ImGui::SetDragDropPayload("VST_PLUGIN", plugin.path.c_str(), plugin.path.size() + 1);
+			}
 
 			// preview
 			ImGui::Text("%s", plugin.name.c_str());
-			ImGui::TextDisabled(plugin.isSynth ? "Instrument" : "Effect");
+			ImGui::TextDisabled("%s | %s", plugin.format.c_str(), plugin.isSynth ? "Instrument" : "Effect");
 
 			ImGui::EndDragDropSource();
 		}

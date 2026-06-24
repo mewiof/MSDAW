@@ -105,6 +105,11 @@ typedef AEffect*(VSTCALLBACK* VSTPluginMainProc)(audioMasterCallback audioMaster
 
 VSTProcessor::VSTProcessor(const std::string& path)
 	: mPath(path) {
+	memset(&mTimeInfo, 0, sizeof(VstTimeInfo));
+	mTimeInfo.sampleRate = 48000.0;
+	mTimeInfo.tempo = 120.0;
+	mTimeInfo.timeSigNumerator = 4;
+	mTimeInfo.timeSigDenominator = 4;
 }
 
 VSTProcessor::~VSTProcessor() {
@@ -122,7 +127,7 @@ VSTProcessor::~VSTProcessor() {
 
 #ifdef _WIN32
 	if (mLibrary) {
-		FreeLibrary(mLibrary);
+		// FreeLibrary(mLibrary);
 		mLibrary = nullptr;
 	}
 #endif
@@ -324,6 +329,26 @@ void VSTProcessor::Process(float* buffer, int numFrames, int numChannels,
 	if (!mAEffect)
 		return;
 
+	mTimeInfo.samplePos = context.currentSample;
+	mTimeInfo.sampleRate = context.sampleRate;
+	mTimeInfo.nanoSeconds = 0;
+	double seconds = context.currentSample / context.sampleRate;
+	mTimeInfo.ppqPos = seconds * (context.bpm / 60.0);
+	mTimeInfo.tempo = context.bpm;
+	mTimeInfo.barStartPos = std::floor(mTimeInfo.ppqPos / context.timeSigNumerator) * context.timeSigNumerator;
+	mTimeInfo.cycleStartPos = 0;
+	mTimeInfo.cycleEndPos = 0;
+	mTimeInfo.timeSigNumerator = (VstInt32)context.timeSigNumerator;
+	mTimeInfo.timeSigDenominator = (VstInt32)context.timeSigDenominator;
+	mTimeInfo.smpteOffset = 0;
+	mTimeInfo.smpteFrameRate = 0;
+	mTimeInfo.samplesToNextClock = 0;
+
+	mTimeInfo.flags = 0;
+	mTimeInfo.flags |= kVstTempoValid | kVstTimeSigValid | kVstPpqPosValid | kVstBarsValid;
+	if (context.isPlaying)
+		mTimeInfo.flags |= kVstTransportPlaying;
+
 	// 1. sync parameters (bi-directional logic)
 	if (mLastSentValues.size() < mParameters.size()) {
 		mLastSentValues.resize(mParameters.size(), -1.0f);
@@ -451,11 +476,23 @@ void VSTProcessor::Save(std::ostream& out) {
 	out << "PATH \"" << mPath << "\"\n";
 
 	if (mAEffect) {
-		void* chunkData = nullptr;
-		VstIntPtr len = mAEffect->dispatcher(mAEffect, effGetChunk, 0, 0, &chunkData, 0.0f);
-		if (len > 0 && chunkData) {
-			std::string encoded = Base64Encode((unsigned char*)chunkData, (unsigned int)len);
-			out << "CHUNK " << encoded << "\n";
+		if (mAEffect->flags & effFlagsProgramChunks) {
+			void* chunkData = nullptr;
+			bool isPreset = false;
+			// request entire bank first
+			VstIntPtr len = mAEffect->dispatcher(mAEffect, effGetChunk, 0, 0, &chunkData, 0.0f);
+			if (len == 0 || !chunkData) {
+				// fallback: request current program
+				len = mAEffect->dispatcher(mAEffect, effGetChunk, 1, 0, &chunkData, 0.0f);
+				isPreset = true;
+			}
+			if (len > 0 && chunkData) {
+				std::string encoded = Base64Encode((unsigned char*)chunkData, (unsigned int)len);
+				if (isPreset)
+					out << "CHUNK_PROG " << encoded << "\n";
+				else
+					out << "CHUNK " << encoded << "\n";
+			}
 		}
 	}
 
@@ -470,6 +507,7 @@ void VSTProcessor::Save(std::ostream& out) {
 
 void VSTProcessor::Load(std::istream& in) {
 	std::string line;
+	bool loadedChunk = false;
 	while (std::getline(in, line)) {
 		if (line == "VST_END")
 			break;
@@ -485,23 +523,28 @@ void VSTProcessor::Load(std::istream& in) {
 					}
 				}
 			}
-		} else if (line.rfind("CHUNK ", 0) == 0) {
-			std::string b64 = line.substr(6);
+		} else if (line.rfind("CHUNK ", 0) == 0 || line.rfind("CHUNK_PROG ", 0) == 0) {
+			bool isPreset = (line.rfind("CHUNK_PROG ", 0) == 0);
+			std::string b64 = line.substr(isPreset ? 11 : 6);
 			std::vector<unsigned char> data = Base64Decode(b64);
 			if (mAEffect && !data.empty()) {
-				mAEffect->dispatcher(mAEffect, effSetChunk, 0, (VstInt32)data.size(), data.data(), 0.0f);
-				InitializeParameters();
+				mAEffect->dispatcher(mAEffect, effSetChunk, isPreset ? 1 : 0, (VstIntPtr)data.size(), data.data(), 0.0f);
+				InitializeParameters(); // re-sync local values without disturbing
+				loadedChunk = true;
 			}
 		} else if (line.rfind("P ", 0) == 0) {
 			int idx;
 			float val;
 			if (sscanf_s(line.c_str(), "P %d %f", &idx, &val) == 2) {
 				if (mAEffect && idx < mAEffect->numParams) {
-					mAEffect->setParameter(mAEffect, idx, val);
-					if (idx < (int)mParameters.size()) {
-						mParameters[idx]->value = val;
-						if (idx < (int)mLastSentValues.size())
-							mLastSentValues[idx] = val;
+					// only push old parameters locally if we didn't just load a complete macro chunk
+					if (!loadedChunk) {
+						mAEffect->setParameter(mAEffect, idx, val);
+						if (idx < (int)mParameters.size()) {
+							mParameters[idx]->value = val;
+							if (idx < (int)mLastSentValues.size())
+								mLastSentValues[idx] = val;
+						}
 					}
 				}
 			}
@@ -631,11 +674,40 @@ VstIntPtr VSTCALLBACK VSTProcessor::HostCallback(AEffect* effect, VstInt32 opcod
 		}
 		return 1;
 	case audioMasterGetTime:
+		if (proc) {
+			return (VstIntPtr)&proc->mTimeInfo;
+		}
 		return 0;
 	case audioMasterGetSampleRate:
 		return 48000;
 	case audioMasterGetBlockSize:
 		return 512;
+	case audioMasterGetCurrentProcessLevel:
+		return 2; // kVstProcessLevelRealtime
+	case audioMasterGetVendorString:
+		if (ptr)
+			strcpy_s((char*)ptr, 64, "MSDAW");
+		return 1;
+	case audioMasterGetProductString:
+		if (ptr)
+			strcpy_s((char*)ptr, 64, "MSDAW Host");
+		return 1;
+	case audioMasterGetVendorVersion:
+		return 1000;
+	case audioMasterCanDo:
+		if (ptr) {
+			std::string canDo = (const char*)ptr;
+			if (canDo == "sendVstEvents" ||
+				canDo == "sendVstMidiEvent" ||
+				canDo == "sendVstTimeInfo" ||
+				canDo == "receiveVstEvents" ||
+				canDo == "receiveVstMidiEvent" ||
+				canDo == "supplyIdle" ||
+				canDo == "sizeWindow") {
+				return 1;
+			}
+		}
+		return 0;
 	default:
 		break;
 	}

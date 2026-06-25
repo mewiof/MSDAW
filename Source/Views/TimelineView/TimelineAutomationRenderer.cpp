@@ -40,9 +40,9 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 	}
 
 	// full-width invisible button for background interaction
-	ImGui::SetCursorScreenPos(trackMin);
+	ImGui::SetCursorScreenPos(ImVec2(winPos.x + scrollX, trackMin.y));
 	ImGui::SetNextItemAllowOverlap();
-	ImGui::InvisibleButton("##AutomationBlocker", ImVec2(contentWidth, context.layout.trackRowHeight));
+	ImGui::InvisibleButton("##AutomationBlocker", ImVec2(viewWidth, context.layout.trackRowHeight));
 
 	bool isTrackHovered = ImGui::IsItemHovered();
 	bool isTrackActive = ImGui::IsItemActive();

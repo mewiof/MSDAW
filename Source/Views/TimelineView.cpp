@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "TimelineView.h"
+#include "TrackListView.h"
 #include "Project.h"
 #include "ProcessorFactory.h"
 #include "Processors/VSTProcessor.h"
@@ -12,12 +13,12 @@
 #include "TimelineView/TimelineTrackView.h"
 #include "TimelineView/TimelineAutomationRenderer.h"
 
-void TimelineView::Render(const ImVec2& pos, float width, float height) {
+void TimelineView::Render(const ImVec2& pos, float width, float height, TrackListView* trackListView, float trackListW) {
 	ImGui::SetNextWindowPos(pos);
 	ImGui::SetNextWindowSize(ImVec2(width, height));
 
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-	ImGui::Begin("Timeline", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoBringToFrontOnFocus);
+	ImGui::Begin("Arrangement", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_NoBringToFrontOnFocus);
 	ImGui::PopStyleVar();
 
 	Project* project = mContext.GetProject();
@@ -29,9 +30,9 @@ void TimelineView::Render(const ImVec2& pos, float width, float height) {
 		float playheadX = (float)(currentBeat * mContext.state.pixelsPerBeat);
 		float currentScrollX = ImGui::GetScrollX();
 
-		float visibleWidth = ImGui::GetContentRegionAvail().x;
+		float visibleWidth = ImGui::GetContentRegionAvail().x - trackListW;
 		if (visibleWidth <= 0.0f)
-			visibleWidth = width;
+			visibleWidth = width - trackListW;
 
 		if (mContext.state.followMode == FollowMode::Page) {
 			if (playheadX >= currentScrollX + visibleWidth) {
@@ -133,6 +134,8 @@ void TimelineView::Render(const ImVec2& pos, float width, float height) {
 		}
 
 		// zoom logic
+		float timelineWidth = width - trackListW;
+
 		if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl && ImGui::GetIO().MouseWheel != 0.0f) {
 			float zoomFactor = 1.1f;
 			if (ImGui::GetIO().MouseWheel < 0)
@@ -175,14 +178,18 @@ void TimelineView::Render(const ImVec2& pos, float width, float height) {
 		}
 
 		float neededWidthPixel = (float)(maxBeat * mContext.state.pixelsPerBeat);
-		float contentWidth = neededWidthPixel + width;
+		float contentWidth = std::max(neededWidthPixel, timelineWidth) + trackListW;
 
 		ImGui::SetCursorScreenPos(winPos);
-		ImGui::Dummy(ImVec2(contentWidth, rulerHeight));
+		ImGui::Dummy(ImVec2(contentWidth, fullContentHeight));
 
 		// 1. empty area drag & drop
 		ImGui::SetCursorScreenPos(ImVec2(winPos.x, trackAreaStartY));
-		ImGui::Dummy(ImVec2(contentWidth, fullContentHeight));
+		ImGui::Dummy(ImVec2(contentWidth, fullContentHeight)); // reserves area in layout
+
+		ImGui::SetCursorScreenPos(ImVec2(winPos.x + scrollX, trackAreaStartY));
+		ImGui::SetNextItemAllowOverlap();
+		ImGui::InvisibleButton("##EmptyTimelineDrop", ImVec2(timelineWidth, fullContentHeight));
 
 		if (ImGui::BeginDragDropTarget()) {
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("VST_PLUGIN")) {
@@ -250,7 +257,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height) {
 
 		// 2. file drop logic
 		if (mContext.state.processDrop) {
-			bool insideTimeline = (mContext.state.dropX >= pos.x && mContext.state.dropX <= pos.x + width &&
+			bool insideTimeline = (mContext.state.dropX >= pos.x && mContext.state.dropX <= pos.x + timelineWidth &&
 								   mContext.state.dropY >= pos.y && mContext.state.dropY <= pos.y + height);
 
 			if (insideTimeline) {
@@ -309,7 +316,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height) {
 		PendingClipMove pendingMove;
 		PendingClipDelete pendingDelete;
 
-		TimelineTrackView::RenderTracks(mContext, mInteraction, pendingMove, pendingDelete, winPos, contentWidth, width, scrollX, trackAreaStartY);
+		TimelineTrackView::RenderTracks(mContext, mInteraction, pendingMove, pendingDelete, winPos, contentWidth - trackListW, timelineWidth, scrollX, trackAreaStartY);
 
 		if (pendingMove.valid) {
 			tracks[pendingMove.fromTrackIdx]->RemoveClip(pendingMove.clip);
@@ -325,7 +332,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height) {
 
 		// preview os drag & drop
 		if (mContext.state.isOsDragging) {
-			bool insideTimeline = (mContext.state.osDragX >= pos.x && mContext.state.osDragX <= pos.x + width &&
+			bool insideTimeline = (mContext.state.osDragX >= pos.x && mContext.state.osDragX <= pos.x + timelineWidth &&
 								   mContext.state.osDragY >= pos.y && mContext.state.osDragY <= pos.y + height);
 
 			if (insideTimeline) {
@@ -372,7 +379,6 @@ void TimelineView::Render(const ImVec2& pos, float width, float height) {
 				ImGui::SetKeyboardFocusHere(0);
 
 			bool enterPressed = ImGui::InputText("##Name", mInteraction.renameBuffer, sizeof(mInteraction.renameBuffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-
 			ImGui::Separator();
 
 			if (ImGui::Button("Set", ImVec2(120, 0)) || enterPressed) {
@@ -392,19 +398,17 @@ void TimelineView::Render(const ImVec2& pos, float width, float height) {
 		auto master = project->GetMasterTrack();
 		float masterHeight = mContext.layout.trackRowHeight + mContext.layout.trackGap;
 		float masterPadding = (master && master->mShowAutomation) ? masterHeight + 20.0f : 20.0f;
+		float hScrollbarSize = ImGui::GetStyle().ScrollbarSize;
+		float masterY = pos.y + height - masterHeight - hScrollbarSize;
 
 		ImGui::SetCursorScreenPos(ImVec2(winPos.x, trackAreaStartY + tracks.size() * rowFullHeight));
-		ImGui::Dummy(ImVec2(contentWidth + 500.0f, masterPadding));
+		ImGui::Dummy(ImVec2(contentWidth, masterPadding));
 
-		// Render Master Track Automation at fixed bottom position
 		if (master && master->mShowAutomation) {
-			float hScrollbarSize = ImGui::GetStyle().ScrollbarSize;
-			float masterY = pos.y + height - masterHeight - hScrollbarSize;
+			drawList->AddRectFilled(ImVec2(winPos.x, masterY), ImVec2(winPos.x + contentWidth - trackListW, masterY + masterHeight), IM_COL32(30, 30, 35, 255));
+			drawList->AddRect(ImVec2(winPos.x, masterY), ImVec2(winPos.x + contentWidth - trackListW, masterY + masterHeight), IM_COL32(50, 50, 50, 255));
 
-			drawList->AddRectFilled(ImVec2(winPos.x, masterY), ImVec2(winPos.x + contentWidth, masterY + masterHeight), IM_COL32(30, 30, 35, 255));
-			drawList->AddRect(ImVec2(winPos.x, masterY), ImVec2(winPos.x + contentWidth, masterY + masterHeight), IM_COL32(50, 50, 50, 255));
-
-			TimelineAutomationRenderer::Render(mContext, mInteraction, master.get(), -1, winPos, contentWidth, width, scrollX, masterY);
+			TimelineAutomationRenderer::Render(mContext, mInteraction, master.get(), -1, winPos, contentWidth - trackListW, timelineWidth, scrollX, masterY);
 		}
 
 		float stickyY = winPos.y + ImGui::GetScrollY();
@@ -416,11 +420,11 @@ void TimelineView::Render(const ImVec2& pos, float width, float height) {
 			drawList->AddRectFilled(ImVec2(selX1, trackAreaStartY), ImVec2(selX2, stickyY + height), IM_COL32(255, 255, 255, 15));
 		}
 
-		TimelineRuler::Render(mContext, mInteraction, stickyPos, contentWidth, rulerHeight, scrollX);
+		TimelineRuler::Render(mContext, mInteraction, stickyPos, contentWidth - trackListW, timelineWidth, rulerHeight, scrollX);
 
 		// insert marker
 		float insertX = winPos.x + (float)(mContext.state.selectionStart * mContext.state.pixelsPerBeat);
-		if (insertX >= pos.x && insertX <= pos.x + width) {
+		if (insertX >= pos.x && insertX <= pos.x + timelineWidth) {
 			drawList->AddLine(ImVec2(insertX, stickyY), ImVec2(insertX, stickyY + height), IM_COL32(100, 255, 100, 200), 1.0f);
 			drawList->AddTriangleFilled(ImVec2(insertX - 4, stickyY), ImVec2(insertX + 4, stickyY), ImVec2(insertX, stickyY + 6), IM_COL32(100, 255, 100, 255));
 		}
@@ -430,7 +434,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height) {
 			double currentBeat = (double)transport->GetPosition() / transport->GetSampleRate() * (transport->GetBpm() / 60.0);
 			float playheadX = winPos.x + (float)(currentBeat * mContext.state.pixelsPerBeat);
 
-			if (playheadX >= pos.x - 2.0f && playheadX <= pos.x + width + 2.0f) {
+			if (playheadX >= pos.x - 2.0f && playheadX <= pos.x + timelineWidth + 2.0f) {
 				drawList->AddLine(ImVec2(playheadX, stickyY), ImVec2(playheadX, stickyY + height), IM_COL32(255, 50, 50, 255), 1.5f);
 				drawList->AddTriangleFilled(ImVec2(playheadX - 6, stickyY), ImVec2(playheadX + 6, stickyY), ImVec2(playheadX, stickyY + 10), IM_COL32(255, 50, 50, 255));
 			}
@@ -440,6 +444,22 @@ void TimelineView::Render(const ImVec2& pos, float width, float height) {
 			ImGui::SetScrollX(mContext.state.timelineScrollX);
 			ImGui::SetScrollY(mContext.state.timelineScrollY);
 			mContext.state.restoreScroll = false;
+		}
+
+		if (trackListView) {
+			float trackListX = pos.x + timelineWidth;
+			ImVec2 trackListFixedPos(trackListX, pos.y);
+
+			drawList->AddRectFilled(
+				ImVec2(trackListFixedPos.x, pos.y),
+				ImVec2(trackListFixedPos.x + trackListW, pos.y + height - hScrollbarSize),
+				IM_COL32(35, 35, 35, 255));
+			drawList->AddLine(
+				ImVec2(trackListFixedPos.x, pos.y),
+				ImVec2(trackListFixedPos.x, pos.y + height - hScrollbarSize),
+				IM_COL32(20, 20, 20, 255), 2.0f);
+
+			trackListView->Render(trackListFixedPos, trackListW, height, trackAreaStartY, stickyY, masterY);
 		}
 	}
 	ImGui::End();

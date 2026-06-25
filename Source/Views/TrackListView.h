@@ -6,7 +6,9 @@ class TrackListView {
 public:
 	TrackListView(EditorContext& context)
 		: mContext(context) {}
-	void Render(const ImVec2& pos, float width, float height);
+
+	// expects coordinates relative to the master arrangement view
+	void Render(const ImVec2& fixedPos, float width, float height, float trackAreaStartY, float stickyY, float masterY);
 private:
 	EditorContext& mContext;
 

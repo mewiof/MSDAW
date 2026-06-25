@@ -6,7 +6,7 @@
 #include <cstdio>
 
 void TimelineRuler::Render(EditorContext& context, TimelineInteractionState& interaction,
-						   const ImVec2& winPos, float contentWidth, float height, float scrollX) {
+						   const ImVec2& winPos, float contentWidth, float visibleWidth, float height, float scrollX) {
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	Project* project = context.GetProject();
 	Transport* transport = project ? &project->GetTransport() : nullptr;
@@ -16,7 +16,6 @@ void TimelineRuler::Render(EditorContext& context, TimelineInteractionState& int
 	drawList->AddLine(ImVec2(winPos.x, winPos.y + height), ImVec2(winPos.x + contentWidth, winPos.y + height), IM_COL32(100, 100, 100, 255));
 
 	// calculate beat range visible
-	float visibleWidth = ImGui::GetContentRegionAvail().x;
 	if (visibleWidth < 1.0f)
 		visibleWidth = 1920.0f;
 
@@ -63,8 +62,8 @@ void TimelineRuler::Render(EditorContext& context, TimelineInteractionState& int
 	}
 
 	// ruler interaction
-	ImGui::SetCursorScreenPos(winPos);
-	ImGui::InvisibleButton("##RulerHitbox", ImVec2(contentWidth, height));
+	ImGui::SetCursorScreenPos(ImVec2(winPos.x + scrollX, winPos.y));
+	ImGui::InvisibleButton("##RulerHitbox", ImVec2(visibleWidth, height));
 	bool rulerHovered = ImGui::IsItemHovered();
 	bool rulerActive = ImGui::IsItemActive();
 

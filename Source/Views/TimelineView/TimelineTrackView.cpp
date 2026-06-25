@@ -58,11 +58,11 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 		}
 
 		// device drag & drop target (cross-track)
-		ImGui::SetCursorScreenPos(trackMin);
+		ImGui::SetCursorScreenPos(ImVec2(winPos.x + scrollX, trackMin.y));
 		ImGui::PushID((int)i * 20000);
 		ImGui::SetNextItemAllowOverlap();
 		// button also covers the gap
-		ImGui::InvisibleButton("##TrackDropTarget", ImVec2(contentWidth, rowFullHeight));
+		ImGui::InvisibleButton("##TrackDropTarget", ImVec2(viewWidth, rowFullHeight));
 
 		if (ImGui::BeginDragDropTarget()) {
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("PROCESSOR_MOVE")) {

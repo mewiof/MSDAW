@@ -6,5 +6,5 @@
 class TimelineRuler {
 public:
 	static void Render(EditorContext& context, TimelineInteractionState& interaction,
-					   const ImVec2& winPos, float contentWidth, float height, float scrollX);
+					   const ImVec2& winPos, float contentWidth, float visibleWidth, float height, float scrollX);
 };

@@ -15,9 +15,10 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	Project* project = context.GetProject();
 
+	ImGui::SetCursorScreenPos(ImVec2(winPos.x + scrollX, yPos));
 	ImGui::SetNextItemAllowOverlap();
 	float fullRowHeight = context.layout.trackRowHeight + context.layout.trackGap;
-	if (ImGui::InvisibleButton(("##TrackBG" + std::to_string(trackIndex)).c_str(), ImVec2(contentWidth, fullRowHeight))) {
+	if (ImGui::InvisibleButton(("##TrackBG" + std::to_string(trackIndex)).c_str(), ImVec2(viewWidth, fullRowHeight))) {
 		context.state.selectedClip = nullptr;
 		context.state.selectedTrackIndex = trackIndex;
 	}

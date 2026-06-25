@@ -508,12 +508,10 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 	float libraryW = mContext.layout.libraryWidth;
 	float trackListW = mContext.layout.trackListWidth;
 	float middleHeight = workSize.y - transportH - bottomH;
-	float timelineWidth = workSize.x - libraryW - trackListW;
 
 	mTransportView->Render(workPos, workSize.x, transportH);
 	mLibraryView->Render(ImVec2(workPos.x, workPos.y + transportH), libraryW, middleHeight);
-	mTimelineView->Render(ImVec2(workPos.x + libraryW, workPos.y + transportH), timelineWidth, middleHeight);
-	mTrackListView->Render(ImVec2(workPos.x + libraryW + timelineWidth, workPos.y + transportH), trackListW, middleHeight);
+	mTimelineView->Render(ImVec2(workPos.x + libraryW, workPos.y + transportH), workSize.x - libraryW, middleHeight, mTrackListView.get(), trackListW);
 
 	// bottom tab panel
 	float tabHeight = 28.0f * mContext.state.mainScale;

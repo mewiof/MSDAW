@@ -585,7 +585,7 @@ void VSTProcessor::OpenEditor(void* parentWindowHandle) {
 	if (!HasEditor() || mEditorWindow)
 		return;
 
-	DPI_AWARENESS_CONTEXT oldContext = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+	DPI_AWARENESS_CONTEXT oldContext = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE);
 
 	WNDCLASSEX wc = {0};
 	wc.cbSize = sizeof(WNDCLASSEX);
@@ -604,13 +604,14 @@ void VSTProcessor::OpenEditor(void* parentWindowHandle) {
 		height = rect->bottom - rect->top;
 	}
 
+	DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 	RECT wr = {0, 0, width, height};
-	AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, FALSE);
+	AdjustWindowRect(&wr, style, FALSE);
 
 	HWND hParent = (HWND)parentWindowHandle;
 
 	mEditorWindow = CreateWindowEx(0, "VSTEditorClass", ("Editor: " + mName).c_str(),
-								   WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+								   style, CW_USEDEFAULT, CW_USEDEFAULT,
 								   wr.right - wr.left, wr.bottom - wr.top,
 								   hParent, NULL, GetModuleHandle(NULL), NULL);
 
@@ -665,6 +666,17 @@ VstIntPtr VSTCALLBACK VSTProcessor::HostCallback(AEffect* effect, VstInt32 opcod
 			proc->mAEffect->dispatcher(proc->mAEffect, effEditIdle, 0, 0, 0, 0.0f);
 		}
 		return 1;
+	case audioMasterSizeWindow:
+#ifdef _WIN32
+		if (proc && proc->IsEditorOpen()) {
+			RECT wr = {0, 0, index, (int)value};
+			DWORD style = GetWindowLong((HWND)proc->mEditorWindow, GWL_STYLE);
+			AdjustWindowRect(&wr, style, FALSE);
+			SetWindowPos((HWND)proc->mEditorWindow, NULL, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+			return 1;
+		}
+#endif
+		return 0;
 	case audioMasterAutomate:
 		if (proc && index >= 0 && index < (int)proc->mParameters.size()) {
 			proc->mParameters[index]->value = opt;

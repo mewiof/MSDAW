@@ -1044,9 +1044,13 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 	if (!mController || mEditorWindow)
 		return;
 
-	if (mController->createView(Steinberg::Vst::ViewType::kEditor) == nullptr)
-		return;
+	DPI_AWARENESS_CONTEXT oldContext = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE);
+
 	mPlugView = mController->createView(Steinberg::Vst::ViewType::kEditor);
+	if (!mPlugView) {
+		SetThreadDpiAwarenessContext(oldContext);
+		return;
+	}
 
 	Steinberg::ViewRect rect = {};
 	mPlugView->getSize(&rect);
@@ -1057,8 +1061,6 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 	if (height <= 0)
 		height = 300;
 
-	DPI_AWARENESS_CONTEXT oldContext = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-
 	WNDCLASSEXA wc = {0};
 	wc.cbSize = sizeof(WNDCLASSEXA);
 	wc.lpfnWndProc = EditorWindowProc;
@@ -1067,13 +1069,14 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 	wc.hCursor = LoadCursorA(NULL, (LPCSTR)IDC_ARROW);
 	RegisterClassExA(&wc);
 
+	DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 	RECT wr = {0, 0, width, height};
-	AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, FALSE);
+	AdjustWindowRect(&wr, style, FALSE);
 
 	HWND hParent = (HWND)parentWindowHandle;
 
 	mEditorWindow = CreateWindowExA(0, "VST3EditorClass", ("Editor: " + mName).c_str(),
-									WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+									style, CW_USEDEFAULT, CW_USEDEFAULT,
 									wr.right - wr.left, wr.bottom - wr.top,
 									hParent, NULL, GetModuleHandleA(NULL), NULL);
 
@@ -1082,6 +1085,7 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 	if (mPlugView->attached(mEditorWindow, Steinberg::kPlatformTypeHWND) != Steinberg::kResultTrue) {
 		DestroyWindow(mEditorWindow);
 		mEditorWindow = nullptr;
+		mPlugView->release();
 		mPlugView = nullptr;
 		SetThreadDpiAwarenessContext(oldContext);
 		return;

@@ -28,6 +28,10 @@ static std::shared_ptr<AudioProcessor> CloneProcessor(std::shared_ptr<AudioProce
 		dst = std::make_shared<VSTProcessor>(vST->GetPath());
 		if (!std::dynamic_pointer_cast<VSTProcessor>(dst)->Load())
 			return nullptr;
+	} else if (auto vST3 = std::dynamic_pointer_cast<VST3Processor>(src)) {
+		dst = std::make_shared<VST3Processor>(vST3->GetPath(), vST3->GetClassID());
+		if (!std::dynamic_pointer_cast<VST3Processor>(dst)->Load())
+			return nullptr;
 	} else
 		dst = ProcessorFactory::Instance().Create(src->GetProcessorId());
 

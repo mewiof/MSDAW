@@ -1007,7 +1007,7 @@ public:
 	Steinberg::tresult PLUGIN_API resizeView(Steinberg::IPlugView* view, Steinberg::ViewRect* newSize) override {
 		if (mHwnd && newSize) {
 			RECT wr = {0, 0, newSize->getWidth(), newSize->getHeight()};
-			DWORD style = GetWindowLong(mHwnd, GWL_STYLE);
+			DWORD style = (DWORD)GetWindowLongPtrW(mHwnd, GWL_STYLE);
 			AdjustWindowRect(&wr, style, FALSE);
 			SetWindowPos(mHwnd, NULL, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 			return Steinberg::kResultTrue;
@@ -1038,13 +1038,13 @@ Steinberg::uint32 PLUGIN_API VST3PlugFrame::release() {
 }
 
 LRESULT CALLBACK VST3Processor::EditorWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-	VST3Processor* proc = (VST3Processor*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+	VST3Processor* proc = (VST3Processor*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
 	if (msg == WM_CLOSE) {
 		if (proc)
 			proc->CloseEditor();
 		return 0;
 	}
-	return DefWindowProc(hwnd, msg, wParam, lParam);
+	return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 bool VST3Processor::HasEditor() const {
@@ -1079,13 +1079,13 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 	if (height <= 0)
 		height = 300;
 
-	WNDCLASSEXA wc = {0};
-	wc.cbSize = sizeof(WNDCLASSEXA);
+	WNDCLASSEXW wc = {0};
+	wc.cbSize = sizeof(WNDCLASSEXW);
 	wc.lpfnWndProc = EditorWindowProc;
-	wc.hInstance = GetModuleHandleA(NULL);
-	wc.lpszClassName = "VST3EditorClass";
-	wc.hCursor = LoadCursorA(NULL, (LPCSTR)IDC_ARROW);
-	RegisterClassExA(&wc);
+	wc.hInstance = GetModuleHandleW(NULL);
+	wc.lpszClassName = L"VST3EditorClass";
+	wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
+	RegisterClassExW(&wc);
 
 	DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
 	RECT wr = {0, 0, width, height};
@@ -1093,12 +1093,22 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 
 	HWND hParent = (HWND)parentWindowHandle;
 
-	mEditorWindow = CreateWindowExA(0, "VST3EditorClass", ("Editor: " + mName).c_str(),
+	std::wstring wName;
+	if (!mName.empty()) {
+		int len = MultiByteToWideChar(CP_UTF8, 0, mName.c_str(), (int)mName.length(), NULL, 0);
+		if (len > 0) {
+			wName.resize(len);
+			MultiByteToWideChar(CP_UTF8, 0, mName.c_str(), (int)mName.length(), &wName[0], len);
+		}
+	}
+	std::wstring wTitle = L"Editor: " + wName;
+
+	mEditorWindow = CreateWindowExW(0, L"VST3EditorClass", wTitle.c_str(),
 									style, CW_USEDEFAULT, CW_USEDEFAULT,
 									wr.right - wr.left, wr.bottom - wr.top,
-									hParent, NULL, GetModuleHandleA(NULL), NULL);
+									hParent, NULL, GetModuleHandleW(NULL), NULL);
 
-	SetWindowLongPtr(mEditorWindow, GWLP_USERDATA, (LONG_PTR)this);
+	SetWindowLongPtrW(mEditorWindow, GWLP_USERDATA, (LONG_PTR)this);
 
 	mPlugFrame = new VST3PlugFrame(mEditorWindow);
 	mPlugView->setFrame(mPlugFrame);

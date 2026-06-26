@@ -94,6 +94,7 @@ private:
 	Steinberg::Vst::IAudioProcessor* mProcessor = nullptr;
 	Steinberg::Vst::IEditController* mController = nullptr;
 	Steinberg::IPlugView* mPlugView = nullptr;
+	Steinberg::IPlugFrame* mPlugFrame = nullptr;
 	VST3ComponentHandler* mComponentHandler = nullptr;
 
 	std::vector<float> mProcessBuffer;
@@ -112,6 +113,7 @@ private:
 
 	double mSampleRate = 48000.0;
 	bool mIsActive = false;
+	bool mNeedsFlush = false;
 
 #ifdef _WIN32
 	HWND mEditorWindow = nullptr;
@@ -122,5 +124,4 @@ private:
 	void SetupBuses(int numChannels);
 	void SyncParametersToController(int numFrames);
 	void ConvertMIDIToEvents(std::vector<MIDIMessage>& midiMessages);
-	void SendAllNotesOff();
 };

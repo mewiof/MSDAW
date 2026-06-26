@@ -604,7 +604,7 @@ void VSTProcessor::OpenEditor(void* parentWindowHandle) {
 		height = rect->bottom - rect->top;
 	}
 
-	DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+	DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
 	RECT wr = {0, 0, width, height};
 	AdjustWindowRect(&wr, style, FALSE);
 
@@ -620,6 +620,8 @@ void VSTProcessor::OpenEditor(void* parentWindowHandle) {
 	mAEffect->dispatcher(mAEffect, effEditOpen, 0, 0, mEditorWindow, 0.0f);
 
 	ShowWindow(mEditorWindow, SW_SHOW);
+	SetForegroundWindow(mEditorWindow);
+	SetFocus(mEditorWindow);
 	UpdateWindow(mEditorWindow);
 
 	SetThreadDpiAwarenessContext(oldContext);

@@ -438,14 +438,13 @@ bool VST3Processor::Load() {
 				for (int j = 0; j < 16; ++j)
 					sprintf_s(buf + j * 2, 3, "%02X", (unsigned char)info.cid[j]);
 
-				if (mClassID.empty()) {
+				if (mClassID.empty() || mClassID == buf) {
 					memcpy(targetUID, info.cid, sizeof(Steinberg::TUID));
 					foundUID = true;
-					mClassID = buf;
-					break;
-				} else if (mClassID == buf) {
-					memcpy(targetUID, info.cid, sizeof(Steinberg::TUID));
-					foundUID = true;
+					if (mClassID.empty())
+						mClassID = buf;
+
+					mName = info.name; // properly extracts ascii name safely
 					break;
 				}
 			}
@@ -507,21 +506,6 @@ bool VST3Processor::Load() {
 		Steinberg::int32 audioOutputs = mComponent->getBusCount(Steinberg::Vst::kAudio, Steinberg::Vst::kOutput);
 		if (audioInputs == 0 && audioOutputs > 0)
 			mIsSynth = true;
-	}
-
-	if (mController) {
-		Steinberg::Vst::IUnitInfo* units = nullptr;
-		if (mController->queryInterface(Steinberg::Vst::IUnitInfo::iid, (void**)&units) == Steinberg::kResultTrue) {
-			Steinberg::Vst::UnitInfo unitInfo = {};
-			if (units->getUnitInfo(0, unitInfo) == Steinberg::kResultTrue) {
-				std::string nameStr;
-				for (int i = 0; i < 128 && unitInfo.name[i] != 0; ++i) {
-					nameStr += (char)unitInfo.name[i];
-				}
-				mName = nameStr;
-			}
-			units->release();
-		}
 	}
 
 	if (mName.empty()) {
@@ -603,6 +587,16 @@ void VST3Processor::PrepareToPlay(double sampleRate) {
 	setup.sampleRate = sampleRate;
 
 	mProcessor->setupProcessing(setup);
+
+	Steinberg::int32 numInputs = mComponent->getBusCount(Steinberg::Vst::kAudio, Steinberg::Vst::kInput);
+	Steinberg::int32 numOutputs = mComponent->getBusCount(Steinberg::Vst::kAudio, Steinberg::Vst::kOutput);
+
+	if (numInputs > 0 || numOutputs > 0) {
+		std::vector<Steinberg::Vst::SpeakerArrangement> inputs(numInputs, 3ULL);
+		std::vector<Steinberg::Vst::SpeakerArrangement> outputs(numOutputs, 3ULL);
+		mProcessor->setBusArrangements(inputs.data(), numInputs, outputs.data(), numOutputs);
+	}
+
 	SetupBuses(2);
 
 	if (!mIsActive) {
@@ -615,60 +609,7 @@ void VST3Processor::Reset() {
 	if (!mComponent)
 		return;
 
-	SendAllNotesOff();
-
-	if (mProcessor) {
-		mProcessor->setProcessing(false);
-		mProcessor->setProcessing(true);
-	}
-}
-
-void VST3Processor::SendAllNotesOff() {
-	if (!mProcessor || !mIsActive)
-		return;
-
-	mEventList->clear();
-
-	for (int ch = 0; ch < 16; ++ch) {
-		for (int note : mActiveMIDINotes[ch]) {
-			Steinberg::Vst::Event e = {};
-			e.type = Steinberg::Vst::Event::kNoteOffEvent;
-			e.noteOff.channel = ch;
-			e.noteOff.pitch = note;
-			e.noteOff.velocity = 0.0f;
-			e.sampleOffset = 0;
-			mEventList->addEvent(e);
-		}
-		mActiveMIDINotes[ch].clear();
-	}
-
-	for (int ch = 0; ch < 16; ++ch) {
-		Steinberg::Vst::Event e = {};
-		e.type = Steinberg::Vst::Event::kLegacyMIDICCOutEvent;
-		e.midiCCOut.channel = ch;
-		e.midiCCOut.controlNumber = 123;
-		e.midiCCOut.value = 0;
-		e.sampleOffset = 0;
-		mEventList->addEvent(e);
-	}
-
-	Steinberg::Vst::AudioBusBuffers outBus = {};
-	float tmpBuffer[2] = {0.0f, 0.0f};
-	float* tmpPtrs[1] = {tmpBuffer};
-	outBus.channelBuffers32 = tmpPtrs;
-	outBus.numChannels = 1;
-
-	Steinberg::Vst::ProcessData data = {};
-	data.processMode = Steinberg::Vst::kRealtime;
-	data.symbolicSampleSize = Steinberg::Vst::kSample32;
-	data.numSamples = 0;
-	data.numInputs = 0;
-	data.numOutputs = 1;
-	data.outputs = &outBus;
-	data.inputEvents = mEventList.get();
-
-	mProcessor->process(data);
-	mEventList->clear();
+	mNeedsFlush = true;
 }
 
 void VST3Processor::SyncParametersToController(int numFrames) {
@@ -737,6 +678,12 @@ void VST3Processor::ConvertMIDIToEvents(std::vector<MIDIMessage>& midiMessages) 
 			e.noteOff.noteId = -1;
 			mEventList->addEvent(e);
 			mActiveMIDINotes[channel].erase(msg.data1);
+		} else if (type == 0xB0) {
+			e.type = Steinberg::Vst::Event::kLegacyMIDICCOutEvent;
+			e.midiCCOut.channel = channel;
+			e.midiCCOut.controlNumber = msg.data1;
+			e.midiCCOut.value = msg.data2;
+			mEventList->addEvent(e);
 		}
 	}
 }
@@ -748,6 +695,28 @@ void VST3Processor::Process(float* buffer, int numFrames, int numChannels,
 		return;
 
 	SyncParametersToController(numFrames);
+
+	if (mNeedsFlush) {
+		for (int ch = 0; ch < 16; ++ch) {
+			for (int note : mActiveMIDINotes[ch]) {
+				MIDIMessage msg;
+				msg.status = 0x80 | ch;
+				msg.data1 = note;
+				msg.data2 = 0;
+				msg.frameIndex = 0;
+				mIDIMessages.push_back(msg);
+			}
+			mActiveMIDINotes[ch].clear();
+
+			MIDIMessage msgCC;
+			msgCC.status = 0xB0 | ch;
+			msgCC.data1 = 123;
+			msgCC.data2 = 0;
+			msgCC.frameIndex = 0;
+			mIDIMessages.push_back(msgCC);
+		}
+		mNeedsFlush = false;
+	}
 
 	Steinberg::int32 numInputs = mComponent->getBusCount(Steinberg::Vst::kAudio, Steinberg::Vst::kInput);
 	Steinberg::int32 numOutputs = mComponent->getBusCount(Steinberg::Vst::kAudio, Steinberg::Vst::kOutput);
@@ -858,12 +827,23 @@ void VST3Processor::Process(float* buffer, int numFrames, int numChannels,
 	data.outputParameterChanges = nullptr;
 
 	Steinberg::Vst::ProcessContext vstContext = {};
-	vstContext.state = Steinberg::Vst::ProcessContext::kPlaying;
+	vstContext.state = 0;
+	if (context.isPlaying)
+		vstContext.state |= Steinberg::Vst::ProcessContext::kPlaying;
+
+	vstContext.state |= Steinberg::Vst::ProcessContext::kTempoValid;
+	vstContext.state |= Steinberg::Vst::ProcessContext::kTimeSigValid;
+	vstContext.state |= Steinberg::Vst::ProcessContext::kProjectTimeMusicValid;
+
 	vstContext.sampleRate = context.sampleRate;
 	vstContext.projectTimeSamples = context.currentSample;
 	vstContext.tempo = context.bpm;
 	vstContext.timeSigNumerator = (Steinberg::int32)context.timeSigNumerator;
 	vstContext.timeSigDenominator = (Steinberg::int32)context.timeSigDenominator;
+
+	double samplesPerBeat = (context.sampleRate * 60.0) / context.bpm;
+	vstContext.projectTimeMusic = context.currentSample / samplesPerBeat;
+
 	data.processContext = &vstContext;
 
 	mProcessor->process(data);
@@ -1019,6 +999,44 @@ void VST3Processor::Load(std::istream& in) {
 }
 
 #ifdef _WIN32
+class VST3PlugFrame : public Steinberg::IPlugFrame {
+public:
+	VST3PlugFrame(HWND hwnd) : mHwnd(hwnd) {}
+	virtual ~VST3PlugFrame() = default;
+
+	Steinberg::tresult PLUGIN_API resizeView(Steinberg::IPlugView* view, Steinberg::ViewRect* newSize) override {
+		if (mHwnd && newSize) {
+			RECT wr = {0, 0, newSize->getWidth(), newSize->getHeight()};
+			DWORD style = GetWindowLong(mHwnd, GWL_STYLE);
+			AdjustWindowRect(&wr, style, FALSE);
+			SetWindowPos(mHwnd, NULL, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+			return Steinberg::kResultTrue;
+		}
+		return Steinberg::kResultFalse;
+	}
+
+	DECLARE_FUNKNOWN_METHODS
+private:
+	Steinberg::uint32 mRefCount = 1;
+	HWND mHwnd;
+};
+
+Steinberg::tresult PLUGIN_API VST3PlugFrame::queryInterface(const Steinberg::TUID _iid, void** obj) {
+	QUERY_INTERFACE(_iid, obj, Steinberg::IPlugFrame::iid, Steinberg::IPlugFrame)
+	*obj = nullptr;
+	return Steinberg::kNoInterface;
+}
+Steinberg::uint32 PLUGIN_API VST3PlugFrame::addRef() {
+	return ++mRefCount;
+}
+Steinberg::uint32 PLUGIN_API VST3PlugFrame::release() {
+	if (--mRefCount == 0) {
+		delete this;
+		return 0;
+	}
+	return mRefCount;
+}
+
 LRESULT CALLBACK VST3Processor::EditorWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	VST3Processor* proc = (VST3Processor*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
 	if (msg == WM_CLOSE) {
@@ -1069,7 +1087,7 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 	wc.hCursor = LoadCursorA(NULL, (LPCSTR)IDC_ARROW);
 	RegisterClassExA(&wc);
 
-	DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+	DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
 	RECT wr = {0, 0, width, height};
 	AdjustWindowRect(&wr, style, FALSE);
 
@@ -1082,9 +1100,15 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 
 	SetWindowLongPtr(mEditorWindow, GWLP_USERDATA, (LONG_PTR)this);
 
+	mPlugFrame = new VST3PlugFrame(mEditorWindow);
+	mPlugView->setFrame(mPlugFrame);
+
 	if (mPlugView->attached(mEditorWindow, Steinberg::kPlatformTypeHWND) != Steinberg::kResultTrue) {
 		DestroyWindow(mEditorWindow);
 		mEditorWindow = nullptr;
+		mPlugView->setFrame(nullptr);
+		mPlugFrame->release();
+		mPlugFrame = nullptr;
 		mPlugView->release();
 		mPlugView = nullptr;
 		SetThreadDpiAwarenessContext(oldContext);
@@ -1093,15 +1117,22 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 
 	mPlugView->onWheel(0.0f);
 	ShowWindow(mEditorWindow, SW_SHOW);
+	SetForegroundWindow(mEditorWindow);
+	SetFocus(mEditorWindow);
 	UpdateWindow(mEditorWindow);
 	SetThreadDpiAwarenessContext(oldContext);
 }
 
 void VST3Processor::CloseEditor() {
 	if (mPlugView) {
+		mPlugView->setFrame(nullptr);
 		mPlugView->removed();
 		mPlugView->release();
 		mPlugView = nullptr;
+	}
+	if (mPlugFrame) {
+		mPlugFrame->release();
+		mPlugFrame = nullptr;
 	}
 	if (mEditorWindow) {
 		DestroyWindow(mEditorWindow);
@@ -1176,18 +1207,6 @@ std::vector<PluginInfo> VST3Processor::EnumeratePlugins(const std::string& path)
 						} else {
 							pinfo.isSynth = false;
 						}
-
-						std::string nameStr;
-						for (int k = 0; k < 64 && infoW.name[k] != 0; ++k) {
-							nameStr += (char)infoW.name[k];
-						}
-						pinfo.name = nameStr;
-
-						std::string vendorStr;
-						for (int k = 0; k < 64 && infoW.vendor[k] != 0; ++k) {
-							vendorStr += (char)infoW.vendor[k];
-						}
-						pinfo.vendor = vendorStr;
 					}
 					factory3->release();
 				} else {

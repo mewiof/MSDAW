@@ -24,30 +24,9 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 	Project* project = mContext.GetProject();
 	Transport* transport = project ? &project->GetTransport() : nullptr;
 
-	// 1. follow playback logic
-	if (project && transport && transport->IsPlaying() && mContext.state.followPlayback) {
-		double currentBeat = (double)transport->GetPosition() / transport->GetSampleRate() * (transport->GetBpm() / 60.0);
-		float playheadX = (float)(currentBeat * mContext.state.pixelsPerBeat);
-		float currentScrollX = ImGui::GetScrollX();
-
-		float visibleWidth = ImGui::GetContentRegionAvail().x - trackListW;
-		if (visibleWidth <= 0.0f)
-			visibleWidth = width - trackListW;
-
-		if (mContext.state.followMode == FollowMode::Page) {
-			if (playheadX >= currentScrollX + visibleWidth) {
-				ImGui::SetScrollX(currentScrollX + visibleWidth);
-			} else if (playheadX < currentScrollX) {
-				float newPage = std::floor(playheadX / visibleWidth) * visibleWidth;
-				ImGui::SetScrollX(newPage);
-			}
-		} else {
-			float targetScroll = playheadX - (visibleWidth * 0.5f);
-			if (targetScroll < 0.0f)
-				targetScroll = 0.0f;
-			ImGui::SetScrollX(targetScroll);
-		}
-	}
+	// follow-playback scrolling runs after the zoom block below, so it uses the
+	// updated pixelsPerBeat and does not fight the zoom's mouse anchor (which would
+	// jerk the view toward the cursor for one frame before snapping back)
 
 	if (ImGui::IsWindowHovered() && (ImGui::GetIO().MouseWheelH != 0.0f || (ImGui::GetIO().MouseWheel != 0.0f && ImGui::GetIO().KeyShift))) {
 		mContext.state.followPlayback = false;
@@ -65,6 +44,14 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 		auto& tracks = project->GetTracks();
 
 		ImGuiIO& io = ImGui::GetIO();
+
+		// sample the transport position once per frame so the follow scroll and the
+		// playhead line are computed from the exact same beat (the audio thread keeps
+		// advancing GetPosition(), and reading it twice would offset the two by a few
+		// samples -> visible cursor jitter / doubling when zoomed in)
+		double playbackBeat = transport
+								  ? (double)transport->GetPosition() / transport->GetSampleRate() * (transport->GetBpm() / 60.0)
+								  : 0.0;
 
 		// handle keyboard shortcuts
 		if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
@@ -160,6 +147,40 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 			ImGui::SetScrollX(newScrollX);
 			winPos.x -= (newScrollX - scrollX);
 			scrollX = newScrollX;
+		}
+
+		// follow playback logic (uses the post-zoom pixelsPerBeat / scrollX, so
+		// zooming while following keeps the playhead pinned instead of jerking)
+		if (transport && transport->IsPlaying() && mContext.state.followPlayback) {
+			float playheadX = (float)(playbackBeat * mContext.state.pixelsPerBeat);
+
+			float visibleWidth = ImGui::GetContentRegionAvail().x - trackListW;
+			if (visibleWidth <= 0.0f)
+				visibleWidth = width - trackListW;
+
+			float targetScroll = scrollX;
+			if (mContext.state.followMode == FollowMode::Page) {
+				if (playheadX >= scrollX + visibleWidth) {
+					targetScroll = scrollX + visibleWidth;
+				} else if (playheadX < scrollX) {
+					targetScroll = std::floor(playheadX / visibleWidth) * visibleWidth;
+				}
+			} else {
+				targetScroll = playheadX - (visibleWidth * 0.5f);
+			}
+
+			if (targetScroll < 0.0f)
+				targetScroll = 0.0f;
+
+			// apply the new scroll to this frame's winPos immediately (mirroring the
+			// zoom block above). ImGui::SetScrollX only takes effect next frame, so
+			// without this the content lags the playhead by one frame and the red
+			// cursor jitters / appears doubled when zoomed in
+			if (targetScroll != scrollX) {
+				ImGui::SetScrollX(targetScroll);
+				winPos.x -= (targetScroll - scrollX);
+				scrollX = targetScroll;
+			}
 		}
 
 		float rulerHeight = 34.0f * mContext.state.mainScale;
@@ -431,8 +452,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 
 		// playhead
 		if (transport) {
-			double currentBeat = (double)transport->GetPosition() / transport->GetSampleRate() * (transport->GetBpm() / 60.0);
-			float playheadX = winPos.x + (float)(currentBeat * mContext.state.pixelsPerBeat);
+			float playheadX = winPos.x + (float)(playbackBeat * mContext.state.pixelsPerBeat);
 
 			if (playheadX >= pos.x - 2.0f && playheadX <= pos.x + timelineWidth + 2.0f) {
 				drawList->AddLine(ImVec2(playheadX, stickyY), ImVec2(playheadX, stickyY + height), IM_COL32(255, 50, 50, 255), 1.5f);

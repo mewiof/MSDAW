@@ -1,6 +1,7 @@
 #include "PrecompHeader.h"
 #include "Editor.h"
 #include "AppConfig.h"
+#include "Theme.h"
 #include "Processors/VSTProcessor.h"
 #include "Processors/VST3Processor.h"
 #include "Undo/Actions.h"
@@ -388,26 +389,6 @@ void Editor::HandleGlobalShortcuts() {
 // RESOURCE METER HELPERS
 // ================================================================
 
-// map a 0..1 severity onto a green -> yellow -> red ramp. 0 is "all good", 1 is
-// "pegged". used to tint both the fill bar and the value text so the color tells
-// the story at a glance
-static ImU32 HeatColor(float t) {
-	t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
-	const ImVec4 green(0.30f, 0.78f, 0.33f, 1.0f);
-	const ImVec4 yellow(0.92f, 0.76f, 0.16f, 1.0f);
-	const ImVec4 red(0.90f, 0.26f, 0.21f, 1.0f);
-
-	ImVec4 c;
-	if (t < 0.5f) {
-		float k = t / 0.5f;
-		c = ImVec4(green.x + (yellow.x - green.x) * k, green.y + (yellow.y - green.y) * k, green.z + (yellow.z - green.z) * k, 1.0f);
-	} else {
-		float k = (t - 0.5f) / 0.5f;
-		c = ImVec4(yellow.x + (red.x - yellow.x) * k, yellow.y + (red.y - yellow.y) * k, yellow.z + (red.z - yellow.z) * k, 1.0f);
-	}
-	return ImGui::ColorConvertFloat4ToU32(c);
-}
-
 // turn a raw metric into a 0..1 severity: <= good reads as fine, >= bad reads as
 // pegged, linear in between. HeatColor clamps, so returning out-of-range is fine
 static float MetricHeat(float value, float good, float bad) {
@@ -417,11 +398,12 @@ static float MetricHeat(float value, float good, float bad) {
 }
 
 void Editor::DrawMeterCell(const char* id, const char* label, float fraction, float heat, const char* valueText, const char* tooltip) {
+	const Theme& th = Theme::Instance();
 	float scale = mContext.state.mainScale;
 	float barW = 46.0f * scale;
 	float lineH = ImGui::GetTextLineHeight();
 	float barH = lineH * 0.66f;
-	ImU32 heatCol = HeatColor(heat);
+	ImU32 heatCol = th.HeatColor(heat);
 
 	ImGui::TextUnformatted(label);
 	ImGui::SameLine();
@@ -439,12 +421,12 @@ void Editor::DrawMeterCell(const char* id, const char* label, float fraction, fl
 	float rounding = 2.0f * scale;
 
 	float f = fraction < 0.0f ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
-	dl->AddRectFilled(bmin, bmax, IM_COL32(255, 255, 255, 25), rounding); // track
+	dl->AddRectFilled(bmin, bmax, Theme::WithAlpha(th.text, 25), rounding); // track
 	if (f > 0.005f) {
 		ImVec2 fmax(bmin.x + barW * f, bmax.y);
 		dl->AddRectFilled(bmin, fmax, heatCol, rounding); // fill
 	}
-	dl->AddRect(bmin, bmax, IM_COL32(255, 255, 255, 45), rounding); // frame
+	dl->AddRect(bmin, bmax, Theme::WithAlpha(th.text, 45), rounding); // frame
 
 	ImGui::SameLine();
 	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(heatCol), "%s", valueText);
@@ -749,7 +731,7 @@ void Editor::RenderHistoryWindow() {
 			bool isCurrent = rowApplied == applied; // the current state
 
 			if (!isApplied)
-				ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(140, 140, 140, 255)); // greyed = redoable
+				ImGui::PushStyleColor(ImGuiCol_Text, Theme::Instance().textMuted); // greyed = redoable
 
 			std::string rowLabel = labels[i] + "##hist" + std::to_string(i);
 			if (ImGui::Selectable(rowLabel.c_str(), isCurrent))
@@ -810,7 +792,7 @@ void Editor::RenderSettingsWindow() {
 					AppConfig::Instance().pluginEditorsNative = native;
 					AppConfig::Instance().Save();
 				}
-				ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+				ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::Instance().textMuted),
 								   "Off = let Windows scale plugin windows to match the DAW (may blur).\n"
 								   "Right-click a device in the rack to override this per plugin.");
 				ImGui::Separator();
@@ -843,7 +825,7 @@ void Editor::RenderSettingsWindow() {
 				if (ImGui::Button("Scan Plugins", ImVec2(120, 30)))
 					pm.ScanPlugins();
 				ImGui::SameLine();
-				ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Found: %d", (int)pm.GetKnownPlugins().size());
+				ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::Instance().textMuted), "Found: %d", (int)pm.GetKnownPlugins().size());
 				ImGui::EndTabItem();
 			}
 			ImGui::EndTabBar();

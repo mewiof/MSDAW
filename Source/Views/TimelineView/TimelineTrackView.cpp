@@ -10,11 +10,13 @@
 
 #include "TimelineClipRenderer.h"
 #include "TimelineAutomationRenderer.h"
+#include "Theme.h"
 
 void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteractionState& interaction,
 									 PendingClipMove& pendingMove, PendingClipDelete& pendingDelete,
 									 const ImVec2& winPos, float contentWidth, float viewWidth, float scrollX, float startY) {
 
+	const Theme& th = Theme::Instance();
 	Project* project = context.GetProject();
 	auto& tracks = project->GetTracks();
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
@@ -28,8 +30,8 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 		ImVec2 trackMax(winPos.x + contentWidth, yPos + rowFullHeight);
 
 		// track background
-		drawList->AddRectFilled(trackMin, trackMax, IM_COL32(30, 30, 35, 255));
-		drawList->AddRect(trackMin, trackMax, IM_COL32(50, 50, 50, 255));
+		drawList->AddRectFilled(trackMin, trackMax, th.bgWindow);
+		drawList->AddRect(trackMin, trackMax, th.border);
 
 		// grid logic
 		if (context.state.timelineGrid > 0.0) {
@@ -52,7 +54,7 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 
 				bool isBar = std::abs(fmod(b + 0.001, 4.0)) < 0.002;
 
-				ImU32 gridCol = isBar ? IM_COL32(90, 90, 90, 80) : IM_COL32(60, 60, 60, 40);
+				ImU32 gridCol = isBar ? th.gridBar : th.gridBeat;
 				drawList->AddLine(ImVec2(x, trackMin.y), ImVec2(x, trackMax.y), gridCol);
 			}
 		}
@@ -160,7 +162,7 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 			ImVec2 pMax(clipEndX, ghostY + context.layout.trackRowHeight - 1);
 
 			// use highlight color for preview
-			ImU32 ghostColor = IM_COL32(200, 200, 255, 200);
+			ImU32 ghostColor = th.ghost;
 
 			// draw using helper, passing overrides for start, duration, and offset
 			TimelineClipRenderer::DrawClipContent(drawList, context.state.selectedClip,

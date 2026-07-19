@@ -21,6 +21,7 @@
 #include "AudioEngine.h"
 #include "Editor.h"
 #include "AppConfig.h"
+#include "Theme.h"
 
 int main(int, char**) {
 	// load persisted app-wide settings (e.g. plugin editor DPI default)
@@ -113,11 +114,9 @@ int main(int, char**) {
 		io.Fonts->AddFontDefault();
 	}
 
-	ImGui::StyleColorsDark();
-	ImGuiStyle& style = ImGui::GetStyle();
-	style.ScaleAllSizes(main_scale);
-	style.WindowRounding = 4.0f;
-	style.Colors[ImGuiCol_WindowBg] = ImVec4(0.12f, 0.12f, 0.14f, 1.0f);
+	// single source of truth: neutral dark-gray theme with a reserved amber accent.
+	// owns ScaleAllSizes + rounding + every ImGuiCol_ entry (see Theme::ApplyImGuiStyle)
+	Theme::Instance().ApplyImGuiStyle(main_scale);
 
 	ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
 	ImGui_ImplOpenGL3_Init(glsl_version);

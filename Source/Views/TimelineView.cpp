@@ -13,8 +13,10 @@
 #include "TimelineView/TimelineRuler.h"
 #include "TimelineView/TimelineTrackView.h"
 #include "TimelineView/TimelineAutomationRenderer.h"
+#include "Theme.h"
 
 void TimelineView::Render(const ImVec2& pos, float width, float height, TrackListView* trackListView, float trackListW) {
+	const Theme& th = Theme::Instance();
 	ImGuiIO& io = ImGui::GetIO();
 	float timelineWidth = width - trackListW;
 
@@ -413,15 +415,15 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 					float ghostH = mContext.layout.trackRowHeight;
 
 					// vertical line
-					drawList->AddLine(ImVec2(ghostX, ghostY), ImVec2(ghostX, ghostY + ghostH), IM_COL32(100, 255, 255, 255), 4.0f);
+					drawList->AddLine(ImVec2(ghostX, ghostY), ImVec2(ghostX, ghostY + ghostH), th.dropLine, 4.0f);
 
 					// label
 					const char* label = "Insert File";
 					ImVec2 textSize = ImGui::CalcTextSize(label);
 					ImVec2 boxMin(ghostX + 5, ghostY + 5);
 					ImVec2 boxMax(ghostX + 5 + textSize.x + 4, ghostY + 5 + textSize.y + 4);
-					drawList->AddRectFilled(boxMin, boxMax, IM_COL32(30, 30, 30, 200), 2.0f);
-					drawList->AddText(ImVec2(ghostX + 7, ghostY + 7), IM_COL32(255, 255, 255, 255), label);
+					drawList->AddRectFilled(boxMin, boxMax, th.bgOverlay, 2.0f);
+					drawList->AddText(ImVec2(ghostX + 7, ghostY + 7), th.text, label);
 				}
 			}
 		}
@@ -465,8 +467,8 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 		ImGui::Dummy(ImVec2(contentWidth, masterPadding));
 
 		if (master && master->mShowAutomation) {
-			drawList->AddRectFilled(ImVec2(winPos.x, masterY), ImVec2(winPos.x + contentWidth - trackListW, masterY + masterHeight), IM_COL32(30, 30, 35, 255));
-			drawList->AddRect(ImVec2(winPos.x, masterY), ImVec2(winPos.x + contentWidth - trackListW, masterY + masterHeight), IM_COL32(50, 50, 50, 255));
+			drawList->AddRectFilled(ImVec2(winPos.x, masterY), ImVec2(winPos.x + contentWidth - trackListW, masterY + masterHeight), th.bgWindow);
+			drawList->AddRect(ImVec2(winPos.x, masterY), ImVec2(winPos.x + contentWidth - trackListW, masterY + masterHeight), th.border);
 
 			TimelineAutomationRenderer::Render(mContext, mInteraction, master.get(), -1, winPos, contentWidth - trackListW, timelineWidth, scrollX, masterY);
 		}
@@ -477,7 +479,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 		if (mContext.state.selectionEnd > mContext.state.selectionStart) {
 			float selX1 = winPos.x + (float)(mContext.state.selectionStart * mContext.state.pixelsPerBeat);
 			float selX2 = winPos.x + (float)(mContext.state.selectionEnd * mContext.state.pixelsPerBeat);
-			drawList->AddRectFilled(ImVec2(selX1, trackAreaStartY), ImVec2(selX2, stickyY + height), IM_COL32(255, 255, 255, 15));
+			drawList->AddRectFilled(ImVec2(selX1, trackAreaStartY), ImVec2(selX2, stickyY + height), th.selectionFill);
 		}
 
 		TimelineRuler::Render(mContext, mInteraction, stickyPos, contentWidth - trackListW, timelineWidth, rulerHeight, scrollX);
@@ -485,8 +487,8 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 		// insert marker
 		float insertX = winPos.x + (float)(mContext.state.selectionStart * mContext.state.pixelsPerBeat);
 		if (insertX >= pos.x && insertX <= pos.x + timelineWidth) {
-			drawList->AddLine(ImVec2(insertX, stickyY), ImVec2(insertX, stickyY + height), IM_COL32(100, 255, 100, 200), 1.0f);
-			drawList->AddTriangleFilled(ImVec2(insertX - 4, stickyY), ImVec2(insertX + 4, stickyY), ImVec2(insertX, stickyY + 6), IM_COL32(100, 255, 100, 255));
+			drawList->AddLine(ImVec2(insertX, stickyY), ImVec2(insertX, stickyY + height), Theme::WithAlpha(th.marker, 200), 1.0f);
+			drawList->AddTriangleFilled(ImVec2(insertX - 4, stickyY), ImVec2(insertX + 4, stickyY), ImVec2(insertX, stickyY + 6), th.marker);
 		}
 
 		// playhead
@@ -494,8 +496,8 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 			float playheadX = winPos.x + (float)(playbackBeat * mContext.state.pixelsPerBeat);
 
 			if (playheadX >= pos.x - 2.0f && playheadX <= pos.x + timelineWidth + 2.0f) {
-				drawList->AddLine(ImVec2(playheadX, stickyY), ImVec2(playheadX, stickyY + height), IM_COL32(255, 50, 50, 255), 1.5f);
-				drawList->AddTriangleFilled(ImVec2(playheadX - 6, stickyY), ImVec2(playheadX + 6, stickyY), ImVec2(playheadX, stickyY + 10), IM_COL32(255, 50, 50, 255));
+				drawList->AddLine(ImVec2(playheadX, stickyY), ImVec2(playheadX, stickyY + height), th.playhead, 1.5f);
+				drawList->AddTriangleFilled(ImVec2(playheadX - 6, stickyY), ImVec2(playheadX + 6, stickyY), ImVec2(playheadX, stickyY + 10), th.playhead);
 			}
 		}
 
@@ -512,11 +514,11 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 			drawList->AddRectFilled(
 				ImVec2(trackListFixedPos.x, pos.y),
 				ImVec2(trackListFixedPos.x + trackListW, pos.y + height - hScrollbarSize),
-				IM_COL32(35, 35, 35, 255));
+				th.bgHeader);
 			drawList->AddLine(
 				ImVec2(trackListFixedPos.x, pos.y),
 				ImVec2(trackListFixedPos.x, pos.y + height - hScrollbarSize),
-				IM_COL32(20, 20, 20, 255), 2.0f);
+				th.divider, 2.0f);
 
 			trackListView->Render(trackListFixedPos, trackListW, height, trackAreaStartY, stickyY, masterY);
 		}

@@ -4,6 +4,7 @@
 #include "Clips/AudioClip.h"
 #include "Project.h"
 #include "Undo/Actions.h"
+#include "Theme.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -128,6 +129,7 @@ void PianoRollView::Render() {
 	Project* project = mContext.GetProject();
 	Transport* transport = project ? &project->GetTransport() : nullptr;
 	ImGuiIO& io = ImGui::GetIO();
+	const Theme& th = Theme::Instance();
 	const float scale = mContext.state.mainScale;
 
 	ImGui::SetNextWindowSize(ImVec2(720 * scale, 500 * scale), ImGuiCond_FirstUseEver);
@@ -208,7 +210,7 @@ void PianoRollView::Render() {
 	ImGui::SameLine();
 	ImGui::Dummy(ImVec2(10 * scale, 0));
 	ImGui::SameLine();
-	ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "(Ctrl+A select | Del remove | Arrows move | Shift+Up/Down octave | Ctrl+Wheel zoom)");
+	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(th.textMuted), "(Ctrl+A select | Del remove | Arrows move | Shift+Up/Down octave | Ctrl+Wheel zoom)");
 
 	ImGui::Separator();
 
@@ -276,8 +278,8 @@ void PianoRollView::Render() {
 										  [&](int i) { return i < 0 || i >= (int)notes.size(); }),
 						   mSelectedIndices.end());
 
-	const ImU32 kBgColor = IM_COL32(35, 35, 40, 255);
-	const ImU32 kDivider = IM_COL32(20, 20, 22, 255);
+	const ImU32 kBgColor = th.bgPanel;
+	const ImU32 kDivider = th.divider;
 
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
@@ -349,9 +351,9 @@ void PianoRollView::Render() {
 		for (int row = firstRow; row <= lastRow; ++row) {
 			int noteNum = 127 - row;
 			float y = canvas.y + row * NOTE_HEIGHT;
-			ImU32 rowColor = IsBlackKey(noteNum) ? IM_COL32(45, 45, 48, 255) : IM_COL32(60, 60, 65, 255);
+			ImU32 rowColor = IsBlackKey(noteNum) ? th.rowBlack : th.rowWhite;
 			dl->AddRectFilled(ImVec2(canvas.x, y), ImVec2(canvas.x + contentW, y + NOTE_HEIGHT), rowColor);
-			dl->AddLine(ImVec2(canvas.x, y + NOTE_HEIGHT), ImVec2(canvas.x + contentW, y + NOTE_HEIGHT), IM_COL32(30, 30, 30, 255));
+			dl->AddLine(ImVec2(canvas.x, y + NOTE_HEIGHT), ImVec2(canvas.x + contentW, y + NOTE_HEIGHT), th.divider);
 		}
 
 		// b. vertical beat / bar lines
@@ -360,7 +362,7 @@ void PianoRollView::Render() {
 		for (int b = bStart; b <= bEnd; ++b) {
 			float x = canvas.x + (float)b * PPB;
 			bool isBar = (b % 4 == 0);
-			dl->AddLine(ImVec2(x, canvas.y), ImVec2(x, canvas.y + contentH), isBar ? IM_COL32(150, 150, 150, 100) : IM_COL32(120, 120, 120, 70));
+			dl->AddLine(ImVec2(x, canvas.y), ImVec2(x, canvas.y + contentH), isBar ? th.gridBar : th.gridBeat);
 		}
 		// subdivisions
 		if (snapGrid * PPB >= 10.0f && snapGrid < 1.0) {
@@ -370,7 +372,7 @@ void PianoRollView::Render() {
 				double b = i * snapGrid;
 				if (std::abs(std::fmod(b + 0.001, 1.0)) > 0.002) {
 					float x = canvas.x + (float)(b * PPB);
-					dl->AddLine(ImVec2(x, canvas.y), ImVec2(x, canvas.y + contentH), IM_COL32(100, 100, 100, 35));
+					dl->AddLine(ImVec2(x, canvas.y), ImVec2(x, canvas.y + contentH), th.gridSub);
 				}
 			}
 		}
@@ -533,11 +535,11 @@ void PianoRollView::Render() {
 				continue;
 
 			bool isSelected = IsNoteSelected((int)i);
-			// tint the note body by velocity so dynamics are visible at a glance
+			// tint the note body by velocity so dynamics are visible at a glance:
+			// dim amber at low velocity, bright amber at high
 			float vf = std::clamp(note.velocity / 127.0f, 0.0f, 1.0f);
-			int g = 60 + (int)(60 * vf);
-			ImU32 fillColor = isSelected ? IM_COL32(255, 170, 170, 255) : IM_COL32(255, (int)(80 + g), (int)(80 + g * 0.4f), 220);
-			ImU32 borderColor = isSelected ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 255, 255, 150);
+			ImU32 fillColor = isSelected ? th.noteFillSelected : Theme::Lerp(Theme::WithAlpha(th.accentMuted, 235), th.noteFill, vf);
+			ImU32 borderColor = isSelected ? th.noteBorderSelected : th.noteBorder;
 			dl->AddRectFilled(ImVec2(x, y + 1), ImVec2(x + w, y + NOTE_HEIGHT - 1), fillColor, 4.0f);
 			dl->AddRect(ImVec2(x, y + 1), ImVec2(x + w, y + NOTE_HEIGHT - 1), borderColor, 4.0f);
 		}
@@ -547,8 +549,8 @@ void PianoRollView::Render() {
 			if (std::abs(mMarqueeEnd.x - mMarqueeStart.x) > MARQUEE_THRESHOLD || std::abs(mMarqueeEnd.y - mMarqueeStart.y) > MARQUEE_THRESHOLD) {
 				ImVec2 mn(canvas.x + std::min(mMarqueeStart.x, mMarqueeEnd.x), canvas.y + std::min(mMarqueeStart.y, mMarqueeEnd.y));
 				ImVec2 mx(canvas.x + std::max(mMarqueeStart.x, mMarqueeEnd.x), canvas.y + std::max(mMarqueeStart.y, mMarqueeEnd.y));
-				dl->AddRectFilled(mn, mx, IM_COL32(200, 200, 255, 50));
-				dl->AddRect(mn, mx, IM_COL32(200, 200, 255, 200));
+				dl->AddRectFilled(mn, mx, th.selectionFill);
+				dl->AddRect(mn, mx, th.selectionStroke);
 			}
 		}
 
@@ -558,28 +560,28 @@ void PianoRollView::Render() {
 			double relBeat = currentBeat - mIDIClip->GetStartBeat();
 			if (relBeat >= 0) {
 				float phX = canvas.x + (float)(relBeat * PPB);
-				dl->AddLine(ImVec2(phX, canvas.y), ImVec2(phX, canvas.y + contentH), IM_COL32(255, 50, 50, 200), 2.0f);
+				dl->AddLine(ImVec2(phX, canvas.y), ImVec2(phX, canvas.y + contentH), Theme::WithAlpha(th.playhead, 200), 2.0f);
 			}
 		}
 
 		// f. minimap overlay (drawn last, pinned to the visible top-right)
 		if (mMinimapEnabled) {
-			dl->AddRectFilled(mmMin, mmMax, IM_COL32(20, 20, 24, 210), 3.0f);
-			dl->AddRect(mmMin, mmMax, IM_COL32(120, 120, 130, 220), 3.0f);
+			dl->AddRectFilled(mmMin, mmMax, th.bgOverlay, 3.0f);
+			dl->AddRect(mmMin, mmMax, Theme::WithAlpha(th.textDim, 220), 3.0f);
 			for (const auto& n : notes) {
 				float fx = (float)(n.startBeat / totalBeats);
 				float fw = (float)std::max(1.0, (n.durationBeats / totalBeats) * mmW);
 				float fy = (float)((127 - n.noteNumber) / 128.0);
 				float nx = mmMin.x + fx * mmW;
 				float ny = mmMin.y + fy * mmH;
-				dl->AddRectFilled(ImVec2(nx, ny), ImVec2(std::min(nx + fw, mmMax.x), ny + std::max(1.0f, mmH / 128.0f)), IM_COL32(255, 140, 140, 220));
+				dl->AddRectFilled(ImVec2(nx, ny), ImVec2(std::min(nx + fw, mmMax.x), ny + std::max(1.0f, mmH / 128.0f)), Theme::WithAlpha(th.noteFill, 220));
 			}
 			// viewport indicator
 			float vx0 = mmMin.x + (mScrollX / contentW) * mmW;
 			float vx1 = mmMin.x + ((mScrollX + gridW) / contentW) * mmW;
 			float vy0 = mmMin.y + (mScrollY / contentH) * mmH;
 			float vy1 = mmMin.y + ((mScrollY + gridH) / contentH) * mmH;
-			dl->AddRect(ImVec2(vx0, vy0), ImVec2(std::min(vx1, mmMax.x), std::min(vy1, mmMax.y)), IM_COL32(255, 255, 255, 220));
+			dl->AddRect(ImVec2(vx0, vy0), ImVec2(std::min(vx1, mmMax.x), std::min(vy1, mmMax.y)), Theme::WithAlpha(th.text, 220));
 		}
 	}
 	ImGui::EndChild();
@@ -604,8 +606,8 @@ void PianoRollView::Render() {
 	{
 		ImDrawList* dl = ImGui::GetWindowDrawList();
 		ImVec2 rp = ImGui::GetWindowPos();
-		dl->AddRectFilled(rp, ImVec2(rp.x + gridW, rp.y + RULER_H), IM_COL32(40, 40, 40, 255));
-		dl->AddLine(ImVec2(rp.x, rp.y + RULER_H - 1), ImVec2(rp.x + gridW, rp.y + RULER_H - 1), IM_COL32(100, 100, 100, 255));
+		dl->AddRectFilled(rp, ImVec2(rp.x + gridW, rp.y + RULER_H), th.bgPanel);
+		dl->AddLine(ImVec2(rp.x, rp.y + RULER_H - 1), ImVec2(rp.x + gridW, rp.y + RULER_H - 1), th.borderStrong);
 
 		double startBeatVis = mScrollX / PPB;
 		double endBeatVis = (mScrollX + gridW) / PPB;
@@ -615,12 +617,12 @@ void PianoRollView::Render() {
 			float x = rp.x + (float)b * PPB - mScrollX;
 			bool isBar = (b % 4 == 0);
 			if (isBar) {
-				dl->AddLine(ImVec2(x, rp.y + 6), ImVec2(x, rp.y + RULER_H), IM_COL32(150, 150, 150, 255));
+				dl->AddLine(ImVec2(x, rp.y + 6), ImVec2(x, rp.y + RULER_H), th.textMuted);
 				char buf[16];
 				snprintf(buf, sizeof(buf), "%d", b / 4 + 1);
-				dl->AddText(ImVec2(x + 3, rp.y + 3), IM_COL32(180, 180, 180, 255), buf);
+				dl->AddText(ImVec2(x + 3, rp.y + 3), th.textMuted, buf);
 			} else {
-				dl->AddLine(ImVec2(x, rp.y + RULER_H - 8), ImVec2(x, rp.y + RULER_H), IM_COL32(100, 100, 100, 255));
+				dl->AddLine(ImVec2(x, rp.y + RULER_H - 8), ImVec2(x, rp.y + RULER_H), th.textDim);
 			}
 		}
 
@@ -630,7 +632,7 @@ void PianoRollView::Render() {
 			double relBeat = currentBeat - mIDIClip->GetStartBeat();
 			if (relBeat >= 0) {
 				float x = rp.x + (float)(relBeat * PPB) - mScrollX;
-				dl->AddTriangleFilled(ImVec2(x - 4, rp.y), ImVec2(x + 4, rp.y), ImVec2(x, rp.y + 8), IM_COL32(255, 60, 60, 255));
+				dl->AddTriangleFilled(ImVec2(x - 4, rp.y), ImVec2(x + 4, rp.y), ImVec2(x, rp.y + 8), th.playhead);
 			}
 		}
 
@@ -670,13 +672,13 @@ void PianoRollView::Render() {
 			bool preview = (mLastPreviewNote == noteNum);
 			bool computerKey = (mContext.state.activeMIDINotes.find(noteNum) != mContext.state.activeMIDINotes.end());
 
-			ImU32 keyColor = (preview || computerKey) ? IM_COL32(255, 100, 100, 255) : (black ? IM_COL32(50, 50, 50, 255) : IM_COL32(230, 230, 230, 255));
+			ImU32 keyColor = (preview || computerKey) ? th.keyPressed : (black ? th.keyBlack : th.keyWhite);
 			dl->AddRectFilled(ImVec2(kp.x, y), ImVec2(kp.x + KEY_WIDTH, y + NOTE_HEIGHT), keyColor);
-			dl->AddRect(ImVec2(kp.x, y), ImVec2(kp.x + KEY_WIDTH, y + NOTE_HEIGHT), IM_COL32(0, 0, 0, 100));
+			dl->AddRect(ImVec2(kp.x, y), ImVec2(kp.x + KEY_WIDTH, y + NOTE_HEIGHT), Theme::WithAlpha(th.divider, 100));
 			if (noteNum % 12 == 0) {
 				char buf[8];
 				snprintf(buf, sizeof(buf), "C%d", (noteNum / 12) - 1);
-				dl->AddText(ImVec2(kp.x + 3, y + 1), IM_COL32(0, 0, 0, 255), buf);
+				dl->AddText(ImVec2(kp.x + 3, y + 1), th.keyText, buf);
 			}
 		}
 
@@ -708,12 +710,12 @@ void PianoRollView::Render() {
 		{
 			ImDrawList* dl = ImGui::GetWindowDrawList();
 			ImVec2 vp = ImGui::GetWindowPos();
-			dl->AddRectFilled(vp, ImVec2(vp.x + availW, vp.y + VELO_H), IM_COL32(30, 30, 34, 255));
+			dl->AddRectFilled(vp, ImVec2(vp.x + availW, vp.y + VELO_H), th.bgWindow);
 			dl->AddLine(vp, ImVec2(vp.x + availW, vp.y), kDivider, 1.0f);
 
 			// gutter label
-			dl->AddText(ImVec2(vp.x + 3, vp.y + 3), IM_COL32(150, 150, 150, 255), "Vel");
-			dl->AddText(ImVec2(vp.x + 3, vp.y + VELO_H - 16), IM_COL32(110, 110, 110, 255), "0");
+			dl->AddText(ImVec2(vp.x + 3, vp.y + 3), th.textMuted, "Vel");
+			dl->AddText(ImVec2(vp.x + 3, vp.y + VELO_H - 16), th.textDim, "0");
 
 			float laneTop = vp.y + PAD;
 			float laneBot = vp.y + VELO_H - PAD;
@@ -769,8 +771,8 @@ void PianoRollView::Render() {
 					continue;
 				float velY = laneBot - (note.velocity / 127.0f) * (laneBot - laneTop);
 				bool sel = IsNoteSelected((int)i);
-				ImU32 stemCol = sel ? IM_COL32(255, 200, 120, 200) : IM_COL32(170, 100, 75, 150);
-				ImU32 dotCol = sel ? IM_COL32(255, 215, 140, 255) : IM_COL32(235, 150, 90, 255);
+				ImU32 stemCol = sel ? th.veloStemSelected : th.veloStem;
+				ImU32 dotCol = sel ? th.veloDotSelected : th.veloDot;
 				dl->AddLine(ImVec2(x, laneBot), ImVec2(x, velY), stemCol, std::max(1.0f, 1.5f * scale));
 				dl->AddCircleFilled(ImVec2(x, velY), 3.5f * scale, dotCol);
 			}

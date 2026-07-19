@@ -5,6 +5,7 @@
 #include "Clips/MIDIClip.h"
 #include "Clips/AudioClip.h"
 #include "ProcessorFactory.h"
+#include "Theme.h"
 #include "Processors/VSTProcessor.h"
 #include "Processors/VST3Processor.h"
 #include <cmath>
@@ -56,10 +57,10 @@ Track::Track() {
 
 	mVolumeParam = std::make_unique<SliderParameter>("Volume", 0.0f, -60.0f, 6.0f);
 	mPanParam = std::make_unique<SliderParameter>("Pan", 0.0f, -1.0f, 1.0f);
-	int r = 100 + rand() % 155;
-	int g = 100 + rand() % 155;
-	int b = 100 + rand() % 155;
-	mColor = IM_COL32(r, g, b, 255);
+	// cycle the curated on-theme palette instead of rolling muddy random grays.
+	// the counter is static so successive new tracks step through distinct hues
+	static int sNextTrackColor = 0;
+	mColor = Theme::Instance().TrackColor(sNextTrackColor++);
 }
 Track::~Track() {}
 

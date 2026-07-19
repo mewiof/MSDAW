@@ -2,6 +2,7 @@
 #include "PrecompHeader.h"
 #include "OTTProcessor.h"
 #include "ProcessorFactory.h"
+#include "Theme.h"
 #include <cmath>
 #include <algorithm>
 #include <cstdio>
@@ -187,11 +188,12 @@ void OTTProcessor::Process(float* buffer, int numFrames, int numChannels,
 }
 
 bool OTTProcessor::RenderCustomUI(const ImVec2& size) {
+	const Theme& th = Theme::Instance();
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	ImVec2 p = ImGui::GetCursorScreenPos();
 
-	drawList->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(30, 30, 35, 255));
-	drawList->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(60, 60, 60, 255));
+	drawList->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), th.bgDeepest);
+	drawList->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), th.border);
 
 	if (mChannels.empty()) {
 		ImGui::Text("Audio engine not running");
@@ -226,17 +228,17 @@ bool OTTProcessor::RenderCustomUI(const ImVec2& size) {
 		ImVec2 barStart(x, centerY);
 		ImVec2 barEnd(x + barWidth, centerY + pxHeight);
 
-		ImU32 col = (db >= 0) ? IM_COL32(100, 255, 100, 200) : IM_COL32(255, 100, 100, 200);
+		ImU32 col = (db >= 0) ? Theme::WithAlpha(th.success, 200) : Theme::WithAlpha(th.danger, 200);
 
 		drawList->AddRectFilled(barStart, barEnd, col);
-		drawList->AddText(ImVec2(x, p.y + size.y - 20), IM_COL32(200, 200, 200, 255), labels[b]);
+		drawList->AddText(ImVec2(x, p.y + size.y - 20), th.textMuted, labels[b]);
 
 		char valBuf[16];
 		snprintf(valBuf, 16, "%.1fdb", db);
-		drawList->AddText(ImVec2(x, p.y + 5), IM_COL32(150, 150, 150, 255), valBuf);
+		drawList->AddText(ImVec2(x, p.y + 5), th.textDim, valBuf);
 	}
 
-	drawList->AddLine(ImVec2(p.x, centerY), ImVec2(p.x + size.x, centerY), IM_COL32(255, 255, 255, 100));
+	drawList->AddLine(ImVec2(p.x, centerY), ImVec2(p.x + size.x, centerY), Theme::WithAlpha(th.text, 100));
 	ImGui::InvisibleButton("OttVis", size);
 
 	return true;

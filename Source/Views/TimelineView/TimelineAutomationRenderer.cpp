@@ -6,6 +6,7 @@
 #include "Clips/MIDIClip.h"
 #include "Project.h"
 #include "Undo/Actions.h"
+#include "Theme.h"
 #include <algorithm>
 #include <cmath>
 
@@ -13,6 +14,7 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 										Track* t, int trackIndex,
 										const ImVec2& winPos, float contentWidth, float viewWidth, float scrollX, float yPos) {
 
+	const Theme& th = Theme::Instance();
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	ImGuiIO& io = ImGui::GetIO();
 
@@ -58,9 +60,9 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 			ImVec2 pMax(clipEndX, yPos + context.layout.trackRowHeight - 1);
 
 			// automation background view
-			ImU32 ghostBgColor = IM_COL32(40, 40, 40, 100);
-			ImU32 ghostWaveColor = IM_COL32(30, 70, 30, 60);
-			ImU32 ghostMIDIColor = IM_COL32(200, 200, 200, 50);
+			ImU32 ghostBgColor = Theme::WithAlpha(th.bgPanelAlt, 100);
+			ImU32 ghostWaveColor = Theme::WithAlpha(th.waveBgMid, 60);
+			ImU32 ghostMIDIColor = th.automationGhost;
 
 			TimelineClipRenderer::DrawClipContent(drawList, clip, pMin, pMax, winPos, viewWidth,
 												  context, ghostBgColor, -1.0, -1.0, -1.0,
@@ -154,7 +156,7 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				float x2 = std::min(currX + dashSize, endX);
 
 				if (x2 > x1)
-					drawList->AddLine(ImVec2(x1, yLine), ImVec2(x2, yLine), IM_COL32(255, 50, 50, 150), 2.0f);
+					drawList->AddLine(ImVec2(x1, yLine), ImVec2(x2, yLine), Theme::WithAlpha(th.playhead, 150), 2.0f);
 			}
 		} else {
 			// first segment
@@ -163,7 +165,7 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				float norm = (val - minVal) / range;
 				float py = curveBottomY - norm * curveHeight;
 				float px = winPos.x + (float)(curve->points[0].beat * context.state.pixelsPerBeat);
-				drawList->AddLine(ImVec2(trackMin.x, py), ImVec2(px, py), IM_COL32(255, 100, 100, 200), 2.0f);
+				drawList->AddLine(ImVec2(trackMin.x, py), ImVec2(px, py), th.automationLine, 2.0f);
 			}
 
 			// bezier segments
@@ -202,7 +204,7 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 					}
 					float curX = x1 + (float)t * (x2 - x1);
 					float curY = y1 + (float)curvedT * (y2 - y1);
-					drawList->AddLine(prevPt, ImVec2(curX, curY), IM_COL32(255, 100, 100, 200), 2.0f);
+					drawList->AddLine(prevPt, ImVec2(curX, curY), th.automationLine, 2.0f);
 					prevPt = ImVec2(curX, curY);
 				}
 
@@ -217,14 +219,14 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				}
 				float midX = x1 + (float)midT * (x2 - x1);
 				float midY = y1 + (float)midCurvedT * (y2 - y1);
-				drawList->AddCircleFilled(ImVec2(midX, midY), 4.0f, IM_COL32(200, 200, 255, 200));
+				drawList->AddCircleFilled(ImVec2(midX, midY), 4.0f, th.ghost);
 
 				float dx = mousePos.x - midX;
 				float dy = mousePos.y - midY;
 				bool knobHovered = (dx * dx + dy * dy < 36.0f);
 
 				if (knobHovered) {
-					drawList->AddCircle(ImVec2(midX, midY), 6.0f, IM_COL32(255, 255, 255, 255));
+					drawList->AddCircle(ImVec2(midX, midY), 6.0f, th.noteBorderSelected);
 				}
 				if (isTrackClicked && knobHovered) {
 					interaction.autoEditBefore = curve->points; // undo baseline
@@ -241,7 +243,7 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				auto& pLast = curve->points.back();
 				float xLast = winPos.x + (float)(pLast.beat * context.state.pixelsPerBeat);
 				float yLast = curveBottomY - ((pLast.value - minVal) / range) * curveHeight;
-				drawList->AddLine(ImVec2(xLast, yLast), ImVec2(trackMax.x, yLast), IM_COL32(255, 100, 100, 200), 2.0f);
+				drawList->AddLine(ImVec2(xLast, yLast), ImVec2(trackMax.x, yLast), th.automationLine, 2.0f);
 			}
 
 			// draw points
@@ -255,7 +257,7 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				if (px < winPos.x + scrollX - 10 || px > winPos.x + viewWidth + scrollX + 10)
 					continue;
 
-				ImU32 pointCol = curve->points[pIdx].selected ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 255, 50, 255);
+				ImU32 pointCol = curve->points[pIdx].selected ? th.automationPointSelected : th.automationPoint;
 				float radius = 6.0f;
 				float dx = mousePos.x - px;
 				float dy = mousePos.y - py;
@@ -263,9 +265,9 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 
 				drawList->AddCircleFilled(ImVec2(px, py), radius, pointCol);
 				if (hovered || curve->points[pIdx].selected) {
-					drawList->AddCircle(ImVec2(px, py), radius + 2, IM_COL32(255, 255, 255, 200), 0, 2.0f);
+					drawList->AddCircle(ImVec2(px, py), radius + 2, Theme::WithAlpha(th.automationPointSelected, 200), 0, 2.0f);
 				} else {
-					drawList->AddCircle(ImVec2(px, py), radius, IM_COL32(0, 0, 0, 255));
+					drawList->AddCircle(ImVec2(px, py), radius, th.divider);
 				}
 			}
 		}
@@ -297,7 +299,7 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 
 				if (std::abs(mousePos.y - curveY) < 15.0f) {
 					float px = winPos.x + (float)(mouseBeat * context.state.pixelsPerBeat);
-					drawList->AddCircleFilled(ImVec2(px, curveY), 5.0f, IM_COL32(255, 255, 255, 100));
+					drawList->AddCircleFilled(ImVec2(px, curveY), 5.0f, Theme::WithAlpha(th.text, 100));
 
 					if (isTrackClicked && !interaction.autoDragIsTension) {
 						interaction.autoEditBefore = curve->points; // undo baseline (before add)
@@ -377,8 +379,8 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				interaction.autoMarqueeCurrent = ImGui::GetMousePos();
 				ImVec2 rMin(std::min(interaction.autoMarqueeStart.x, interaction.autoMarqueeCurrent.x), std::min(interaction.autoMarqueeStart.y, interaction.autoMarqueeCurrent.y));
 				ImVec2 rMax(std::max(interaction.autoMarqueeStart.x, interaction.autoMarqueeCurrent.x), std::max(interaction.autoMarqueeStart.y, interaction.autoMarqueeCurrent.y));
-				drawList->AddRectFilled(rMin, rMax, IM_COL32(200, 200, 255, 50));
-				drawList->AddRect(rMin, rMax, IM_COL32(200, 200, 255, 200));
+				drawList->AddRectFilled(rMin, rMax, th.selectionFill);
+				drawList->AddRect(rMin, rMax, th.selectionStroke);
 
 				for (int k = 0; k < (int)curve->points.size(); ++k) {
 					float val = curve->points[k].value;

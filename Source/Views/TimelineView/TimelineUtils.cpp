@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "TimelineUtils.h"
+#include "Theme.h"
 #include <cmath>
 #include <algorithm>
 
@@ -126,7 +127,7 @@ namespace TimelineUtils {
 			float channelH = totalH * 0.5f;
 			float halfH = channelH * 0.45f;
 
-			drawList->AddLine(ImVec2(rectMin.x, rectMin.y + channelH), ImVec2(rectMax.x, rectMin.y + channelH), IM_COL32(0, 0, 0, 40));
+			drawList->AddLine(ImVec2(rectMin.x, rectMin.y + channelH), ImVec2(rectMax.x, rectMin.y + channelH), Theme::WithAlpha(Theme::Instance().bgDeepest, 60));
 
 			DrawSegment(rectMin.y + channelH * 0.5f, halfH, 0); // left
 			DrawSegment(rectMin.y + channelH * 1.5f, halfH, 1); // right

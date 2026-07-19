@@ -4,6 +4,7 @@
 #include "Clips/AudioClip.h"
 #include "Clips/MIDIClip.h"
 #include "Project.h"
+#include "Theme.h"
 #include <algorithm>
 #include <cmath>
 
@@ -296,7 +297,7 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 
 			// if dragging, the original clip stays in place but dimmed
 			if (isDraggingThis) {
-				baseColor = IM_COL32(100, 100, 100, 50); // ghostly
+				baseColor = Theme::WithAlpha(Theme::Instance().textDim, 60); // ghostly
 			} else if (!isSelected) {
 				ImVec4 c = ImGui::ColorConvertU32ToFloat4(baseColor);
 				c.w = 0.8f;
@@ -328,9 +329,10 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 										   ImU32 customMIDIColor) {
 
 	Project* project = context.GetProject();
+	const Theme& th = Theme::Instance();
 
 	drawList->AddRectFilled(pMin, pMax, baseColor, 0.0f);
-	drawList->AddRect(pMin, pMax, IM_COL32(255, 255, 255, 80), 0.0f);
+	drawList->AddRect(pMin, pMax, th.clipBorder, 0.0f);
 	drawList->PushClipRect(pMin, pMax, true);
 
 	// safe culling rect
@@ -350,7 +352,7 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 
 			ImU32 waveColor = customWaveColor != 0
 								  ? customWaveColor
-								  : ((channels == 2) ? IM_COL32(0, 0, 0, 200) : IM_COL32(30, 70, 30, 180));
+								  : ((channels == 2) ? th.waveBgMono : th.waveBgMid);
 
 			double playbackRate = 1.0;
 			double projectSR = 48000.0;
@@ -391,14 +393,14 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 
 	if (mIDIClip) {
 		ImGui::SetCursorScreenPos(ImVec2(pMin.x + 2, pMax.y - 12));
-		ImGui::TextColored(ImVec4(0, 0, 0, 0.5f), "MIDI");
+		ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::WithAlpha(th.textOnAccent, 128)), "MIDI");
 
 		const auto& notes = mIDIClip->GetNotesEx();
 		float clipWidth = pMax.x - pMin.x;
 
 		ImU32 noteColor = customMIDIColor != 0
 							  ? customMIDIColor
-							  : IM_COL32(255, 255, 255, 160);
+							  : Theme::WithAlpha(th.clipText, 160);
 
 		for (const auto& n : notes) {
 			// use effective offset for MIDI note culling/positioning
@@ -444,7 +446,7 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	if (textX < pMin.x + textPadding)
 		textX = pMin.x + textPadding;
 
-	drawList->AddText(ImVec2(textX, pMin.y + textPadding), IM_COL32(255, 255, 255, 255), clipName);
+	drawList->AddText(ImVec2(textX, pMin.y + textPadding), th.clipText, clipName);
 
 	drawList->PopClipRect();
 }

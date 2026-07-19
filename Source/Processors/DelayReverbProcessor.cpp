@@ -3,6 +3,7 @@
 #include "PrecompHeader.h"
 #include "DelayReverbProcessor.h"
 #include "ProcessorFactory.h"
+#include "Theme.h"
 #include <cmath>
 #include <algorithm>
 #include <cstdio>
@@ -304,11 +305,12 @@ bool DelayReverbProcessor::RenderCustomUI(const ImVec2& size) {
 	float height = size.y;
 
 	// draw graph
+	const Theme& th = Theme::Instance();
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	ImVec2 p = ImGui::GetCursorScreenPos();
 
-	drawList->AddRectFilled(p, ImVec2(p.x + graphWidth, p.y + height), IM_COL32(30, 30, 35, 255));
-	drawList->AddRect(p, ImVec2(p.x + graphWidth, p.y + height), IM_COL32(60, 60, 60, 255));
+	drawList->AddRectFilled(p, ImVec2(p.x + graphWidth, p.y + height), th.bgDeepest);
+	drawList->AddRect(p, ImVec2(p.x + graphWidth, p.y + height), th.border);
 
 	RecalcVisCurve();
 	float stepX = graphWidth / (float)mVisCurve.size();
@@ -318,12 +320,12 @@ bool DelayReverbProcessor::RenderCustomUI(const ImVec2& size) {
 		float h = val * (height - 10);
 		ImVec2 curPos(p.x + i * stepX, p.y + height - h - 5);
 		if (i > 0) {
-			drawList->AddLine(prevPos, curPos, IM_COL32(100, 200, 255, 200), 2.0f);
-			drawList->AddQuadFilled(prevPos, curPos, ImVec2(curPos.x, p.y + height), ImVec2(prevPos.x, p.y + height), IM_COL32(100, 200, 255, 50));
+			drawList->AddLine(prevPos, curPos, Theme::WithAlpha(th.graphCurveCool, 200), 2.0f);
+			drawList->AddQuadFilled(prevPos, curPos, ImVec2(curPos.x, p.y + height), ImVec2(prevPos.x, p.y + height), Theme::WithAlpha(th.graphCurveCool, 50));
 		}
 		prevPos = curPos;
 	}
-	drawList->AddText(ImVec2(p.x + 5, p.y + 5), IM_COL32(150, 150, 150, 255), "Response");
+	drawList->AddText(ImVec2(p.x + 5, p.y + 5), th.textDim, "Response");
 
 	// draw controls
 	ImGui::SetCursorScreenPos(ImVec2(p.x + graphWidth + 10, p.y));

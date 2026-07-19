@@ -1,14 +1,16 @@
 #include "PrecompHeader.h"
 #include "LibraryView.h"
+#include "Theme.h"
 #include <algorithm>
 
 void LibraryView::Render(const ImVec2& pos, float width, float height) {
+	const Theme& th = Theme::Instance();
 	ImGui::SetNextWindowPos(pos);
 	ImGui::SetNextWindowSize(ImVec2(width, height));
 	ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 
 	// internal instruments
-	ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(180, 180, 180, 255));
+	ImGui::PushStyleColor(ImGuiCol_Text, th.textMuted);
 	ImGui::Text("INTERNAL");
 	ImGui::Separator();
 	ImGui::PopStyleColor();
@@ -76,7 +78,7 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	ImGui::Dummy(ImVec2(0, 10));
 
 	// VST plugins
-	ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(180, 180, 180, 255));
+	ImGui::PushStyleColor(ImGuiCol_Text, th.textMuted);
 	ImGui::Text("PLUGINS");
 	ImGui::Separator();
 	ImGui::PopStyleColor();
@@ -101,9 +103,9 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 
 		// color code instruments vs effects
 		if (plugin.isSynth)
-			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 220, 255, 255));
+			ImGui::PushStyleColor(ImGuiCol_Text, th.graphCurveCool); // instruments read cool
 		else
-			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(220, 220, 200, 255));
+			ImGui::PushStyleColor(ImGuiCol_Text, th.text);
 
 		std::string label = plugin.name + " (" + plugin.format + ")";
 		if (ImGui::Selectable(label.c_str())) {

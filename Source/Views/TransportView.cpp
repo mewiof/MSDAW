@@ -3,8 +3,10 @@
 #include "Project.h"
 #include "Transport.h"
 #include "Parameter.h"
+#include "Theme.h"
 
 void TransportView::Render(const ImVec2& pos, float width, float height) {
+	const Theme& th = Theme::Instance();
 	ImGui::SetNextWindowPos(pos);
 	ImGui::SetNextWindowSize(ImVec2(width, height));
 	ImGui::Begin("Transport", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
@@ -37,28 +39,30 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 		// loop toggle
 		bool isLooping = transport->IsLoopEnabled();
 		if (isLooping) {
-			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(200, 100, 0, 255));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(220, 120, 0, 255));
+			ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, th.accentHover);
+			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
 		}
 		if (ImGui::Button("Loop", ImVec2(40 * mContext.state.mainScale, 0))) {
 			transport->SetLoopEnabled(!isLooping);
 		}
 		if (isLooping)
-			ImGui::PopStyleColor(2);
+			ImGui::PopStyleColor(3);
 
 		ImGui::SameLine();
 
 		// follow toggle
 		bool follow = mContext.state.followPlayback;
 		if (follow) {
-			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(200, 100, 0, 255));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(220, 120, 0, 255));
+			ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, th.accentHover);
+			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
 		}
 		if (ImGui::Button("Follow", ImVec2(50 * mContext.state.mainScale, 0))) {
 			mContext.state.followPlayback = !follow;
 		}
 		if (follow)
-			ImGui::PopStyleColor(2);
+			ImGui::PopStyleColor(3);
 
 		ImGui::SameLine();
 		ImGui::Text("| Time: %.2f", (double)transport->GetPosition() / transport->GetSampleRate());
@@ -112,10 +116,10 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 
 		bool mIDIKey = mContext.state.isComputerMIDIKeyboardEnabled;
 		if (mIDIKey) {
-			// yellow active color like ableton
-			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(255, 200, 0, 255));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(255, 220, 50, 255));
-			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 0, 0, 255));
+			// amber active state (ableton-like), dark text for contrast on the accent
+			ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, th.accentHover);
+			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
 		}
 
 		if (ImGui::Button("KEY", ImVec2(40 * mContext.state.mainScale, 0))) {
@@ -147,7 +151,7 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 		}
 	}
 	ImGui::SameLine(ImGui::GetWindowWidth() - 150 * mContext.state.mainScale);
-	ImGui::TextColored(mContext.engine.IsStreamRunning() ? ImVec4(0, 1, 0, 1) : ImVec4(1, 0, 0, 1),
+	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(mContext.engine.IsStreamRunning() ? th.success : th.danger),
 					   mContext.engine.IsStreamRunning() ? "Audio: ON" : "Audio: OFF");
 	ImGui::End();
 }

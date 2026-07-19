@@ -1,19 +1,21 @@
 #include "PrecompHeader.h"
 #include "TimelineRuler.h"
 #include "Project.h"
+#include "Theme.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 
 void TimelineRuler::Render(EditorContext& context, TimelineInteractionState& interaction,
 						   const ImVec2& winPos, float contentWidth, float visibleWidth, float height, float scrollX) {
+	const Theme& th = Theme::Instance();
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	Project* project = context.GetProject();
 	Transport* transport = project ? &project->GetTransport() : nullptr;
 
 	// draw ruler background
-	drawList->AddRectFilled(winPos, ImVec2(winPos.x + contentWidth, winPos.y + height), IM_COL32(40, 40, 40, 255));
-	drawList->AddLine(ImVec2(winPos.x, winPos.y + height), ImVec2(winPos.x + contentWidth, winPos.y + height), IM_COL32(100, 100, 100, 255));
+	drawList->AddRectFilled(winPos, ImVec2(winPos.x + contentWidth, winPos.y + height), th.bgPanel);
+	drawList->AddLine(ImVec2(winPos.x, winPos.y + height), ImVec2(winPos.x + contentWidth, winPos.y + height), th.borderStrong);
 
 	// calculate beat range visible
 	if (visibleWidth < 1.0f)
@@ -41,12 +43,12 @@ void TimelineRuler::Render(EditorContext& context, TimelineInteractionState& int
 		bool isBar = std::abs(fmod(b + 0.001, 4.0)) < 0.002;
 
 		if (isBar) {
-			drawList->AddLine(ImVec2(x, winPos.y + 15), ImVec2(x, winPos.y + height), IM_COL32(150, 150, 150, 255));
+			drawList->AddLine(ImVec2(x, winPos.y + 15), ImVec2(x, winPos.y + height), th.textMuted);
 			char buf[16];
 			sprintf(buf, "%d", (int)(b / 4) + 1);
-			drawList->AddText(ImVec2(x + 2, winPos.y), IM_COL32(150, 150, 150, 255), buf);
+			drawList->AddText(ImVec2(x + 2, winPos.y), th.textMuted, buf);
 		} else {
-			drawList->AddLine(ImVec2(x, winPos.y + 25), ImVec2(x, winPos.y + height), IM_COL32(100, 100, 100, 255));
+			drawList->AddLine(ImVec2(x, winPos.y + 25), ImVec2(x, winPos.y + height), th.textDim);
 		}
 	}
 
@@ -55,10 +57,10 @@ void TimelineRuler::Render(EditorContext& context, TimelineInteractionState& int
 		float selX1 = winPos.x + (float)(context.state.selectionStart * context.state.pixelsPerBeat);
 		float selX2 = winPos.x + (float)(context.state.selectionEnd * context.state.pixelsPerBeat);
 
-		drawList->AddRectFilled(ImVec2(selX1, winPos.y), ImVec2(selX2, winPos.y + height), IM_COL32(100, 255, 100, 100));
-		drawList->AddLine(ImVec2(selX1, winPos.y), ImVec2(selX2, winPos.y), IM_COL32(100, 255, 100, 255), 3.0f);
-		drawList->AddLine(ImVec2(selX1, winPos.y), ImVec2(selX1, winPos.y + height), IM_COL32(100, 255, 100, 255));
-		drawList->AddLine(ImVec2(selX2, winPos.y), ImVec2(selX2, winPos.y + height), IM_COL32(100, 255, 100, 255));
+		drawList->AddRectFilled(ImVec2(selX1, winPos.y), ImVec2(selX2, winPos.y + height), Theme::WithAlpha(th.marker, 90));
+		drawList->AddLine(ImVec2(selX1, winPos.y), ImVec2(selX2, winPos.y), th.marker, 3.0f);
+		drawList->AddLine(ImVec2(selX1, winPos.y), ImVec2(selX1, winPos.y + height), th.marker);
+		drawList->AddLine(ImVec2(selX2, winPos.y), ImVec2(selX2, winPos.y + height), th.marker);
 	}
 
 	// ruler interaction

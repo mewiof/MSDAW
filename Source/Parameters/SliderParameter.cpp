@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "SliderParameter.h"
+#include "Theme.h"
 
 bool SliderParameter::Draw() {
 	bool changed = false;
@@ -63,9 +64,11 @@ bool SliderParameter::Draw() {
 		ImVec2 fillMax = ImVec2(pos.x + fraction * size.x, pos.y + size.y);
 		drawList->AddRectFilled(pos, fillMax, fillColor, ImGui::GetStyle().FrameRounding);
 
-		if (IsSelected()) {
-			drawList->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), IM_COL32(255, 255, 255, 255), ImGui::GetStyle().FrameRounding);
-		}
+		// always outline the track so it reads as a distinct control, not a flat patch
+		// of panel. the last-touched parameter gets the accent ring instead, so its
+		// automation target stays obvious
+		const Theme& th = Theme::Instance();
+		drawList->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), IsSelected() ? th.accent : th.border, ImGui::GetStyle().FrameRounding);
 
 		char valText[32];
 		snprintf(valText, sizeof(valText), "%.2f", value);

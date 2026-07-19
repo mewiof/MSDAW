@@ -5,6 +5,7 @@
 #include "Processors/VSTProcessor.h"
 #include "Processors/VST3Processor.h"
 #include "Undo/Actions.h"
+#include "Theme.h"
 #include <algorithm>
 #include <vector>
 #include <cmath>
@@ -20,6 +21,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 	if (!project)
 		return;
 
+	const Theme& th = Theme::Instance();
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 
 	float headerHeight = 30 * mContext.state.mainScale;
@@ -80,9 +82,9 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			}
 		}
 
-		ImU32 bgCol = isTrackSelected ? IM_COL32(65, 65, 70, 255) : IM_COL32(40, 40, 40, 255);
+		ImU32 bgCol = isTrackSelected ? th.bgActive : th.bgPanel;
 		if (track->IsGroup())
-			bgCol = isTrackSelected ? IM_COL32(60, 50, 60, 255) : IM_COL32(50, 40, 50, 255);
+			bgCol = isTrackSelected ? th.bgActive : th.bgPanelAlt; // groups read as slightly raised containers
 
 		drawList->AddRectFilled(
 			ImVec2(curPos.x + indent, curPos.y),
@@ -245,18 +247,20 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		ImGui::SetCursorScreenPos(ImVec2(curPos.x + indent + 15 * mContext.state.mainScale, curPos.y + 25 * mContext.state.mainScale));
 
 		bool mute = track->GetMute();
-		if (mute)
-			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(200, 100, 0, 255));
+		if (mute) {
+			ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
+			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
+		}
 		if (ImGui::SmallButton("M"))
 			track->SetMute(!mute);
 		if (mute)
-			ImGui::PopStyleColor();
+			ImGui::PopStyleColor(2);
 
 		ImGui::SameLine();
 
 		bool solo = track->GetSolo();
 		if (solo)
-			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(50, 200, 50, 255));
+			ImGui::PushStyleColor(ImGuiCol_Button, th.success);
 		if (ImGui::SmallButton("S")) {
 			bool keyMod = ImGui::GetIO().KeyCtrl;
 
@@ -280,7 +284,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 
 		bool showAuto = track->mShowAutomation;
 		if (showAuto)
-			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(200, 50, 50, 255));
+			ImGui::PushStyleColor(ImGuiCol_Button, th.danger);
 		if (ImGui::SmallButton("A"))
 			track->mShowAutomation = !showAuto;
 		if (showAuto)
@@ -306,28 +310,14 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			return std::clamp(norm, 0.0f, 1.0f);
 		};
 
-		auto GetMeterColor = [](float norm) -> ImU32 {
-			float r, g, b = 0.0f;
-			if (norm < 0.75f) {
-				float t = norm / 0.75f;
-				r = t;
-				g = 1.0f;
-			} else {
-				float t = (norm - 0.75f) / 0.25f;
-				r = 1.0f;
-				g = 1.0f - t;
-			}
-			return IM_COL32((int)(r * 255), (int)(g * 255), (int)(b * 255), 255);
-		};
-
 		float hL = LinToNorm(peakL) * meterH;
 		float hR = LinToNorm(peakR) * meterH;
 		float normL = LinToNorm(peakL);
 		float normR = LinToNorm(peakR);
 
-		drawList->AddRectFilled(ImVec2(meterX, meterY), ImVec2(meterX + meterW, meterY + meterH), IM_COL32(20, 20, 20, 255));
-		drawList->AddRectFilled(ImVec2(meterX, meterY + meterH - hL), ImVec2(meterX + meterW * 0.5f, meterY + meterH), GetMeterColor(normL));
-		drawList->AddRectFilled(ImVec2(meterX + meterW * 0.5f, meterY + meterH - hR), ImVec2(meterX + meterW, meterY + meterH), GetMeterColor(normR));
+		drawList->AddRectFilled(ImVec2(meterX, meterY), ImVec2(meterX + meterW, meterY + meterH), th.meterBg);
+		drawList->AddRectFilled(ImVec2(meterX, meterY + meterH - hL), ImVec2(meterX + meterW * 0.5f, meterY + meterH), th.MeterColor(normL));
+		drawList->AddRectFilled(ImVec2(meterX + meterW * 0.5f, meterY + meterH - hR), ImVec2(meterX + meterW, meterY + meterH), th.MeterColor(normR));
 
 		ImGui::SetCursorScreenPos(ImVec2(curPos.x + width - 25 * mContext.state.mainScale, curPos.y + 5 * mContext.state.mainScale));
 		if (ImGui::Button("X", ImVec2(16 * mContext.state.mainScale, 16 * mContext.state.mainScale))) {
@@ -352,8 +342,8 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 
 	ImGui::PopClipRect();
 
-	drawList->AddRectFilled(ImVec2(fixedPos.x, stickyY), ImVec2(fixedPos.x + width, stickyY + headerHeight), IM_COL32(35, 35, 35, 255));
-	drawList->AddLine(ImVec2(fixedPos.x, stickyY + headerHeight), ImVec2(fixedPos.x + width, stickyY + headerHeight), IM_COL32(100, 100, 100, 255));
+	drawList->AddRectFilled(ImVec2(fixedPos.x, stickyY), ImVec2(fixedPos.x + width, stickyY + headerHeight), th.bgHeader);
+	drawList->AddLine(ImVec2(fixedPos.x, stickyY + headerHeight), ImVec2(fixedPos.x + width, stickyY + headerHeight), th.borderStrong);
 
 	ImGui::SetCursorScreenPos(ImVec2(fixedPos.x + 8 * mContext.state.mainScale, stickyY + 4 * mContext.state.mainScale));
 	if (ImGui::Button("+ Add Track", ImVec2(width - 16 * mContext.state.mainScale, 22 * mContext.state.mainScale))) {
@@ -380,7 +370,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 	auto master = project->GetMasterTrack();
 	if (master) {
 		bool isMasterSelected = (mContext.state.selectedTrackIndex == -1);
-		ImU32 bgCol = isMasterSelected ? IM_COL32(65, 50, 50, 255) : IM_COL32(50, 30, 30, 255);
+		ImU32 bgCol = isMasterSelected ? th.bgActive : th.bgPanelAlt;
 		ImVec2 curPos = ImVec2(fixedPos.x, masterY);
 
 		float masterHeight = mContext.layout.trackRowHeight + mContext.layout.trackGap;
@@ -440,7 +430,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		ImGui::SetCursorScreenPos(ImVec2(curPos.x + 10, curPos.y + 25));
 		bool showAuto = master->mShowAutomation;
 		if (showAuto)
-			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(200, 50, 50, 255));
+			ImGui::PushStyleColor(ImGuiCol_Button, th.danger);
 		if (ImGui::SmallButton("A##Master"))
 			master->mShowAutomation = !showAuto;
 		if (showAuto)
@@ -466,27 +456,13 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			return std::clamp(norm, 0.0f, 1.0f);
 		};
 
-		auto GetMeterColor = [](float norm) -> ImU32 {
-			float r, g, b = 0.0f;
-			if (norm < 0.75f) {
-				float t = norm / 0.75f;
-				r = t;
-				g = 1.0f;
-			} else {
-				float t = (norm - 0.75f) / 0.25f;
-				r = 1.0f;
-				g = 1.0f - t;
-			}
-			return IM_COL32((int)(r * 255), (int)(g * 255), (int)(b * 255), 255);
-		};
-
 		float hL = LinToNorm(peakL) * meterH;
 		float hR = LinToNorm(peakR) * meterH;
 		float normL = LinToNorm(peakL);
 		float normR = LinToNorm(peakR);
 
-		drawList->AddRectFilled(ImVec2(meterX, meterY), ImVec2(meterX + meterW, meterY + meterH), IM_COL32(20, 20, 20, 255));
-		drawList->AddRectFilled(ImVec2(meterX, meterY + meterH - hL), ImVec2(meterX + meterW * 0.5f, meterY + meterH), GetMeterColor(normL));
-		drawList->AddRectFilled(ImVec2(meterX + meterW * 0.5f, meterY + meterH - hR), ImVec2(meterX + meterW, meterY + meterH), GetMeterColor(normR));
+		drawList->AddRectFilled(ImVec2(meterX, meterY), ImVec2(meterX + meterW, meterY + meterH), th.meterBg);
+		drawList->AddRectFilled(ImVec2(meterX, meterY + meterH - hL), ImVec2(meterX + meterW * 0.5f, meterY + meterH), th.MeterColor(normL));
+		drawList->AddRectFilled(ImVec2(meterX + meterW * 0.5f, meterY + meterH - hR), ImVec2(meterX + meterW, meterY + meterH), th.MeterColor(normR));
 	}
 }

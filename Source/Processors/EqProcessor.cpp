@@ -3,6 +3,7 @@
 #include "PrecompHeader.h"
 #include "EqProcessor.h"
 #include "ProcessorFactory.h"
+#include "Theme.h"
 #include <cmath>
 #include <algorithm>
 #include <cstdio>
@@ -304,10 +305,11 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
 
+	const Theme& th = Theme::Instance();
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	ImVec2 p = ImGui::GetCursorScreenPos();
 
-	drawList->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(50, 50, 55, 255));
+	drawList->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), th.bgPanelAlt);
 
 	// left panel
 	ImGui::SetCursorScreenPos(ImVec2(p.x + 5, p.y + 10));
@@ -344,7 +346,7 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 	float tabsH = 30.0f;
 	float actualGraphH = size.y - tabsH;
 
-	drawList->AddRectFilled(ImVec2(graphX, graphY), ImVec2(graphX + graphW, graphY + actualGraphH), IM_COL32(30, 30, 35, 255));
+	drawList->AddRectFilled(ImVec2(graphX, graphY), ImVec2(graphX + graphW, graphY + actualGraphH), th.bgDeepest);
 
 	float minFreq = 10.0f;
 	float maxFreq = 22000.0f;
@@ -354,13 +356,13 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 	const float freqPoints[] = {100, 1000, 10000};
 	for (float f : freqPoints) {
 		float x = graphX + (std::log10(f) - minLog) * scaleX;
-		drawList->AddLine(ImVec2(x, graphY), ImVec2(x, graphY + actualGraphH), IM_COL32(60, 60, 65, 255));
+		drawList->AddLine(ImVec2(x, graphY), ImVec2(x, graphY + actualGraphH), th.border);
 		char buf[16];
 		if (f >= 1000)
 			snprintf(buf, 16, "%.0fk", f / 1000);
 		else
 			snprintf(buf, 16, "%.0f", f);
-		drawList->AddText(ImVec2(x + 2, graphY + actualGraphH - 12), IM_COL32(150, 150, 150, 255), buf);
+		drawList->AddText(ImVec2(x + 2, graphY + actualGraphH - 12), th.textDim, buf);
 	}
 
 	float maxDb = 15.0f;
@@ -368,9 +370,9 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 	float scaleY = actualGraphH / rangeDb;
 	float zeroY = graphY + (maxDb * scaleY);
 
-	drawList->AddLine(ImVec2(graphX, zeroY), ImVec2(graphX + graphW, zeroY), IM_COL32(80, 80, 90, 255));
-	drawList->AddLine(ImVec2(graphX, zeroY - 6 * scaleY), ImVec2(graphX + graphW, zeroY - 6 * scaleY), IM_COL32(50, 50, 55, 255));
-	drawList->AddLine(ImVec2(graphX, zeroY + 6 * scaleY), ImVec2(graphX + graphW, zeroY + 6 * scaleY), IM_COL32(50, 50, 55, 255));
+	drawList->AddLine(ImVec2(graphX, zeroY), ImVec2(graphX + graphW, zeroY), th.borderStrong);
+	drawList->AddLine(ImVec2(graphX, zeroY - 6 * scaleY), ImVec2(graphX + graphW, zeroY - 6 * scaleY), th.border);
+	drawList->AddLine(ImVec2(graphX, zeroY + 6 * scaleY), ImVec2(graphX + graphW, zeroY + 6 * scaleY), th.border);
 
 	ImVec2 prevPos;
 	for (int x = 0; x <= (int)graphW; x += 2) {
@@ -384,8 +386,8 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 
 		ImVec2 curPos(graphX + x, y);
 		if (x > 0) {
-			drawList->AddLine(prevPos, curPos, IM_COL32(255, 200, 50, 255), 1.5f);
-			drawList->AddLine(ImVec2(prevPos.x, prevPos.y), ImVec2(curPos.x, zeroY), IM_COL32(255, 200, 50, 20), 1.0f);
+			drawList->AddLine(prevPos, curPos, th.graphCurve, 1.5f);
+			drawList->AddLine(ImVec2(prevPos.x, prevPos.y), ImVec2(curPos.x, zeroY), Theme::WithAlpha(th.graphCurve, 20), 1.0f);
 		}
 		prevPos = curPos;
 	}
@@ -451,15 +453,15 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 		float by = zeroY - (mBands[i].pGain->value * scaleY);
 
 		bool isSel = (i == mSelectedBandIndex);
-		ImU32 col = isSel ? IM_COL32(255, 255, 0, 255) : IM_COL32(255, 200, 0, 180);
+		ImU32 col = isSel ? th.accentHover : Theme::WithAlpha(th.accent, 180);
 
 		drawList->AddCircleFilled(ImVec2(bx, by), 4.0f, col);
-		drawList->AddCircle(ImVec2(bx, by), 5.0f, IM_COL32(0, 0, 0, 255));
+		drawList->AddCircle(ImVec2(bx, by), 5.0f, th.divider);
 
 		if (isSel) {
 			char buf[4];
 			sprintf(buf, "%d", i + 1);
-			drawList->AddText(ImVec2(bx + 6, by - 6), IM_COL32(255, 255, 255, 255), buf);
+			drawList->AddText(ImVec2(bx + 6, by - 6), th.text, buf);
 		}
 	}
 
@@ -473,9 +475,9 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 		bool isSel = (i == mSelectedBandIndex);
 		bool isActive = mBands[i].pActive->value > 0.5f;
 
-		ImU32 bgCol = isSel ? IM_COL32(80, 80, 80, 255) : IM_COL32(40, 40, 40, 255);
+		ImU32 bgCol = isSel ? th.bgActive : th.bgPanel;
 		drawList->AddRectFilled(tabP, ImVec2(tabP.x + tabW, tabP.y + tabsH), bgCol);
-		drawList->AddRect(tabP, ImVec2(tabP.x + tabW, tabP.y + tabsH), IM_COL32(20, 20, 20, 255));
+		drawList->AddRect(tabP, ImVec2(tabP.x + tabW, tabP.y + tabsH), th.divider);
 
 		ImGui::InvisibleButton("TabHit", ImVec2(tabW, tabsH));
 		if (ImGui::IsItemClicked()) {
@@ -483,7 +485,7 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 		}
 
 		ImVec2 toggleP(tabP.x + 3, tabP.y + 3);
-		ImU32 toggleCol = isActive ? IM_COL32(255, 200, 0, 255) : IM_COL32(60, 60, 60, 255);
+		ImU32 toggleCol = isActive ? th.accent : th.border;
 		drawList->AddRectFilled(toggleP, ImVec2(toggleP.x + 8, toggleP.y + 8), toggleCol);
 		if (ImGui::IsItemClicked() && ImGui::GetIO().KeyCtrl) {
 			mBands[i].pActive->value = isActive ? 0.0f : 1.0f;
@@ -491,10 +493,10 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 
 		char numBuf[4];
 		sprintf(numBuf, "%d", i + 1);
-		drawList->AddText(ImVec2(tabP.x + tabW * 0.5f - 4, tabP.y + 2), IM_COL32(200, 200, 200, 255), numBuf);
+		drawList->AddText(ImVec2(tabP.x + tabW * 0.5f - 4, tabP.y + 2), th.textMuted, numBuf);
 
 		FilterType fType = (FilterType)(int)mBands[i].pType->value;
-		DrawFilterIcon(fType, ImVec2(tabP.x + tabW * 0.5f - 6, tabP.y + 15), 12, 10, isActive ? IM_COL32(220, 220, 220, 255) : IM_COL32(100, 100, 100, 255));
+		DrawFilterIcon(fType, ImVec2(tabP.x + tabW * 0.5f - 6, tabP.y + 15), 12, 10, isActive ? th.text : th.textDim);
 
 		if (isSel && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
 			ImGui::OpenPopup("TypeSel");

@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "KnobParameter.h"
+#include "Theme.h"
 
 namespace {
 	float LinearToLog(float t, float min, float max) {
@@ -123,8 +124,9 @@ bool KnobParameter::Draw() {
 		}
 		ImU32 colArc = ImGui::ColorConvertFloat4ToU32(arcColorVec);
 
+		// the last-touched parameter gets an accent ring so its automation target is obvious
 		if (IsSelected())
-			drawList->AddRect(pos, ImVec2(pos.x + totalWidth, pos.y + totalHeight), IM_COL32(255, 255, 255, 255), ImGui::GetStyle().FrameRounding);
+			drawList->AddRect(pos, ImVec2(pos.x + totalWidth, pos.y + totalHeight), Theme::Instance().accent, ImGui::GetStyle().FrameRounding);
 
 		drawList->PathArcTo(center, radius * 0.85f, ANGLE_MIN, ANGLE_MAX, 32);
 		drawList->PathStroke(colBackgroud, 0, 3.0f);

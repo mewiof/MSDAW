@@ -4,6 +4,7 @@
 #include "Project.h"
 #include "Track.h"
 #include "ProcessorFactory.h"
+#include "Theme.h"
 #include "Processors/VSTProcessor.h"
 #include "Processors/VST3Processor.h"
 #include "Undo/Actions.h"
@@ -206,9 +207,10 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 			// visual container setup
 			ImGui::PushID(proc.get());
 			// color based on active/bypassed
-			ImU32 bgCol = isInstrument ? IM_COL32(45, 45, 50, 255) : IM_COL32(35, 35, 38, 255);
+			const Theme& th = Theme::Instance();
+			ImU32 bgCol = isInstrument ? th.bgDeviceInstrument : th.bgDeviceEffect;
 			if (proc->IsBypassed())
-				bgCol = IM_COL32(20, 20, 22, 255);
+				bgCol = th.bgDeepest;
 
 			ImGui::PushStyleColor(ImGuiCol_ChildBg, bgCol);
 
@@ -230,7 +232,7 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 
 			// enable/disable toggle
 			bool active = !proc->IsBypassed();
-			ImU32 ledCol = active ? IM_COL32(255, 200, 0, 255) : IM_COL32(60, 60, 60, 255);
+			ImU32 ledCol = active ? th.accent : th.border;
 			ImVec2 p = ImGui::GetCursorScreenPos();
 			ImGui::InvisibleButton("##BypassToggle", ImVec2(12, 12));
 			if (ImGui::IsItemClicked()) {

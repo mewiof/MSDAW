@@ -95,6 +95,10 @@ int main(int, char**) {
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 
+	// only start a window move when the title bar is grabbed, so clicking inside a
+	// panel body (piano roll grid, minimap, empty toolbar space) never drags it
+	io.ConfigWindowsMoveFromTitleBarOnly = true;
+
 	io.Fonts->SetFontLoader(ImGuiFreeType::GetFontLoader());
 	io.Fonts->FontLoaderFlags = ImGuiFreeTypeBuilderFlags_LightHinting;
 

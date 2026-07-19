@@ -8,6 +8,7 @@
 #include "Track.h"
 #include "Project.h"
 #include "Clip.h"
+#include "Clips/MIDIClip.h"
 
 // ---------------------------------------------------------------------------
 // parameter value change (knob / slider / toggle / typed / reset-to-default).
@@ -241,4 +242,37 @@ private:
 	Parameter* mParam;
 	std::vector<AutomationPoint> mBefore;
 	std::vector<AutomationPoint> mAfter;
+};
+
+// ---------------------------------------------------------------------------
+// piano-roll note edit (add / delete / move / resize / nudge / velocity).
+// Snapshots the whole note list before and after; the retained MIDIClip
+// shared_ptr keeps the sequence alive across the history. Undo/Redo lock the
+// project mutex because the audio thread iterates the same note vector
+// ---------------------------------------------------------------------------
+class NoteEditAction : public UndoableAction {
+public:
+	NoteEditAction(Project* project, std::shared_ptr<MIDIClip> clip,
+				   std::vector<MIDINote> before, std::vector<MIDINote> after, const char* name)
+		: mProject(project), mClip(std::move(clip)), mBefore(std::move(before)), mAfter(std::move(after)), mName(name) {}
+
+	void Undo() override { Apply(mBefore); }
+	void Redo() override { Apply(mAfter); }
+	const char* Name() const override { return mName; }
+
+	static std::vector<MIDINote> Snapshot(const std::shared_ptr<MIDIClip>& clip) {
+		return clip ? clip->GetNotes() : std::vector<MIDINote>{};
+	}
+private:
+	void Apply(const std::vector<MIDINote>& state) {
+		if (!mClip)
+			return;
+		std::lock_guard<std::mutex> lock(mProject->GetMutex());
+		mClip->GetNotesEx() = state;
+	}
+	Project* mProject;
+	std::shared_ptr<MIDIClip> mClip;
+	std::vector<MIDINote> mBefore;
+	std::vector<MIDINote> mAfter;
+	const char* mName;
 };

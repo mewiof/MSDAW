@@ -9,6 +9,9 @@ struct MIDINote {
 	int velocity;
 	double startBeat;
 	double durationBeats;
+
+	// memberwise compare so undo can tell whether a note edit actually changed anything
+	bool operator==(const MIDINote&) const = default;
 };
 
 // sequence container

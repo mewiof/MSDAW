@@ -24,6 +24,14 @@ static uint32_t ReadBE32(std::ifstream& f) {
 	return (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
 }
 
+// a note that is currently sounding while parsing: we must remember the
+// attack velocity seen at note-on, since the matching note-off carries the
+// (usually meaningless) release velocity instead
+struct ParsingActiveNote {
+	uint32_t startTick;
+	uint8_t onVelocity;
+};
+
 static uint32_t ReadVLQ(std::ifstream& f, uint32_t& bytesRead) {
 	uint32_t value = 0;
 	uint8_t byte;
@@ -84,7 +92,7 @@ bool MIDIClip::LoadFromFile(const std::string& path) {
 		uint32_t currentTick = 0;
 		uint8_t runningStatus = 0;
 
-		std::map<int, std::map<int, uint32_t>> activeNotes;
+		std::map<int, std::map<int, ParsingActiveNote>> activeNotes;
 
 		while (bytesRead < trackSize) {
 			uint32_t vlqBytes = 0;
@@ -116,15 +124,18 @@ bool MIDIClip::LoadFromFile(const std::string& path) {
 				bool isNoteOff = (type == 0x80) || ((type == 0x90) && (velocity == 0));
 
 				if (isNoteOn) {
-					activeNotes[channel][note] = currentTick;
+					activeNotes[channel][note] = {currentTick, velocity};
 				} else if (isNoteOff) {
 					if (activeNotes[channel].count(note)) {
-						uint32_t startTick = activeNotes[channel][note];
+						ParsingActiveNote active = activeNotes[channel][note];
+						uint32_t startTick = active.startTick;
 						activeNotes[channel].erase(note);
 
 						MIDINote newNote;
 						newNote.noteNumber = note;
-						newNote.velocity = 100;
+						// use the attack velocity captured at note-on, clamped to a valid
+						// audible range (a stray 0 would be silent)
+						newNote.velocity = std::clamp((int)active.onVelocity, 1, 127);
 						newNote.startBeat = (double)startTick / (double)timeDivision;
 						newNote.durationBeats = (double)(currentTick - startTick) / (double)timeDivision;
 

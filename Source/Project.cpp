@@ -406,7 +406,17 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 	std::lock_guard<std::mutex> lock(mMutex);
 
 	bool isPlaying = mTransport.IsPlaying();
-	if (mWasPlaying && !isPlaying) {
+	int64_t blockStartSample = mTransport.GetPosition();
+
+	// flush held/stuck notes when playback stops, and also when the playhead jumps
+	// discontinuously while playing (a seek). without this, a clip's pending note-off
+	// falls in a block window we skip over, so the instrument keeps sounding until the
+	// clip replays that note. contiguous playback advances by exactly numFrames per block,
+	// so any mismatch with the previous block's end is a seek (loop wraps and tempo
+	// re-derivation happen inside a block, so they don't trip this)
+	bool stopped = mWasPlaying && !isPlaying;
+	bool seeked = isPlaying && mLastBlockEndSample >= 0 && blockStartSample != mLastBlockEndSample;
+	if (stopped || seeked) {
 		for (auto& track : mTracks)
 			track->Reset();
 		if (mMasterTrack)
@@ -456,6 +466,7 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 			context.isPlaying = isPlaying;
 			ProcessAudioGraph(outputBuffer, numFrames, numChannels, context, liveMIDIEvents, anySolo);
 			mTransport.Advance(numFrames);
+			mLastBlockEndSample = mTransport.GetPosition();
 			return;
 		}
 
@@ -498,6 +509,8 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 		ProcessAudioGraph(outputBuffer, numFrames, numChannels, context, liveMIDIEvents, anySolo);
 		mTransport.Advance(numFrames);
 	}
+
+	mLastBlockEndSample = mTransport.GetPosition();
 }
 
 struct WavHeader {

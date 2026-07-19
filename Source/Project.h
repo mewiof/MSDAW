@@ -74,6 +74,9 @@ private:
 
 	std::vector<float> mMixBuffer;
 	bool mWasPlaying = false;
+	// playhead position at the end of the previous processed block, used to
+	// detect a discontinuous seek so we can flush stuck notes (-1 = no prior block)
+	int64_t mLastBlockEndSample = -1;
 	int mSelectedTrackIndex = 0;
 
 	// core dsp processing

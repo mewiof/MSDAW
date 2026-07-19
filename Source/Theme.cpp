@@ -122,7 +122,9 @@ void Theme::ApplyImGuiStyle(float scale) const {
 	style.TabRounding = 3.0f;
 	style.PopupRounding = 3.0f;
 	style.WindowBorderSize = 1.0f;
-	style.FrameBorderSize = 1.0f; // give inputs/buttons a crisp edge so they read as controls
+	style.ChildBorderSize = 0.0f;
+	style.PopupBorderSize = 1.0f;
+	style.FrameBorderSize = 0.0f;
 
 	// local shorthands: V unpacks a packed color into the ImVec4 the style array
 	// wants; T is a fully transparent slot

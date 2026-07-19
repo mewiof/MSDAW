@@ -15,6 +15,7 @@
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/ivstprocesscontext.h"
 #include "pluginterfaces/gui/iplugview.h"
+#include "pluginterfaces/gui/iplugviewcontentscalesupport.h"
 #include "pluginterfaces/vst/ivsthostapplication.h"
 #include "pluginterfaces/base/ibstream.h"
 
@@ -75,8 +76,9 @@ public:
 
 	bool HasEditor() const override;
 	void OpenEditor(void* parentWindowHandle) override;
-	void CloseEditor();
-	bool IsEditorOpen() const;
+	void CloseEditor() override;
+	bool IsEditorOpen() const override;
+	void EditorIdle() override;
 
 	void Save(std::ostream& out) override;
 	void Load(std::istream& in) override;

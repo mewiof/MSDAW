@@ -516,6 +516,7 @@ void Track::Save(std::ostream& out, int trackIndex) {
 
 	for (auto& proc : mProcessors) {
 		out << "PROCESSOR " << proc->GetProcessorId() << "\n";
+		out << "PROC_SCALING " << (int)proc->GetEditorScalingMode() << "\n";
 		proc->Save(out);
 		out << "PROCESSOR_END\n";
 	}
@@ -597,6 +598,23 @@ void Track::Load(std::istream& in) {
 				proc = std::make_shared<VST3Processor>("", "");
 
 			if (proc) {
+				// optional per-plugin editor scaling override (written since the
+				// high-DPI work; older projects omit it and rewind untouched)
+				std::streampos posBefore = in.tellg();
+				std::string maybeScaling;
+				if (std::getline(in, maybeScaling)) {
+					std::stringstream ss2(maybeScaling);
+					std::string tk;
+					ss2 >> tk;
+					if (tk == "PROC_SCALING") {
+						int m = 0;
+						ss2 >> m;
+						proc->SetEditorScalingMode((EditorScalingMode)m);
+					} else if (posBefore != std::streampos(-1)) {
+						in.seekg(posBefore); // not ours; let proc->Load consume it
+					}
+				}
+
 				proc->Load(in);
 				AddProcessor(proc);
 				std::string endTag;

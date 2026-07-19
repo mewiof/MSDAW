@@ -54,6 +54,7 @@ private:
 	void RenderSettingsWindow();
 	void ProcessComputerKeyboardMIDI(); // imgui input
 	void HandleGlobalShortcuts();
+	void PumpPluginEditors(); // per-frame idle for open plugin editor windows
 	Project* GetProject();
 private:
 	EditorContext mContext;

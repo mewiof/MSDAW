@@ -585,7 +585,17 @@ void VSTProcessor::OpenEditor(void* parentWindowHandle) {
 	if (!HasEditor() || mEditorWindow)
 		return;
 
-	DPI_AWARENESS_CONTEXT oldContext = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE);
+	HWND hParent = (HWND)parentWindowHandle;
+
+	// native mode: create the window DPI-aware so the plugin renders 1:1 at the
+	// display's real resolution (crisp, no DWM bitmap stretching / tearing). VST2
+	// has no scale-negotiation, so such plugins draw at their native pixel size
+	// (which may look small on a hi-DPI display). Scaled mode keeps the legacy
+	// behavior: DPI-unaware, Windows stretches the window to match the DAW
+	bool native = UseNativeEditorScaling();
+	DPI_AWARENESS_CONTEXT wanted = native ? DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+										  : DPI_AWARENESS_CONTEXT_UNAWARE;
+	DPI_AWARENESS_CONTEXT oldContext = SetThreadDpiAwarenessContext(wanted);
 
 	WNDCLASSEX wc = {0};
 	wc.cbSize = sizeof(WNDCLASSEX);
@@ -606,9 +616,10 @@ void VSTProcessor::OpenEditor(void* parentWindowHandle) {
 
 	DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
 	RECT wr = {0, 0, width, height};
-	AdjustWindowRect(&wr, style, FALSE);
-
-	HWND hParent = (HWND)parentWindowHandle;
+	// size the non-client area for the target DPI so the client area exactly fits
+	// the plugin view (prevents cropping on hi-DPI displays)
+	UINT dpi = (native && hParent) ? GetDpiForWindow(hParent) : 96;
+	AdjustWindowRectExForDpi(&wr, style, FALSE, 0, dpi);
 
 	mEditorWindow = CreateWindowEx(0, "VSTEditorClass", ("Editor: " + mName).c_str(),
 								   style, CW_USEDEFAULT, CW_USEDEFAULT,
@@ -619,6 +630,20 @@ void VSTProcessor::OpenEditor(void* parentWindowHandle) {
 
 	mAEffect->dispatcher(mAEffect, effEditOpen, 0, 0, mEditorWindow, 0.0f);
 
+	// some plugins only report their true size after effEditOpen; re-query and fit
+	ERect* rect2 = nullptr;
+	mAEffect->dispatcher(mAEffect, effEditGetRect, 0, 0, &rect2, 0.0f);
+	if (rect2) {
+		int w2 = rect2->right - rect2->left;
+		int h2 = rect2->bottom - rect2->top;
+		if (w2 > 0 && h2 > 0 && (w2 != width || h2 != height)) {
+			RECT wr2 = {0, 0, w2, h2};
+			AdjustWindowRectExForDpi(&wr2, style, FALSE, 0, dpi);
+			SetWindowPos(mEditorWindow, NULL, 0, 0, wr2.right - wr2.left, wr2.bottom - wr2.top,
+						 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+		}
+	}
+
 	ShowWindow(mEditorWindow, SW_SHOW);
 	SetForegroundWindow(mEditorWindow);
 	SetFocus(mEditorWindow);
@@ -627,11 +652,24 @@ void VSTProcessor::OpenEditor(void* parentWindowHandle) {
 	SetThreadDpiAwarenessContext(oldContext);
 }
 
+void VSTProcessor::EditorIdle() {
+	// VST2 GUIs expect the host to pump effEditIdle regularly; without it many only
+	// repaint on incidental mouse messages, so knob turns show partial/stale frames
+	if (mEditorWindow && mAEffect)
+		mAEffect->dispatcher(mAEffect, effEditIdle, 0, 0, 0, 0.0f);
+}
+
 void VSTProcessor::CloseEditor() {
 	if (mEditorWindow && mAEffect) {
+		// Hide before destroy and reactivate the owner explicitly, otherwise
+		// destroying a visible foreground owned window can minimize the main DAW
+		HWND owner = GetWindow(mEditorWindow, GW_OWNER);
 		mAEffect->dispatcher(mAEffect, effEditClose, 0, 0, 0, 0.0f);
+		ShowWindow(mEditorWindow, SW_HIDE);
 		DestroyWindow(mEditorWindow);
 		mEditorWindow = nullptr;
+		if (owner)
+			SetActiveWindow(owner);
 	}
 }
 
@@ -671,10 +709,13 @@ VstIntPtr VSTCALLBACK VSTProcessor::HostCallback(AEffect* effect, VstInt32 opcod
 	case audioMasterSizeWindow:
 #ifdef _WIN32
 		if (proc && proc->IsEditorOpen()) {
+			// index = requested client width, value = client height. size the
+			// non-client area for the window's DPI so the client fits exactly
+			HWND hwnd = (HWND)proc->mEditorWindow;
 			RECT wr = {0, 0, index, (int)value};
-			DWORD style = GetWindowLong((HWND)proc->mEditorWindow, GWL_STYLE);
-			AdjustWindowRect(&wr, style, FALSE);
-			SetWindowPos((HWND)proc->mEditorWindow, NULL, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+			DWORD style = GetWindowLong(hwnd, GWL_STYLE);
+			AdjustWindowRectExForDpi(&wr, style, FALSE, 0, GetDpiForWindow(hwnd));
+			SetWindowPos(hwnd, NULL, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 			return 1;
 		}
 #endif

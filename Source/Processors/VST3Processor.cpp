@@ -1006,9 +1006,11 @@ public:
 
 	Steinberg::tresult PLUGIN_API resizeView(Steinberg::IPlugView* view, Steinberg::ViewRect* newSize) override {
 		if (mHwnd && newSize) {
+			// newSize is in physical pixels; size the non-client area for this
+			// window's DPI so the client area matches the requested view exactly
 			RECT wr = {0, 0, newSize->getWidth(), newSize->getHeight()};
 			DWORD style = (DWORD)GetWindowLongPtrW(mHwnd, GWL_STYLE);
-			AdjustWindowRect(&wr, style, FALSE);
+			AdjustWindowRectExForDpi(&wr, style, FALSE, 0, GetDpiForWindow(mHwnd));
 			SetWindowPos(mHwnd, NULL, 0, 0, wr.right - wr.left, wr.bottom - wr.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 			return Steinberg::kResultTrue;
 		}
@@ -1039,10 +1041,23 @@ Steinberg::uint32 PLUGIN_API VST3PlugFrame::release() {
 
 LRESULT CALLBACK VST3Processor::EditorWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	VST3Processor* proc = (VST3Processor*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-	if (msg == WM_CLOSE) {
+	switch (msg) {
+	case WM_CLOSE:
 		if (proc)
 			proc->CloseEditor();
 		return 0;
+	case WM_SIZE:
+		// complete the resize handshake: whenever the window changes size (e.g.
+		// the plugin requested it via IPlugFrame::resizeView after an internal
+		// scale change), tell the view its new client size so it re-lays out its
+		// content. Without this the plugin only picks up the new size on reopen
+		if (proc && proc->mPlugView && wParam != SIZE_MINIMIZED) {
+			RECT rc;
+			GetClientRect(hwnd, &rc);
+			Steinberg::ViewRect vr(0, 0, rc.right, rc.bottom);
+			proc->mPlugView->onSize(&vr);
+		}
+		break;
 	}
 	return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
@@ -1062,12 +1077,33 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 	if (!mController || mEditorWindow)
 		return;
 
-	DPI_AWARENESS_CONTEXT oldContext = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE);
+	HWND hParent = (HWND)parentWindowHandle;
+
+	// Native mode: create the window DPI-aware and tell the plugin the display
+	// scale via IPlugViewContentScaleSupport, so modern VST3s render their UI
+	// crisply at the real resolution (and report a correctly-scaled size). Scaled
+	// mode keeps the legacy DPI-unaware path where Windows stretches the window
+	bool native = UseNativeEditorScaling();
+	DPI_AWARENESS_CONTEXT wanted = native ? DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+										  : DPI_AWARENESS_CONTEXT_UNAWARE;
+	DPI_AWARENESS_CONTEXT oldContext = SetThreadDpiAwarenessContext(wanted);
+
+	UINT dpi = (native && hParent) ? GetDpiForWindow(hParent) : 96;
+	float scaleFactor = (float)dpi / 96.0f;
 
 	mPlugView = mController->createView(Steinberg::Vst::ViewType::kEditor);
 	if (!mPlugView) {
 		SetThreadDpiAwarenessContext(oldContext);
 		return;
+	}
+
+	// negotiate content scale BEFORE getSize so the plugin reports physical pixels
+	if (native) {
+		Steinberg::IPlugViewContentScaleSupport* scaleSupport = nullptr;
+		if (mPlugView->queryInterface(Steinberg::IPlugViewContentScaleSupport::iid, (void**)&scaleSupport) == Steinberg::kResultTrue && scaleSupport) {
+			scaleSupport->setContentScaleFactor((Steinberg::IPlugViewContentScaleSupport::ScaleFactor)scaleFactor);
+			scaleSupport->release();
+		}
 	}
 
 	Steinberg::ViewRect rect = {};
@@ -1089,9 +1125,7 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 
 	DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
 	RECT wr = {0, 0, width, height};
-	AdjustWindowRect(&wr, style, FALSE);
-
-	HWND hParent = (HWND)parentWindowHandle;
+	AdjustWindowRectExForDpi(&wr, style, FALSE, 0, dpi);
 
 	std::wstring wName;
 	if (!mName.empty()) {
@@ -1145,13 +1179,55 @@ void VST3Processor::CloseEditor() {
 		mPlugFrame = nullptr;
 	}
 	if (mEditorWindow) {
+		// Hide before destroy and hand activation back to the owner explicitly.
+		// Destroying a visible foreground owned window otherwise lets Windows pick
+		// the next window to activate, which can minimize the main DAW window
+		HWND owner = GetWindow(mEditorWindow, GW_OWNER);
+		ShowWindow(mEditorWindow, SW_HIDE);
 		DestroyWindow(mEditorWindow);
 		mEditorWindow = nullptr;
+		if (owner)
+			SetActiveWindow(owner);
 	}
 }
 
 bool VST3Processor::IsEditorOpen() const {
 	return mEditorWindow != nullptr;
+}
+
+void VST3Processor::EditorIdle() {
+	// Some plugins (e.g. Serum, OTT) change their editor size from their own UI
+	// without driving the host resize handshake. When they do, they resize the
+	// child HWND they created inside our editor window. Mirror our window's client
+	// area to that child each frame so the window tracks the plugin size live,
+	// regardless of whether the plugin also calls resizeView()/updates getSize()
+	if (!mEditorWindow)
+		return;
+
+	HWND child = GetWindow(mEditorWindow, GW_CHILD);
+	if (!child)
+		return;
+
+	RECT childRc;
+	GetClientRect(child, &childRc);
+	int childW = childRc.right - childRc.left;
+	int childH = childRc.bottom - childRc.top;
+	if (childW <= 0 || childH <= 0)
+		return;
+
+	RECT clientRc;
+	GetClientRect(mEditorWindow, &clientRc);
+	int clientW = clientRc.right - clientRc.left;
+	int clientH = clientRc.bottom - clientRc.top;
+
+	// tolerance avoids a resize feedback loop from sub-pixel non-client rounding
+	if (std::abs(childW - clientW) > 1 || std::abs(childH - clientH) > 1) {
+		RECT wr = {0, 0, childW, childH};
+		DWORD style = (DWORD)GetWindowLongPtrW(mEditorWindow, GWL_STYLE);
+		AdjustWindowRectExForDpi(&wr, style, FALSE, 0, GetDpiForWindow(mEditorWindow));
+		SetWindowPos(mEditorWindow, NULL, 0, 0, wr.right - wr.left, wr.bottom - wr.top,
+					 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+	}
 }
 
 #else

@@ -33,8 +33,9 @@ public:
 
 	bool HasEditor() const override;
 	void OpenEditor(void* parentWindowHandle) override;
-	void CloseEditor();
-	bool IsEditorOpen() const;
+	void CloseEditor() override;
+	bool IsEditorOpen() const override;
+	void EditorIdle() override;
 
 	void Save(std::ostream& out) override;
 	void Load(std::istream& in) override;

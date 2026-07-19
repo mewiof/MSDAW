@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "Editor.h"
+#include "AppConfig.h"
 #include "Processors/VSTProcessor.h"
 #include "Processors/VST3Processor.h"
 
@@ -501,6 +502,29 @@ void Editor::ProcessComputerKeyboardMIDI() {
 #endif
 }
 
+void Editor::PumpPluginEditors() {
+	// give every open plugin editor a chance to service its GUI each frame. VST2
+	// plugins need effEditIdle to repaint smoothly; other processors no-op
+	Project* project = GetProject();
+	if (!project)
+		return;
+
+	if (auto master = project->GetMasterTrack()) {
+		for (auto& proc : master->GetProcessors()) {
+			if (proc && proc->IsEditorOpen())
+				proc->EditorIdle();
+		}
+	}
+	for (auto& track : project->GetTracks()) {
+		if (!track)
+			continue;
+		for (auto& proc : track->GetProcessors()) {
+			if (proc && proc->IsEditorOpen())
+				proc->EditorIdle();
+		}
+	}
+}
+
 void Editor::RenderSettingsWindow() {
 	if (!mContext.state.showSettingsWindow)
 		return;
@@ -525,6 +549,17 @@ void Editor::RenderSettingsWindow() {
 				ImGui::EndTabItem();
 			}
 			if (ImGui::BeginTabItem("Plugins")) {
+				ImGui::TextUnformatted("Plugin Editor Windows");
+				bool native = AppConfig::Instance().pluginEditorsNative;
+				if (ImGui::Checkbox("Render at native resolution (crisp, DPI-aware)", &native)) {
+					AppConfig::Instance().pluginEditorsNative = native;
+					AppConfig::Instance().Save();
+				}
+				ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+								   "Off = let Windows scale plugin windows to match the DAW (may blur).\n"
+								   "Right-click a device in the rack to override this per plugin.");
+				ImGui::Separator();
+
 				ImGui::Text("VST2/VST3 Search Paths:");
 				ImGui::Separator();
 				PluginManager& pm = mContext.pluginManager;
@@ -622,6 +657,7 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 
 	mPianoRollView->Render();
 	RenderSettingsWindow();
+	PumpPluginEditors();
 
 	if (mContext.state.processDrop) {
 		std::filesystem::path p(mContext.state.droppedPath);

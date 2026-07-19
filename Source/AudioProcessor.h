@@ -6,6 +6,15 @@
 #include <iomanip>
 #include "MIDITypes.h"
 #include "Parameter.h"
+#include "AppConfig.h"
+
+// how a plugin's editor window handles high-DPI displays. Default follows the
+// global AppConfig setting; the other two force a specific behavior per plugin
+enum class EditorScalingMode {
+	Default = 0, // use the global default (AppConfig::pluginEditorsNative)
+	Native = 1,	 // DPI-aware: crisp, native-resolution rendering
+	Scaled = 2	 // DPI-unaware: Windows stretches to match the DAW (may blur)
+};
 
 // process context with transport information
 struct ProcessContext {
@@ -55,6 +64,33 @@ public:
 	// open editor with window handle
 	virtual void OpenEditor(void* parentWindowHandle = nullptr) { (void)parentWindowHandle; }
 
+	// close the native editor window (no-op for processors without one)
+	virtual void CloseEditor() {}
+
+	// whether the native editor window is currently open
+	virtual bool IsEditorOpen() const { return false; }
+
+	// called once per UI frame while open so editors that need periodic servicing
+	// (e.g. VST2 effEditIdle) can repaint. no-op by default
+	virtual void EditorIdle() {}
+
+	// per-plugin high-DPI override for the editor window
+	EditorScalingMode GetEditorScalingMode() const { return mEditorScalingMode; }
+	void SetEditorScalingMode(EditorScalingMode mode) { mEditorScalingMode = mode; }
+
+	// resolve the override + global default into a concrete decision
+	bool UseNativeEditorScaling() const {
+		switch (mEditorScalingMode) {
+		case EditorScalingMode::Native:
+			return true;
+		case EditorScalingMode::Scaled:
+			return false;
+		case EditorScalingMode::Default:
+		default:
+			return AppConfig::Instance().pluginEditorsNative;
+		}
+	}
+
 	virtual bool RenderCustomUI(const ImVec2& size) {
 		(void)size;
 		return false;
@@ -95,6 +131,7 @@ public:
 protected:
 	std::vector<std::unique_ptr<Parameter>> mParameters;
 	bool mIsBypassed = false;
+	EditorScalingMode mEditorScalingMode = EditorScalingMode::Default;
 
 	template <typename T>
 	T* AddParameter(std::unique_ptr<T> parameter) {

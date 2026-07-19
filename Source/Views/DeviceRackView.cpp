@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "DeviceRackView.h"
+#include "AppConfig.h"
 #include "Project.h"
 #include "Track.h"
 #include "ProcessorFactory.h"
@@ -255,6 +256,35 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 					action.srcIdx = i;
 					hasAction = true;
 				}
+
+				// per-plugin high-DPI override for the editor window
+				if (proc->HasEditor()) {
+					ImGui::Separator();
+					if (ImGui::BeginMenu("Editor Scaling")) {
+						bool globalNative = AppConfig::Instance().pluginEditorsNative;
+						EditorScalingMode mode = proc->GetEditorScalingMode();
+						EditorScalingMode newMode = mode;
+
+						std::string defaultLabel = std::string("Use Global Default (") + (globalNative ? "Native" : "Scaled") + ")";
+						if (ImGui::MenuItem(defaultLabel.c_str(), nullptr, mode == EditorScalingMode::Default))
+							newMode = EditorScalingMode::Default;
+						if (ImGui::MenuItem("Native (crisp)", nullptr, mode == EditorScalingMode::Native))
+							newMode = EditorScalingMode::Native;
+						if (ImGui::MenuItem("Scaled (match DAW)", nullptr, mode == EditorScalingMode::Scaled))
+							newMode = EditorScalingMode::Scaled;
+
+						if (newMode != mode) {
+							proc->SetEditorScalingMode(newMode);
+							// re-open the window so the new DPI mode takes effect immediately
+							if (proc->IsEditorOpen()) {
+								proc->CloseEditor();
+								proc->OpenEditor(mContext.nativeWindowHandle);
+							}
+						}
+						ImGui::EndMenu();
+					}
+				}
+
 				ImGui::Separator();
 				if (ImGui::MenuItem("Delete")) {
 					action.type = PendingAction::RemoveReq;

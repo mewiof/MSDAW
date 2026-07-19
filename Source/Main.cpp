@@ -20,8 +20,12 @@
 
 #include "AudioEngine.h"
 #include "Editor.h"
+#include "AppConfig.h"
 
 int main(int, char**) {
+	// load persisted app-wide settings (e.g. plugin editor DPI default)
+	AppConfig::Instance().Load();
+
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
 		printf("Error: SDL_Init(): %s\n", SDL_GetError());
 		return 1;

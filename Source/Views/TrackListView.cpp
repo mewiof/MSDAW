@@ -24,7 +24,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 	const Theme& th = Theme::Instance();
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 
-	float headerHeight = 30 * mContext.state.mainScale;
+	float headerHeight = 34 * mContext.state.mainScale; // match TimelineView's rulerHeight so the header strip lines up with the ruler
 	float rowFullHeight = mContext.layout.trackRowHeight + mContext.layout.trackGap;
 	float hScrollbarSize = ImGui::GetStyle().ScrollbarSize;
 
@@ -290,9 +290,22 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		if (showAuto)
 			ImGui::PopStyleColor();
 
-		ImGui::SetCursorScreenPos(ImVec2(curPos.x + indent + 15 * mContext.state.mainScale, curPos.y + 42 * mContext.state.mainScale));
-		ImGui::BeginChild("##VolParam", ImVec2(width - indent - 55 * mContext.state.mainScale, 35 * mContext.state.mainScale), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
+		// volume + pan share the mixer row; split the available width so both fit side by side
+		float mixerX = curPos.x + indent + 15 * mContext.state.mainScale;
+		float mixerW = width - indent - 55 * mContext.state.mainScale;
+		float mixerGap = 6 * mContext.state.mainScale;
+		float mixerHalfW = (mixerW - mixerGap) * 0.5f;
+		float mixerH = 35 * mContext.state.mainScale;
+		float mixerY = curPos.y + 42 * mContext.state.mainScale;
+
+		ImGui::SetCursorScreenPos(ImVec2(mixerX, mixerY));
+		ImGui::BeginChild("##VolParam", ImVec2(mixerHalfW, mixerH), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
 		track->GetVolumeParameter()->Draw();
+		ImGui::EndChild();
+
+		ImGui::SetCursorScreenPos(ImVec2(mixerX + mixerHalfW + mixerGap, mixerY));
+		ImGui::BeginChild("##PanParam", ImVec2(mixerHalfW, mixerH), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
+		track->GetPanParameter()->Draw();
 		ImGui::EndChild();
 
 		float peakL = track->GetPeakL();
@@ -345,7 +358,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 	drawList->AddRectFilled(ImVec2(fixedPos.x, stickyY), ImVec2(fixedPos.x + width, stickyY + headerHeight), th.bgHeader);
 	drawList->AddLine(ImVec2(fixedPos.x, stickyY + headerHeight), ImVec2(fixedPos.x + width, stickyY + headerHeight), th.borderStrong);
 
-	ImGui::SetCursorScreenPos(ImVec2(fixedPos.x + 8 * mContext.state.mainScale, stickyY + 4 * mContext.state.mainScale));
+	ImGui::SetCursorScreenPos(ImVec2(fixedPos.x + 8 * mContext.state.mainScale, stickyY + 6 * mContext.state.mainScale));
 	if (ImGui::Button("+ Add Track", ImVec2(width - 16 * mContext.state.mainScale, 22 * mContext.state.mainScale))) {
 		TrackTopologyAction::Record(mContext.undoManager, project, "Add track", [&] {
 			project->CreateTrack();
@@ -436,9 +449,22 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		if (showAuto)
 			ImGui::PopStyleColor();
 
-		ImGui::SetCursorScreenPos(ImVec2(curPos.x + 10 * mContext.state.mainScale, curPos.y + 42 * mContext.state.mainScale));
-		ImGui::BeginChild("##MasterVolParam", ImVec2(width - 50 * mContext.state.mainScale, 35 * mContext.state.mainScale), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
+		// mirror the per-track layout: volume + pan side by side
+		float mMixerX = curPos.x + 10 * mContext.state.mainScale;
+		float mMixerW = width - 50 * mContext.state.mainScale;
+		float mMixerGap = 6 * mContext.state.mainScale;
+		float mMixerHalfW = (mMixerW - mMixerGap) * 0.5f;
+		float mMixerH = 35 * mContext.state.mainScale;
+		float mMixerY = curPos.y + 42 * mContext.state.mainScale;
+
+		ImGui::SetCursorScreenPos(ImVec2(mMixerX, mMixerY));
+		ImGui::BeginChild("##MasterVolParam", ImVec2(mMixerHalfW, mMixerH), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
 		master->GetVolumeParameter()->Draw();
+		ImGui::EndChild();
+
+		ImGui::SetCursorScreenPos(ImVec2(mMixerX + mMixerHalfW + mMixerGap, mMixerY));
+		ImGui::BeginChild("##MasterPanParam", ImVec2(mMixerHalfW, mMixerH), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
+		master->GetPanParameter()->Draw();
 		ImGui::EndChild();
 
 		float peakL = master->GetPeakL();

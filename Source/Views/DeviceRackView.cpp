@@ -219,7 +219,7 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 			std::string pId = proc->GetProcessorId();
 			// special case wider devices
 			if (pId == "EqEight")
-				deviceWidth = 350.0f * mContext.state.mainScale;
+				deviceWidth = 420.0f * mContext.state.mainScale; // full-width graph + a horizontal control row
 			if (pId == "DelayReverb")
 				deviceWidth = 320.0f * mContext.state.mainScale;
 
@@ -331,7 +331,27 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 			// parameters/ui
 			ImVec2 avail = ImGui::GetContentRegionAvail();
 			if (!proc->IsBypassed()) {
-				if (!proc->RenderCustomUI(avail)) {
+				// some custom device UIs have a fixed vertical layout taller than the short
+				// device rack (EQ Eight stacks three tall knobs in its side column). when the
+				// rack is shorter than a device needs, render it inside a scrollable child at
+				// its natural height so every control stays reachable instead of clipped
+				float minContentH = 0.0f;
+				if (pId == "EqEight")
+					minContentH = 190.0f * mContext.state.mainScale;
+
+				bool scrollWrap = minContentH > avail.y;
+				if (scrollWrap) {
+					ImGui::BeginChild("DeviceUIScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+					ImVec2 uiSize(ImGui::GetContentRegionAvail().x, minContentH);
+					ImVec2 uiTop = ImGui::GetCursorScreenPos();
+					ImGui::Dummy(uiSize); // reserve the tall region so the child actually scrolls
+					ImGui::SetCursorScreenPos(uiTop);
+					if (!proc->RenderCustomUI(uiSize)) {
+						for (auto& param : proc->GetParameters())
+							param->Draw();
+					}
+					ImGui::EndChild();
+				} else if (!proc->RenderCustomUI(avail)) {
 					ImGui::BeginChild("ParamsScroll", ImVec2(0, 0));
 					for (auto& param : proc->GetParameters())
 						param->Draw();

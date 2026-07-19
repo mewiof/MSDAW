@@ -92,7 +92,12 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 
 	// filter / list
 	static ImGuiTextFilter filter;
-	filter.Draw("Search##lib", width - 10);
+	// drive the filter through a hinted input rather than ImGuiTextFilter::Draw: its label
+	// renders to the right of the box and spilled a clipped half-letter past the panel edge.
+	// a placeholder hint keeps the box clean and inset by the window padding on both sides
+	ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+	if (ImGui::InputTextWithHint("##libSearch", "Search", filter.InputBuf, IM_ARRAYSIZE(filter.InputBuf)))
+		filter.Build();
 
 	ImGui::BeginChild("LibList");
 	for (const auto& plugin : plugins) {

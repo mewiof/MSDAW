@@ -402,6 +402,10 @@ void Editor::DrawMeterCell(const char* id, const char* label, float fraction, fl
 	float scale = mContext.state.mainScale;
 	float barW = 46.0f * scale;
 	float lineH = ImGui::GetTextLineHeight();
+	// the menu bar aligns text to frame padding (BeginMenuBar calls AlignTextToFramePadding),
+	// so the label/value sit centered in the full frame height, not the bare text line. size
+	// and center the bar against that same height or it floats above the text
+	float frameH = ImGui::GetFrameHeight();
 	float barH = lineH * 0.66f;
 	ImU32 heatCol = th.HeatColor(heat);
 
@@ -411,11 +415,11 @@ void Editor::DrawMeterCell(const char* id, const char* label, float fraction, fl
 	// reserve the bar's footprint with an invisible item so layout advances and we
 	// get a hover rect for the tooltip, then paint the bar into that rect by hand
 	ImVec2 p = ImGui::GetCursorScreenPos();
-	ImGui::InvisibleButton(id, ImVec2(barW, lineH));
+	ImGui::InvisibleButton(id, ImVec2(barW, frameH));
 	bool hovered = ImGui::IsItemHovered();
 
 	ImDrawList* dl = ImGui::GetWindowDrawList();
-	float yOff = (lineH - barH) * 0.5f; // vertically center the bar on the text line
+	float yOff = (frameH - barH) * 0.5f; // center the bar in the frame-padded line so it lines up with the text
 	ImVec2 bmin(p.x, p.y + yOff);
 	ImVec2 bmax(p.x + barW, p.y + yOff + barH);
 	float rounding = 2.0f * scale;

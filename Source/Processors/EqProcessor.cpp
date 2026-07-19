@@ -294,12 +294,8 @@ float EqProcessor::GetMagnitudeForFreq(double freq) {
 }
 
 bool EqProcessor::RenderCustomUI(const ImVec2& size) {
-	const float leftPanelW = 90.0f;
-	const float rightPanelW = 90.0f;
-	const float graphH = size.y - 30.0f;
-	const float centerW = size.x - leftPanelW - rightPanelW;
-
-	if (centerW < 50.0f)
+	// too small to lay out meaningfully - fall back to the generic parameter list
+	if (size.x < 120.0f || size.y < 80.0f)
 		return false;
 
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -311,42 +307,23 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 
 	drawList->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), th.bgPanelAlt);
 
-	// left panel
-	ImGui::SetCursorScreenPos(ImVec2(p.x + 5, p.y + 10));
-	ImGui::BeginGroup();
+	// layout: a full-width graph on top, the band-tab strip, then one horizontal row of
+	// controls along the bottom. keeps the device short and wide (like a real EQ) instead
+	// of stacking tall knob columns down each side, which used to overflow the short rack
+	const float pad = 5.0f;
+	float knobH = ImGui::GetTextLineHeight() * 2.0f + ImGui::GetStyle().ItemInnerSpacing.y * 2.0f + 36.0f; // one KnobParameter tall (radius 18)
+	float ctrlH = knobH + 4.0f;
+	float tabsH = 28.0f;
+	float graphH = size.y - tabsH - ctrlH;
+	if (graphH < 40.0f)
+		graphH = 40.0f;
 
-	if (mSelectedBandIndex >= 0 && mSelectedBandIndex < kNumBands) {
-		auto& band = mBands[mSelectedBandIndex];
-
-		ImGui::PushID("L_Freq");
-		band.pFreq->Draw();
-		ImGui::PopID();
-
-		ImGui::Dummy(ImVec2(0, 10));
-
-		ImGui::PushID("L_Gain");
-		band.pGain->Draw();
-		ImGui::PopID();
-
-		ImGui::Dummy(ImVec2(0, 10));
-
-		ImGui::PushID("L_Q");
-		band.pQ->Draw();
-		ImGui::PopID();
-
-	} else {
-		ImGui::TextDisabled("None");
-	}
-	ImGui::EndGroup();
-
-	// center panel
-	float graphX = p.x + leftPanelW;
+	float graphX = p.x;
 	float graphY = p.y;
-	float graphW = centerW;
-	float tabsH = 30.0f;
-	float actualGraphH = size.y - tabsH;
+	float graphW = size.x;
 
-	drawList->AddRectFilled(ImVec2(graphX, graphY), ImVec2(graphX + graphW, graphY + actualGraphH), th.bgDeepest);
+	// ---- graph ----
+	drawList->AddRectFilled(ImVec2(graphX, graphY), ImVec2(graphX + graphW, graphY + graphH), th.bgDeepest);
 
 	float minFreq = 10.0f;
 	float maxFreq = 22000.0f;
@@ -356,18 +333,18 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 	const float freqPoints[] = {100, 1000, 10000};
 	for (float f : freqPoints) {
 		float x = graphX + (std::log10(f) - minLog) * scaleX;
-		drawList->AddLine(ImVec2(x, graphY), ImVec2(x, graphY + actualGraphH), th.border);
+		drawList->AddLine(ImVec2(x, graphY), ImVec2(x, graphY + graphH), th.border);
 		char buf[16];
 		if (f >= 1000)
 			snprintf(buf, 16, "%.0fk", f / 1000);
 		else
 			snprintf(buf, 16, "%.0f", f);
-		drawList->AddText(ImVec2(x + 2, graphY + actualGraphH - 12), th.textDim, buf);
+		drawList->AddText(ImVec2(x + 2, graphY + graphH - 12), th.textDim, buf);
 	}
 
 	float maxDb = 15.0f;
 	float rangeDb = 30.0f;
-	float scaleY = actualGraphH / rangeDb;
+	float scaleY = graphH / rangeDb;
 	float zeroY = graphY + (maxDb * scaleY);
 
 	drawList->AddLine(ImVec2(graphX, zeroY), ImVec2(graphX + graphW, zeroY), th.borderStrong);
@@ -382,7 +359,7 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 		float db = 20.0f * std::log10(mag);
 
 		float y = zeroY - (db * scaleY);
-		y = std::clamp(y, graphY, graphY + actualGraphH);
+		y = std::clamp(y, graphY, graphY + graphH);
 
 		ImVec2 curPos(graphX + x, y);
 		if (x > 0) {
@@ -393,7 +370,7 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 	}
 
 	ImGui::SetCursorScreenPos(ImVec2(graphX, graphY));
-	ImGui::InvisibleButton("GraphInteract", ImVec2(graphW, actualGraphH));
+	ImGui::InvisibleButton("GraphInteract", ImVec2(graphW, graphH));
 	bool graphHovered = ImGui::IsItemHovered();
 	bool mouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
 	ImVec2 mousePos = ImGui::GetMousePos();
@@ -401,9 +378,6 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 	if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && graphHovered) {
 		float bestDist = 20.0f;
 		int bestIdx = -1;
-
-		float mouseFreq = std::pow(10.0f, minLog + (mousePos.x - graphX) / scaleX);
-		float mouseDb = (zeroY - mousePos.y) / scaleY;
 
 		for (int i = 0; i < kNumBands; ++i) {
 			if (mBands[i].pActive->value < 0.5f)
@@ -465,8 +439,10 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 		}
 	}
 
+	// ---- band tabs ----
+	float tabsY = graphY + graphH;
 	float tabW = graphW / kNumBands;
-	ImGui::SetCursorScreenPos(ImVec2(graphX, graphY + actualGraphH));
+	ImGui::SetCursorScreenPos(ImVec2(graphX, tabsY));
 
 	for (int i = 0; i < kNumBands; ++i) {
 		ImGui::PushID(i);
@@ -519,36 +495,51 @@ bool EqProcessor::RenderCustomUI(const ImVec2& size) {
 		ImGui::PopID();
 	}
 
-	// right panel
-	ImGui::SetCursorScreenPos(ImVec2(graphX + graphW + 5, p.y + 5));
+	// ---- bottom control row ----
+	float ctrlY = tabsY + tabsH;
+
+	// selected-band + global knobs, left-aligned in one row
+	ImGui::SetCursorScreenPos(ImVec2(p.x + pad, ctrlY + 2.0f));
 	ImGui::BeginGroup();
-
-	const char* modes[] = {"Stereo", "L", "R", "M", "S"};
-	int curMode = (int)pMode->value;
-	ImGui::SetNextItemWidth(80);
-	if (ImGui::Combo("##Mode", &curMode, modes, 5)) {
-		pMode->value = (float)curMode;
+	if (mSelectedBandIndex >= 0 && mSelectedBandIndex < kNumBands) {
+		auto& band = mBands[mSelectedBandIndex];
+		ImGui::PushID("C_Freq");
+		band.pFreq->Draw();
+		ImGui::PopID();
+		ImGui::SameLine(0.0f, 10.0f);
+		ImGui::PushID("C_Gain");
+		band.pGain->Draw();
+		ImGui::PopID();
+		ImGui::SameLine(0.0f, 10.0f);
+		ImGui::PushID("C_Q");
+		band.pQ->Draw();
+		ImGui::PopID();
+		ImGui::SameLine(0.0f, 22.0f);
 	}
-
-	ImGui::Button("Edit A", ImVec2(80, 18));
-	ImGui::Dummy(ImVec2(0, 5));
-
-	bool adapt = pAdaptQ->value > 0.5f;
-	if (ImGui::Checkbox("Adapt. Q", &adapt))
-		pAdaptQ->value = adapt ? 1.0f : 0.0f;
-
-	ImGui::Dummy(ImVec2(0, 10));
-
-	ImGui::PushID("R_Scale");
+	ImGui::PushID("C_Scale");
 	pScale->Draw();
 	ImGui::PopID();
-
-	ImGui::Dummy(ImVec2(0, 10));
-
-	ImGui::PushID("R_Gain");
+	ImGui::SameLine(0.0f, 10.0f);
+	ImGui::PushID("C_Out");
 	pGlobalGain->Draw();
 	ImGui::PopID();
+	ImGui::EndGroup();
 
+	// output mode + adaptive-Q, pinned to the right edge of the row
+	float rightCellW = 84.0f;
+	ImGui::SetCursorScreenPos(ImVec2(p.x + size.x - rightCellW - pad, ctrlY + 6.0f));
+	ImGui::BeginGroup();
+	const char* modes[] = {"Stereo", "L", "R", "M", "S"};
+	int curMode = (int)pMode->value;
+	ImGui::SetNextItemWidth(rightCellW);
+	if (ImGui::Combo("##Mode", &curMode, modes, 5))
+		pMode->value = (float)curMode;
+
+	ImGui::Dummy(ImVec2(0, 6));
+
+	bool adapt = pAdaptQ->value > 0.5f;
+	if (ImGui::Checkbox("Adapt Q", &adapt))
+		pAdaptQ->value = adapt ? 1.0f : 0.0f;
 	ImGui::EndGroup();
 
 	ImGui::PopStyleVar(2);

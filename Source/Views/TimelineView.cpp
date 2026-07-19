@@ -514,16 +514,22 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 			float trackListX = pos.x + timelineWidth;
 			ImVec2 trackListFixedPos(trackListX, pos.y);
 
+			// the arrangement window's always-on vertical scrollbar occupies the far-right
+			// lane, directly over this column. inset the track-list content by its width so
+			// the volume/pan sliders, meters and buttons stay clear of it instead of tucking
+			// underneath (hScrollbarSize == ScrollbarSize, same value for both scrollbars)
+			float trackListContentW = trackListW - hScrollbarSize;
+
 			drawList->AddRectFilled(
 				ImVec2(trackListFixedPos.x, pos.y),
-				ImVec2(trackListFixedPos.x + trackListW, pos.y + height - hScrollbarSize),
+				ImVec2(trackListFixedPos.x + trackListContentW, pos.y + height - hScrollbarSize),
 				th.bgHeader);
 			drawList->AddLine(
 				ImVec2(trackListFixedPos.x, pos.y),
 				ImVec2(trackListFixedPos.x, pos.y + height - hScrollbarSize),
 				th.divider, 2.0f);
 
-			trackListView->Render(trackListFixedPos, trackListW, height, trackAreaStartY, stickyY, masterY);
+			trackListView->Render(trackListFixedPos, trackListContentW, height, trackAreaStartY, stickyY, masterY);
 		}
 	}
 	ImGui::End();

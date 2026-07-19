@@ -112,7 +112,10 @@ void Theme::ApplyImGuiStyle(float scale) const {
 
 	ImGuiStyle& style = ImGui::GetStyle();
 	style.ScaleAllSizes(scale);
-	style.WindowRounding = 4.0f;
+	// square windows: the panels are docked edge-to-edge, and rounded corners left
+	// wedge-shaped gaps of the app background where neighboring panels meet. popups and
+	// tooltips keep their own rounding (PopupRounding below)
+	style.WindowRounding = 0.0f;
 	style.FrameRounding = 3.0f;
 	style.GrabRounding = 2.0f;
 	style.ScrollbarRounding = 3.0f;

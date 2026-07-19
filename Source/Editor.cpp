@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <fstream>
 #include <cmath>
+#include <cstdio>
 
 #ifdef _WIN32
 #include <windows.h> // VK_ codes
@@ -383,6 +384,117 @@ void Editor::HandleGlobalShortcuts() {
 #endif
 }
 
+// ================================================================
+// RESOURCE METER HELPERS
+// ================================================================
+
+// map a 0..1 severity onto a green -> yellow -> red ramp. 0 is "all good", 1 is
+// "pegged". used to tint both the fill bar and the value text so the color tells
+// the story at a glance
+static ImU32 HeatColor(float t) {
+	t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+	const ImVec4 green(0.30f, 0.78f, 0.33f, 1.0f);
+	const ImVec4 yellow(0.92f, 0.76f, 0.16f, 1.0f);
+	const ImVec4 red(0.90f, 0.26f, 0.21f, 1.0f);
+
+	ImVec4 c;
+	if (t < 0.5f) {
+		float k = t / 0.5f;
+		c = ImVec4(green.x + (yellow.x - green.x) * k, green.y + (yellow.y - green.y) * k, green.z + (yellow.z - green.z) * k, 1.0f);
+	} else {
+		float k = (t - 0.5f) / 0.5f;
+		c = ImVec4(yellow.x + (red.x - yellow.x) * k, yellow.y + (red.y - yellow.y) * k, yellow.z + (red.z - yellow.z) * k, 1.0f);
+	}
+	return ImGui::ColorConvertFloat4ToU32(c);
+}
+
+// turn a raw metric into a 0..1 severity: <= good reads as fine, >= bad reads as
+// pegged, linear in between. HeatColor clamps, so returning out-of-range is fine
+static float MetricHeat(float value, float good, float bad) {
+	if (bad <= good)
+		return 0.0f;
+	return (value - good) / (bad - good);
+}
+
+void Editor::DrawMeterCell(const char* id, const char* label, float fraction, float heat, const char* valueText, const char* tooltip) {
+	float scale = mContext.state.mainScale;
+	float barW = 46.0f * scale;
+	float lineH = ImGui::GetTextLineHeight();
+	float barH = lineH * 0.66f;
+	ImU32 heatCol = HeatColor(heat);
+
+	ImGui::TextUnformatted(label);
+	ImGui::SameLine();
+
+	// reserve the bar's footprint with an invisible item so layout advances and we
+	// get a hover rect for the tooltip, then paint the bar into that rect by hand
+	ImVec2 p = ImGui::GetCursorScreenPos();
+	ImGui::InvisibleButton(id, ImVec2(barW, lineH));
+	bool hovered = ImGui::IsItemHovered();
+
+	ImDrawList* dl = ImGui::GetWindowDrawList();
+	float yOff = (lineH - barH) * 0.5f; // vertically center the bar on the text line
+	ImVec2 bmin(p.x, p.y + yOff);
+	ImVec2 bmax(p.x + barW, p.y + yOff + barH);
+	float rounding = 2.0f * scale;
+
+	float f = fraction < 0.0f ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
+	dl->AddRectFilled(bmin, bmax, IM_COL32(255, 255, 255, 25), rounding); // track
+	if (f > 0.005f) {
+		ImVec2 fmax(bmin.x + barW * f, bmax.y);
+		dl->AddRectFilled(bmin, fmax, heatCol, rounding); // fill
+	}
+	dl->AddRect(bmin, bmax, IM_COL32(255, 255, 255, 45), rounding); // frame
+
+	ImGui::SameLine();
+	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(heatCol), "%s", valueText);
+
+	if (hovered && tooltip && tooltip[0])
+		ImGui::SetTooltip("%s", tooltip);
+}
+
+void Editor::RenderResourceMeter() {
+	ImGuiStyle& style = ImGui::GetStyle();
+	float scale = mContext.state.mainScale;
+	float barW = 46.0f * scale;
+
+	float cpu = mSystemMonitor.GetCpuPercent();
+	float ramMB = mSystemMonitor.GetRamUsedMB();
+	float ramFrac = mSystemMonitor.GetRamFraction();
+
+	char cpuVal[32];
+	snprintf(cpuVal, sizeof(cpuVal), "%.0f%%", cpu);
+	char ramVal[32];
+	if (ramMB >= 1024.0f)
+		snprintf(ramVal, sizeof(ramVal), "%.2f GB", ramMB / 1024.0f);
+	else
+		snprintf(ramVal, sizeof(ramVal), "%.0f MB", ramMB);
+
+	// measure the whole widget so we can pin it to the right edge of the bar
+	float sp = style.ItemSpacing.x;
+	float cpuCellW = ImGui::CalcTextSize("CPU").x + sp + barW + sp + ImGui::CalcTextSize(cpuVal).x;
+	float ramCellW = ImGui::CalcTextSize("RAM").x + sp + barW + sp + ImGui::CalcTextSize(ramVal).x;
+	float totalW = cpuCellW + sp + ramCellW;
+
+	// right-align without fighting imgui's coordinate origins: stay on the menu
+	// line, then nudge the cursor so exactly totalW of space remains to the edge.
+	// if the window is too narrow we just leave it where the menus ended
+	ImGui::SameLine(0.0f, 0.0f);
+	float remaining = ImGui::GetContentRegionAvail().x;
+	if (remaining > totalW + sp)
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (remaining - totalW - sp));
+
+	char cpuTip[192];
+	snprintf(cpuTip, sizeof(cpuTip), "CPU: %.0f%% of total capacity\nMSDAW process across %d logical processors", cpu, mSystemMonitor.GetProcessorCount());
+	char ramTip[224];
+	snprintf(ramTip, sizeof(ramTip), "RAM: %s working set\n%.1f%% of %.1f GB physical\nSystem memory load: %.0f%%",
+			 ramVal, ramFrac * 100.0f, mSystemMonitor.GetTotalRamMB() / 1024.0f, mSystemMonitor.GetSystemRamLoad());
+
+	DrawMeterCell("##cpuMeter", "CPU", cpu / 100.0f, MetricHeat(cpu, 40.0f, 85.0f), cpuVal, cpuTip);
+	ImGui::SameLine();
+	DrawMeterCell("##ramMeter", "RAM", ramFrac, MetricHeat(ramFrac * 100.0f, 40.0f, 80.0f), ramVal, ramTip);
+}
+
 void Editor::RenderMenuBar() {
 	if (ImGui::BeginMainMenuBar()) {
 		if (ImGui::BeginMenu("File")) {
@@ -423,6 +535,10 @@ void Editor::RenderMenuBar() {
 			}
 			ImGui::EndMenu();
 		}
+
+		// live cpu/ram readout, pinned to the far right of the bar
+		RenderResourceMeter();
+
 		ImGui::EndMainMenuBar();
 	}
 }
@@ -747,6 +863,8 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 	if (Project* p = GetProject()) {
 		p->SetSelectedTrack(mContext.state.selectedTrackIndex);
 	}
+
+	mSystemMonitor.Update(); // refresh cpu/ram for the menu-bar meter (self-throttled)
 
 	HandleGlobalShortcuts();
 	ProcessComputerKeyboardMIDI();

@@ -8,6 +8,7 @@
 #include "Views/DeviceRackView.h"
 #include "Views/ClipView.h"
 #include "Views/PianoRollView.h"
+#include "SystemMonitor.h"
 #include <memory>
 #include <string>
 
@@ -55,6 +56,8 @@ public:
 	void PerformRedo();
 private:
 	void RenderMenuBar();
+	void RenderResourceMeter(); // cpu/ram readout pinned to the top-right of the menu bar
+	void DrawMeterCell(const char* id, const char* label, float fraction, float heat, const char* valueText, const char* tooltip);
 	void RenderSettingsWindow();
 	void RenderHistoryWindow();
 	void ProcessComputerKeyboardMIDI(); // imgui input
@@ -76,4 +79,7 @@ private:
 	// state
 	std::string mCurrentProjectPath;
 	int mActiveBottomTab = 0; // 0 - devices, 1 - clips
+
+	// live cpu/ram sampling for the menu-bar resource meter
+	SystemMonitor mSystemMonitor;
 };

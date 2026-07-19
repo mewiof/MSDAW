@@ -48,8 +48,15 @@ public:
 	// setup
 	virtual void PrepareToPlay(double sampleRate) = 0;
 
-	// reset state
+	// reset state: a hard panic that also clears reverb/delay tails and internal buffers.
+	// used on transport stop and seek, where a clean restart is wanted
 	virtual void Reset() {}
+
+	// release any sounding notes but leave effect tails ringing. this is a MIDI all-notes-off
+	// (release), never an all-sound-off, so a synth's own reverb/delay keeps decaying across the
+	// event. used on loop wrap so a looped region's ambience is seamless. base no-op: plain
+	// effects hold no notes and must not be touched here
+	virtual void AllNotesOff() {}
 
 	// process block
 	virtual void Process(float* buffer, int numFrames, int numChannels,

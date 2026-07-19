@@ -106,6 +106,15 @@ void SimpleSynth::NoteOff(int note) {
 	}
 }
 
+void SimpleSynth::AllNotesOff() {
+	// release every sounding voice into its normal amp-release rather than hard-killing
+	// it (as Reset does), so a loop wrap ends notes smoothly instead of clicking
+	for (auto& v : mVoices) {
+		if (v.active)
+			v.isReleased = true;
+	}
+}
+
 float SimpleSynth::GetSample(SynthVoice& voice) {
 	float osc = (float)(2.0 * voice.phase - 1.0);
 	osc *= pGain->value * 0.2f;

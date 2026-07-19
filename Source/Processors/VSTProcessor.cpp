@@ -236,12 +236,22 @@ void VSTProcessor::Suspend() {
 }
 
 void VSTProcessor::Reset() {
+	// stop/seek: hard panic, also cut any reverb/delay tails for a clean restart
+	SendMIDIPanic(true);
+}
+
+void VSTProcessor::AllNotesOff() {
+	// loop wrap: release held notes but let the plugin's own reverb/delay keep ringing
+	SendMIDIPanic(false);
+}
+
+void VSTProcessor::SendMIDIPanic(bool allSoundOff) {
 	if (!mAEffect)
 		return;
 
 	// calculate space needed for panic ccs + note offs for stuck notes
 	const int kNumChannels = 16;
-	const int kPanicEventsPerChannel = 2; // cc 123, cc 120
+	const int kPanicEventsPerChannel = allSoundOff ? 2 : 1; // cc 123 (+ cc 120 on hard panic)
 	size_t activeNoteCount = 0;
 	for (int i = 0; i < kNumChannels; ++i) {
 		activeNoteCount += mActiveMIDINotes[i].size();
@@ -305,8 +315,9 @@ void VSTProcessor::Reset() {
 			vSTEvents->events[eventIdx] = (VstEvent*)e;
 			eventIdx++;
 		}
-		// cc 120 (all sound off)
-		{
+		// cc 120 (all sound off) -- only on a hard panic; skipped on loop wrap so the
+		// plugin's reverb/delay tails ring on across the loop point
+		if (allSoundOff) {
 			VstMidiEvent* e = (VstMidiEvent*)(eventDataStart + eventIdx * sizeof(VstMidiEvent));
 			memset(e, 0, sizeof(VstMidiEvent));
 			e->type = kVstMidiType;

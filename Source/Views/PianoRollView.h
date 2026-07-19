@@ -1,6 +1,7 @@
 #pragma once
 #include "EditorContext.h"
 #include "Clips/MIDIClip.h"
+#include "Parameters/SliderParameter.h"
 #include "imgui.h"
 #include <vector>
 #include <map>
@@ -16,10 +17,21 @@ struct NoteDragState {
 class PianoRollView {
 public:
 	PianoRollView(EditorContext& context)
-		: mContext(context) {}
+		: mContext(context) {
+		// per-clip snap grid edited through the same custom parameter widget as the
+		// timeline grid; re-seeded from the edited clip each time it changes
+		mGridNumParam = std::make_unique<SliderParameter>("Grid Num", 1.0f, 1.0f, 64.0f);
+		mGridDenParam = std::make_unique<SliderParameter>("Grid Den", 4.0f, 1.0f, 128.0f);
+	}
 	void Render();
 private:
 	EditorContext& mContext;
+
+	// numerator/denominator widgets for the piano-roll snap grid. the edited clip owns
+	// the value, so these are re-seeded whenever mLastGridClip stops matching it
+	std::unique_ptr<SliderParameter> mGridNumParam;
+	std::unique_ptr<SliderParameter> mGridDenParam;
+	std::weak_ptr<Clip> mLastGridClip;
 
 	// selection state
 	std::vector<int> mSelectedIndices;

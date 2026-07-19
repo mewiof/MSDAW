@@ -614,6 +614,16 @@ void VST3Processor::Reset() {
 	mNeedsFlush = true;
 }
 
+void VST3Processor::AllNotesOff() {
+	if (!mComponent)
+		return;
+
+	// the flush already emits per-note note-offs + all-notes-off (cc 123) and never an
+	// all-sound-off, so it inherently preserves reverb/delay tails -- exactly what a loop
+	// wrap wants. same path as Reset for VST3
+	mNeedsFlush = true;
+}
+
 void VST3Processor::SyncParametersToController(int numFrames) {
 	if (!mController)
 		return;

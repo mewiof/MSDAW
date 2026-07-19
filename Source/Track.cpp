@@ -82,11 +82,14 @@ void Track::Reset() {
 	mPeakR.store(0.0f);
 }
 void Track::AllNotesOff() {
-	// only instruments hold MIDI notes; their Reset() is a pure note-off/panic. effects
-	// clear filter/delay/reverb buffers in Reset(), so skip them to keep tails ringing
+	// only instruments hold MIDI notes, so only they need flushing on a loop wrap. use
+	// AllNotesOff (a note release), NOT Reset: Reset is a hard panic that also cuts a
+	// synth's own reverb/delay tail (VST2 sends cc 120 all-sound-off; built-in effects
+	// clear their buffers), which would break a looped region's ambience. effects are
+	// skipped entirely so their tails ring on across the loop point
 	for (auto& proc : mProcessors) {
 		if (proc->IsInstrument())
-			proc->Reset();
+			proc->AllNotesOff();
 	}
 }
 void Track::ClearAccumulator() {

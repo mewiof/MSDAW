@@ -171,30 +171,31 @@ void PianoRollView::Render() {
 	ImGui::SameLine();
 	ImGui::Dummy(ImVec2(10 * scale, 0));
 	ImGui::SameLine();
+	ImGui::AlignTextToFramePadding();
 	ImGui::Text("Grid");
 	ImGui::SameLine();
 
-	int clipNum = mIDIClip->GetGridNumerator();
-	int clipDen = mIDIClip->GetGridDenominator();
-	bool gridChanged = false;
+	// per-clip snap grid, edited with the same custom parameter widget as the timeline
+	// grid (drag / type-to-enter / click-away deselect) instead of a bare DragInt. the
+	// clip owns the value, so re-seed the widgets whenever the edited clip changes
+	auto gridClip = std::static_pointer_cast<Clip>(midiClipShared);
+	if (mLastGridClip.expired() || mLastGridClip.lock() != gridClip) {
+		mGridNumParam->value = (float)mIDIClip->GetGridNumerator();
+		mGridDenParam->value = (float)mIDIClip->GetGridDenominator();
+		mLastGridClip = gridClip;
+	}
 
-	ImGui::SetNextItemWidth(30 * scale);
-	if (ImGui::DragInt("##PRGridNum", &clipNum, 0.2f, 1, 64))
-		gridChanged = true;
+	mGridNumParam->DrawCompact(30 * scale, "%.0f");
 	ImGui::SameLine();
+	ImGui::AlignTextToFramePadding();
 	ImGui::Text("/");
 	ImGui::SameLine();
-	ImGui::SetNextItemWidth(30 * scale);
-	if (ImGui::DragInt("##PRGridDen", &clipDen, 0.2f, 1, 128))
-		gridChanged = true;
+	mGridDenParam->DrawCompact(30 * scale, "%.0f");
 
-	if (gridChanged) {
-		if (clipNum < 1)
-			clipNum = 1;
-		if (clipDen < 1)
-			clipDen = 1;
-		mIDIClip->SetGrid(clipNum, clipDen);
-	}
+	// the clip is the source of truth; write the (integer) widget values back each frame
+	int clipNum = std::max(1, (int)std::lround(mGridNumParam->value));
+	int clipDen = std::max(1, (int)std::lround(mGridDenParam->value));
+	mIDIClip->SetGrid(clipNum, clipDen);
 
 	double snapGrid = (double)clipNum / (double)clipDen;
 	if (snapGrid <= 0.0)

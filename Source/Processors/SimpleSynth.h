@@ -27,6 +27,7 @@ public:
 	void PrepareToPlay(double sampleRate) override;
 
 	void Reset() override;
+	void AllNotesOff() override;
 
 	void Process(float* buffer, int numFrames, int numChannels,
 				 std::vector<MIDIMessage>& mIDIMessages,

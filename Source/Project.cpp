@@ -480,10 +480,20 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 		int framesProcessed = 0;
 		while (framesProcessed < numFrames) {
 			int64_t pos = mTransport.GetPosition();
+			bool wrapped = false;
 
 			if (pos >= loopEnd) { // immediate wrap
 				pos = loopStart;
 				mTransport.SetPosition(pos);
+				wrapped = true;
+
+				// a note held across the loop end has its note-off past loopEnd, which we jump
+				// away from, so it would stick. flush held notes on the wrap (notes only, to
+				// keep effect delay/reverb tails ringing seamlessly across the loop point)
+				for (auto& track : mTracks)
+					track->AllNotesOff();
+				if (mMasterTrack)
+					mMasterTrack->AllNotesOff();
 			}
 
 			int64_t framesUntilLoopEnd = loopEnd - pos;
@@ -497,8 +507,9 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 			context.currentSample = pos;
 			context.bpm = mTransport.GetBpm();
 			context.isPlaying = isPlaying;
-			// only the first chunk begins at the jumped-to position; later chunks continue contiguously
-			context.playheadJumped = (framesProcessed == 0) ? playheadJumped : false;
+			// a wrapped chunk restarts at the loop start, and the very first chunk begins at a
+			// jumped-to position; both are jumps that should chase onsets rounding just before them
+			context.playheadJumped = wrapped || (framesProcessed == 0 && playheadJumped);
 
 			float* outPtr = outputBuffer + (framesProcessed * numChannels); // offset output
 			// mIDI frame timing warning: splitting MIDI during wrap is complex

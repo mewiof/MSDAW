@@ -63,6 +63,10 @@ public:
 	// reset all processors (silence audio)
 	void Reset();
 
+	// send note-offs to held instrument notes without disturbing effect DSP state, so it is
+	// safe to call mid-playback (e.g. at a loop wrap) without cutting delay/reverb tails
+	void AllNotesOff();
+
 	// clear internal buffer (used for group mixing)
 	void ClearAccumulator();
 	// add audio from a child track into this track

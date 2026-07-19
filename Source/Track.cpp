@@ -80,6 +80,14 @@ void Track::Reset() {
 	mPeakL.store(0.0f);
 	mPeakR.store(0.0f);
 }
+void Track::AllNotesOff() {
+	// only instruments hold MIDI notes; their Reset() is a pure note-off/panic. effects
+	// clear filter/delay/reverb buffers in Reset(), so skip them to keep tails ringing
+	for (auto& proc : mProcessors) {
+		if (proc->IsInstrument())
+			proc->Reset();
+	}
+}
 void Track::ClearAccumulator() {
 	std::fill(mInputAccumulator.begin(), mInputAccumulator.end(), 0.0f);
 }

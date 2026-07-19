@@ -654,6 +654,19 @@ void PianoRollView::Render() {
 	}
 	ImGui::EndChild();
 
+	// notes currently under the playhead during playback: their keys light up
+	// like they're being pressed. reads the note vector (no mutation) same as the
+	// grid render above, so no project lock is needed
+	std::set<int> playingNotes;
+	if (transport && transport->IsPlaying()) {
+		double currentBeat = (double)transport->GetPosition() / transport->GetSampleRate() * (transport->GetBpm() / 60.0);
+		double relBeat = currentBeat - mIDIClip->GetStartBeat();
+		for (const auto& n : notes) {
+			if (relBeat >= n.startBeat && relBeat < n.startBeat + n.durationBeats)
+				playingNotes.insert(n.noteNumber);
+		}
+	}
+
 	// =====================================================================
 	// piano keys column (frozen in X, y-synced) -- click to preview
 	// =====================================================================
@@ -671,8 +684,9 @@ void PianoRollView::Render() {
 			bool black = IsBlackKey(noteNum);
 			bool preview = (mLastPreviewNote == noteNum);
 			bool computerKey = (mContext.state.activeMIDINotes.find(noteNum) != mContext.state.activeMIDINotes.end());
+			bool playing = (playingNotes.find(noteNum) != playingNotes.end());
 
-			ImU32 keyColor = (preview || computerKey) ? th.keyPressed : (black ? th.keyBlack : th.keyWhite);
+			ImU32 keyColor = (preview || computerKey || playing) ? th.keyPressed : (black ? th.keyBlack : th.keyWhite);
 			dl->AddRectFilled(ImVec2(kp.x, y), ImVec2(kp.x + KEY_WIDTH, y + NOTE_HEIGHT), keyColor);
 			dl->AddRect(ImVec2(kp.x, y), ImVec2(kp.x + KEY_WIDTH, y + NOTE_HEIGHT), Theme::WithAlpha(th.divider, 100));
 			if (noteNum % 12 == 0) {

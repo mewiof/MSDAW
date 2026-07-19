@@ -24,6 +24,11 @@ struct ProcessContext {
 	bool isPlaying = false;
 	double timeSigNumerator = 4.0;
 	double timeSigDenominator = 4.0;
+	// true only on a block whose start is a fresh (re)start or seek of the playhead;
+	// lets the sequencer chase note onsets that round to just before the block start so
+	// a note lined up with the playhead still fires. must stay false during contiguous
+	// playback, or notes landing on a block boundary would double-trigger
+	bool playheadJumped = false;
 };
 
 // base class for audio processors

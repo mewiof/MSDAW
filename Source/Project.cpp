@@ -415,6 +415,7 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 	// so any mismatch with the previous block's end is a seek (loop wraps and tempo
 	// re-derivation happen inside a block, so they don't trip this)
 	bool stopped = mWasPlaying && !isPlaying;
+	bool startedPlaying = !mWasPlaying && isPlaying;
 	bool seeked = isPlaying && mLastBlockEndSample >= 0 && blockStartSample != mLastBlockEndSample;
 	if (stopped || seeked) {
 		for (auto& track : mTracks)
@@ -423,6 +424,11 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 			mMasterTrack->Reset();
 	}
 	mWasPlaying = isPlaying;
+
+	// beat->sample rounding can place the playhead a sample or two past a note's computed
+	// onset, so a note lined up with the playhead would be dropped by the exact window test.
+	// on the block where we just started or jumped, tell the sequencer to chase those onsets
+	bool playheadJumped = startedPlaying || seeked;
 
 	if (mMasterTrack) {
 		if (auto bpmParam = mMasterTrack->GetBpmParameter()) {
@@ -464,6 +470,7 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 			context.currentSample = mTransport.GetPosition();
 			context.bpm = mTransport.GetBpm();
 			context.isPlaying = isPlaying;
+			context.playheadJumped = playheadJumped;
 			ProcessAudioGraph(outputBuffer, numFrames, numChannels, context, liveMIDIEvents, anySolo);
 			mTransport.Advance(numFrames);
 			mLastBlockEndSample = mTransport.GetPosition();
@@ -490,6 +497,8 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 			context.currentSample = pos;
 			context.bpm = mTransport.GetBpm();
 			context.isPlaying = isPlaying;
+			// only the first chunk begins at the jumped-to position; later chunks continue contiguously
+			context.playheadJumped = (framesProcessed == 0) ? playheadJumped : false;
 
 			float* outPtr = outputBuffer + (framesProcessed * numChannels); // offset output
 			// mIDI frame timing warning: splitting MIDI during wrap is complex
@@ -505,6 +514,7 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 		context.currentSample = mTransport.GetPosition();
 		context.bpm = mTransport.GetBpm();
 		context.isPlaying = isPlaying;
+		context.playheadJumped = playheadJumped;
 
 		ProcessAudioGraph(outputBuffer, numFrames, numChannels, context, liveMIDIEvents, anySolo);
 		mTransport.Advance(numFrames);
@@ -601,6 +611,7 @@ bool Project::RenderAudio(const std::string& path, double startBeat, double endB
 		}
 	}
 
+	bool firstRenderBlock = true;
 	while (framesRemaining > 0) {
 		int framesToDo = (framesRemaining > blockSize) ? blockSize : (int)framesRemaining;
 
@@ -609,6 +620,9 @@ bool Project::RenderAudio(const std::string& path, double startBeat, double endB
 		context.currentSample = mTransport.GetPosition();
 		context.bpm = mTransport.GetBpm();
 		context.isPlaying = true;
+		// the export begins at startFrame; chase onsets that round to just before it
+		context.playheadJumped = firstRenderBlock;
+		firstRenderBlock = false;
 
 		std::fill(blockBuffer.begin(), blockBuffer.end(), 0.0f);
 		ProcessAudioGraph(blockBuffer.data(), framesToDo, 2, context, emptyMIDI, anySolo);

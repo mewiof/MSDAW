@@ -174,12 +174,25 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 					int64_t noteOnAbs = clipStartSample + (int64_t)(adjustedStart * samplesPerBeat);
 					int64_t noteOffAbs = noteOnAbs + (int64_t)(note.durationBeats * samplesPerBeat);
 
-					if (noteOnAbs >= trackStartSample && noteOnAbs < trackEndSample) {
+					// clip start and note onset are truncated to samples separately, and the
+					// playhead is converted through a different beat->sample path, so a note
+					// lined up with the playhead can land a sample or two before the block start.
+					// on a fresh start/seek, chase such onsets (but only while the note is still
+					// sounding, so a fully-past note is never turned on without a matching off)
+					const int64_t kOnsetChaseSlopSamples = 4;
+					bool fireOn;
+					if (context.playheadJumped)
+						fireOn = noteOnAbs >= trackStartSample - kOnsetChaseSlopSamples && noteOnAbs < trackEndSample && noteOffAbs > trackStartSample;
+					else
+						fireOn = noteOnAbs >= trackStartSample && noteOnAbs < trackEndSample;
+
+					if (fireOn) {
 						MIDIMessage msg;
 						msg.status = 0x90;
 						msg.data1 = (uint8_t)note.noteNumber;
 						msg.data2 = (uint8_t)note.velocity;
-						msg.frameIndex = (int)(noteOnAbs - trackStartSample);
+						int64_t onFrame = noteOnAbs - trackStartSample;
+						msg.frameIndex = (int)(onFrame > 0 ? onFrame : 0); // clamp a chased onset to the block start
 						mIDIMessages.push_back(msg);
 					}
 					if (noteOffAbs >= trackStartSample && noteOffAbs < trackEndSample) {

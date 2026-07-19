@@ -219,34 +219,9 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 			if (audioClip) {
 				const auto& samples = audioClip->GetSamples();
 				int clipChannels = audioClip->GetNumChannels();
-				double clipSR = audioClip->GetSampleRate();
-				if (clipSR <= 0.0)
-					clipSR = 44100.0;
 
-				// sample rate ratio
-				double baseSpeed = clipSR / context.sampleRate;
-				double playbackRate = baseSpeed;
-
-				// warping logic
-				if (audioClip->IsWarpingEnabled()) {
-					double projectBpm = context.bpm;
-					double clipBpm = audioClip->GetSegmentBpm();
-					if (clipBpm <= 0.1)
-						clipBpm = 120.0;
-
-					double warpRatio = projectBpm / clipBpm;
-					playbackRate *= warpRatio;
-				}
-
-				// transposition
-				double semis = audioClip->GetTransposeSemitones();
-				double cents = audioClip->GetTransposeCents();
-				double totalSemis = semis + (cents / 100.0);
-
-				if (std::abs(totalSemis) > 0.001) {
-					double pitchRatio = std::pow(2.0, totalSemis / 12.0);
-					playbackRate *= pitchRatio;
-				}
+				// resample + warp + pitch, all decided in one place (shared with the waveform preview)
+				double playbackRate = audioClip->ComputePlaybackRate(context.sampleRate, context.bpm);
 
 				// calculate playback position
 				int64_t overlapStart = max(trackStartSample, clipStartSample);

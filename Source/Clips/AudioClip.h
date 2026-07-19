@@ -12,6 +12,19 @@ enum class WarpMode {
 	ComplexPro
 };
 
+// snapshot of everything a warp/pitch edit can touch, including the geometry the
+// edit clamps as a side effect (duration/offset), so one edit undoes as one step.
+// used both as the undo payload and as the "before" grabbed when a drag begins
+struct AudioClipWarpState {
+	bool warpingEnabled = false;
+	WarpMode warpMode = WarpMode::Beats;
+	double segmentBpm = 120.0;
+	double transposeSemitones = 0.0;
+	double transposeCents = 0.0;
+	double duration = 4.0; // clamping is part of the edit, so it rides along
+	double offset = 0.0;
+};
+
 class AudioClip : public Clip {
 public:
 	AudioClip();
@@ -49,6 +62,16 @@ public:
 	double GetMaxDurationInBeats(double projectBpm) const;
 	// clamps duration to file end based on project bpm
 	void ValidateDuration(double projectBpm);
+
+	// source frames advanced per output sample: base resample (file->device) times
+	// the warp stretch (project/segment bpm, only when warped) times the pitch factor.
+	// the single place playback speed is decided, so the waveform preview and the
+	// audio thread never drift; a future time-stretcher would branch off this
+	double ComputePlaybackRate(double deviceSampleRate, double projectBpm) const;
+
+	// warp/pitch state snapshot for undo and for grabbing a drag's "before"
+	AudioClipWarpState CaptureWarpState() const;
+	void ApplyWarpState(const AudioClipWarpState& state);
 
 	void Save(std::ostream& out) override;
 	void Load(std::istream& in) override;

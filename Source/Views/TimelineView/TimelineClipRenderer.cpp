@@ -363,18 +363,8 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 				projectBpm = project->GetTransport().GetBpm();
 				if (projectSR == 0.0)
 					projectSR = 48000.0;
-				double clipSR = audioClip->GetSampleRate();
-				playbackRate = clipSR / projectSR;
-				if (audioClip->IsWarpingEnabled()) {
-					double clipBpm = audioClip->GetSegmentBpm();
-					if (clipBpm < 0.1)
-						clipBpm = 120.0;
-					playbackRate *= (projectBpm / clipBpm);
-				}
-				double totalSemis = audioClip->GetTransposeSemitones() + (audioClip->GetTransposeCents() / 100.0);
-				if (std::abs(totalSemis) > 0.001) {
-					playbackRate *= std::pow(2.0, totalSemis / 12.0);
-				}
+				// same rate the audio thread uses, so the drawn waveform density matches playback
+				playbackRate = audioClip->ComputePlaybackRate(projectSR, projectBpm);
 			}
 
 			// calculate density

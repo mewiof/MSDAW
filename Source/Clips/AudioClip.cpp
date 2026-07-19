@@ -215,6 +215,50 @@ void AudioClip::ValidateDuration(double projectBpm) {
 	}
 }
 
+double AudioClip::ComputePlaybackRate(double deviceSampleRate, double projectBpm) const {
+	double clipSR = (mSampleRate > 0.0) ? mSampleRate : 44100.0;
+	double device = (deviceSampleRate > 0.0) ? deviceSampleRate : 48000.0;
+
+	// base resample: play the file's samples at the device rate
+	double rate = clipSR / device;
+
+	// warp: stretch so the file's own tempo (segment bpm) lands on the project tempo
+	if (mWarpingEnabled) {
+		double seg = (mSegmentBpm > 0.1) ? mSegmentBpm : 120.0;
+		rate *= projectBpm / seg;
+	}
+
+	// pitch: resampling changes pitch, so transpose is just a further rate scale
+	double totalSemis = mTransposeSemitones + (mTransposeCents / 100.0);
+	if (std::abs(totalSemis) > 0.001) {
+		rate *= std::pow(2.0, totalSemis / 12.0);
+	}
+
+	return rate;
+}
+
+AudioClipWarpState AudioClip::CaptureWarpState() const {
+	AudioClipWarpState s;
+	s.warpingEnabled = mWarpingEnabled;
+	s.warpMode = mWarpMode;
+	s.segmentBpm = mSegmentBpm;
+	s.transposeSemitones = mTransposeSemitones;
+	s.transposeCents = mTransposeCents;
+	s.duration = mDuration;
+	s.offset = mOffset;
+	return s;
+}
+
+void AudioClip::ApplyWarpState(const AudioClipWarpState& state) {
+	mWarpingEnabled = state.warpingEnabled;
+	mWarpMode = state.warpMode;
+	mSegmentBpm = state.segmentBpm;
+	mTransposeSemitones = state.transposeSemitones;
+	mTransposeCents = state.transposeCents;
+	mDuration = state.duration;
+	mOffset = state.offset;
+}
+
 void AudioClip::Save(std::ostream& out) {
 	Clip::Save(out); // saves offset
 	out << "PATH \"" << mFilePath << "\"\n";

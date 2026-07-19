@@ -2,8 +2,11 @@
 #include "ClipView.h"
 #include "Clips/AudioClip.h"
 #include "Clips/MIDIClip.h"
+#include "Undo/Actions.h"
 #include <string>
 #include <algorithm>
+#include <memory>
+#include <mutex>
 
 void ClipView::Render(const ImVec2& pos, float width, float height) {
 	ImVec2 defaultPadding = ImGui::GetStyle().WindowPadding;
@@ -38,6 +41,41 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 	ImGui::Separator();
 
 	if (auto ac = std::dynamic_pointer_cast<AudioClip>(clip)) {
+		Project* project = mContext.GetProject();
+		double projectBpm = project ? project->GetTransport().GetBpm() : 120.0;
+
+		// all warp/pitch fields are read by the audio thread, so every mutation runs
+		// under the project lock; the undo step records the before -> current diff
+		auto locked = [&](auto&& fn) {
+			if (project) {
+				std::lock_guard<std::mutex> lock(project->GetMutex());
+				fn();
+			} else {
+				fn();
+			}
+		};
+		auto pushUndo = [&](const AudioClipWarpState& before, const char* name) {
+			if (project)
+				mContext.undoManager.Push(std::make_unique<AudioClipWarpAction>(project, ac, before, ac->CaptureWarpState(), name));
+		};
+		// drag widgets fire every frame; snapshot on activation, commit one step on release
+		auto beginDrag = [&]() {
+			if (ImGui::IsItemActivated()) {
+				mWarpGestureBefore = ac->CaptureWarpState();
+				mWarpGestureClip = ac;
+				mWarpGestureActive = true;
+			}
+		};
+		auto endDrag = [&](const char* name) {
+			if (ImGui::IsItemDeactivatedAfterEdit() && mWarpGestureActive && mWarpGestureClip == ac) {
+				pushUndo(mWarpGestureBefore, name);
+			}
+			if (ImGui::IsItemDeactivated()) {
+				mWarpGestureActive = false;
+				mWarpGestureClip.reset();
+			}
+		};
+
 		// audio clip controls
 		ImGui::Columns(3, "AudioClipCols", false);
 
@@ -48,7 +86,17 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 
 			bool warping = ac->IsWarpingEnabled();
 			if (ImGui::Checkbox("Warp", &warping)) {
-				ac->SetWarpingEnabled(warping);
+				AudioClipWarpState before = ac->CaptureWarpState();
+				locked([&]() {
+					ac->SetWarpingEnabled(warping);
+					// enabling warp anchors the clip to the grid at the current tempo:
+					// segment bpm := project bpm makes the warp ratio exactly 1, so there
+					// is no speed/pitch jump at that instant
+					if (warping)
+						ac->SetSegmentBpm(projectBpm);
+					ac->ValidateDuration(projectBpm);
+				});
+				pushUndo(before, warping ? "Enable warp" : "Disable warp");
 			}
 
 			if (warping) {
@@ -56,16 +104,47 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 				int currentMode = (int)ac->GetWarpMode();
 				ImGui::SetNextItemWidth(100);
 				if (ImGui::Combo("Mode", &currentMode, warpModes, IM_ARRAYSIZE(warpModes))) {
-					if (currentMode >= 0 && currentMode <= 5)
-						ac->SetWarpMode((WarpMode)currentMode);
+					if (currentMode >= 0 && currentMode <= 5) {
+						AudioClipWarpState before = ac->CaptureWarpState();
+						locked([&]() { ac->SetWarpMode((WarpMode)currentMode); });
+						pushUndo(before, "Change warp mode");
+					}
 				}
 
 				double bpm = ac->GetSegmentBpm();
 				float fBpm = (float)bpm;
 				ImGui::SetNextItemWidth(100);
-				if (ImGui::DragFloat("Seg. BPM", &fBpm, 0.1f, 20.0f, 999.0f, "%.2f")) {
-					ac->SetSegmentBpm((double)fBpm);
+				bool bpmEdited = ImGui::DragFloat("Seg. BPM", &fBpm, 0.1f, 20.0f, 999.0f, "%.2f");
+				beginDrag();
+				if (bpmEdited) {
+					locked([&]() {
+						ac->SetSegmentBpm((double)fBpm);
+						ac->ValidateDuration(projectBpm);
+					});
 				}
+				endDrag("Set clip BPM");
+
+				// half/double-time: the usual fix when the detected tempo is an octave off
+				if (ImGui::SmallButton("/2")) {
+					AudioClipWarpState before = ac->CaptureWarpState();
+					locked([&]() {
+						ac->SetSegmentBpm(ac->GetSegmentBpm() * 0.5);
+						ac->ValidateDuration(projectBpm);
+					});
+					pushUndo(before, "Halve clip BPM");
+				}
+				ImGui::SameLine();
+				if (ImGui::SmallButton("x2")) {
+					AudioClipWarpState before = ac->CaptureWarpState();
+					locked([&]() {
+						ac->SetSegmentBpm(ac->GetSegmentBpm() * 2.0);
+						ac->ValidateDuration(projectBpm);
+					});
+					pushUndo(before, "Double clip BPM");
+				}
+
+				// honest note: every mode resamples, so tempo changes shift pitch (Re-Pitch)
+				ImGui::TextDisabled("(all modes: Re-Pitch)");
 			} else {
 				ImGui::TextDisabled("Warping Disabled");
 				ImGui::TextDisabled("Audio plays at native speed");
@@ -81,21 +160,38 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 			double semi = ac->GetTransposeSemitones();
 			float fSemi = (float)semi;
 			ImGui::SetNextItemWidth(100);
-			if (ImGui::DragFloat("Semitones", &fSemi, 0.1f, -48.0f, 48.0f, "%.0f st")) {
-				ac->SetTransposeSemitones((double)fSemi);
+			bool semiEdited = ImGui::DragFloat("Semitones", &fSemi, 0.1f, -48.0f, 48.0f, "%.0f st");
+			beginDrag();
+			if (semiEdited) {
+				locked([&]() {
+					ac->SetTransposeSemitones((double)fSemi);
+					ac->ValidateDuration(projectBpm);
+				});
 			}
+			endDrag("Transpose clip");
 
 			double cents = ac->GetTransposeCents();
 			float fCents = (float)cents;
 			ImGui::SetNextItemWidth(100);
-			if (ImGui::DragFloat("Detune", &fCents, 0.1f, -100.0f, 100.0f, "%.0f ct")) {
-				ac->SetTransposeCents((double)fCents);
+			bool centsEdited = ImGui::DragFloat("Detune", &fCents, 0.1f, -100.0f, 100.0f, "%.0f ct");
+			beginDrag();
+			if (centsEdited) {
+				locked([&]() {
+					ac->SetTransposeCents((double)fCents);
+					ac->ValidateDuration(projectBpm);
+				});
 			}
+			endDrag("Transpose clip");
 
 			// add a helper reset button
 			if (ImGui::Button("Reset Pitch")) {
-				ac->SetTransposeSemitones(0.0);
-				ac->SetTransposeCents(0.0);
+				AudioClipWarpState before = ac->CaptureWarpState();
+				locked([&]() {
+					ac->SetTransposeSemitones(0.0);
+					ac->SetTransposeCents(0.0);
+					ac->ValidateDuration(projectBpm);
+				});
+				pushUndo(before, "Reset pitch");
 			}
 		}
 		ImGui::NextColumn();

@@ -9,6 +9,7 @@
 #include "Project.h"
 #include "Clip.h"
 #include "Clips/MIDIClip.h"
+#include "Clips/AudioClip.h"
 
 // ---------------------------------------------------------------------------
 // parameter value change (knob / slider / toggle / typed / reset-to-default).
@@ -214,6 +215,35 @@ private:
 	std::shared_ptr<Track> mTrack;
 	std::vector<Entry> mBefore;
 	std::vector<Entry> mAfter;
+	const char* mName;
+};
+
+// ---------------------------------------------------------------------------
+// audio-clip warp/pitch edit (warp toggle, mode, segment bpm, transpose, plus
+// any duration/offset the edit clamped). Snapshots the whole warp state before
+// and after; the retained AudioClip shared_ptr keeps it alive across history.
+// Undo/Redo lock the project mutex because the audio thread reads these fields
+// ---------------------------------------------------------------------------
+class AudioClipWarpAction : public UndoableAction {
+public:
+	AudioClipWarpAction(Project* project, std::shared_ptr<AudioClip> clip,
+						AudioClipWarpState before, AudioClipWarpState after, const char* name)
+		: mProject(project), mClip(std::move(clip)), mBefore(before), mAfter(after), mName(name) {}
+
+	void Undo() override { Apply(mBefore); }
+	void Redo() override { Apply(mAfter); }
+	const char* Name() const override { return mName; }
+private:
+	void Apply(const AudioClipWarpState& state) {
+		if (!mClip)
+			return;
+		std::lock_guard<std::mutex> lock(mProject->GetMutex());
+		mClip->ApplyWarpState(state);
+	}
+	Project* mProject;
+	std::shared_ptr<AudioClip> mClip;
+	AudioClipWarpState mBefore;
+	AudioClipWarpState mAfter;
 	const char* mName;
 };
 

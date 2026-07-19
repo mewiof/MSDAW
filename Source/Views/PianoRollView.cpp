@@ -377,6 +377,14 @@ void PianoRollView::Render() {
 			}
 		}
 
+		// b2. clip-length shade: anything past the clip's end (x=0 is the clip start,
+		// same space as the playhead below) is gated off at playback, so wash it darker
+		// to show it lies outside the playable region. the crisp boundary line is drawn
+		// on top of the notes further down so a note crossing it clearly shows the cut
+		float clipEndX = canvas.x + (float)(mIDIClip->GetDuration() * PPB);
+		if (clipEndX < canvas.x + contentW)
+			dl->AddRectFilled(ImVec2(clipEndX, canvas.y), ImVec2(canvas.x + contentW, canvas.y + contentH), Theme::WithAlpha(th.bgDeepest, 90));
+
 		// ---- minimap rect (computed before interaction so it can steal input) ----
 		float sbw = ImGui::GetStyle().ScrollbarSize;
 		float mmW = 160.0f * scale;
@@ -544,6 +552,12 @@ void PianoRollView::Render() {
 			dl->AddRect(ImVec2(x, y + 1), ImVec2(x + w, y + NOTE_HEIGHT - 1), borderColor, 4.0f);
 		}
 
+		// clip-end boundary: a crisp line at the clip's playable length, drawn over the
+		// notes so a note that runs past it visibly shows where playback will cut it off
+		// (matching the note-off clamp in Track::Process)
+		if (clipEndX >= canvas.x + mScrollX && clipEndX <= canvas.x + mScrollX + gridW)
+			dl->AddLine(ImVec2(clipEndX, canvas.y), ImVec2(clipEndX, canvas.y + contentH), Theme::WithAlpha(th.borderStrong, 235), std::max(1.0f, 2.0f * scale));
+
 		// d. marquee (only once dragged past a threshold, to avoid click flicker)
 		if (mInteraction == InteractionMode::Selecting) {
 			if (std::abs(mMarqueeEnd.x - mMarqueeStart.x) > MARQUEE_THRESHOLD || std::abs(mMarqueeEnd.y - mMarqueeStart.y) > MARQUEE_THRESHOLD) {
@@ -625,6 +639,17 @@ void PianoRollView::Render() {
 				dl->AddLine(ImVec2(x, rp.y + RULER_H - 8), ImVec2(x, rp.y + RULER_H), th.textDim);
 			}
 		}
+
+		// clip-end marker: mirror the grid's boundary in the ruler so the playable
+		// length stays visible even when the boundary itself is scrolled off, and
+		// shade the ruler past it to match the grid wash
+		float clipEndRX = rp.x + (float)(mIDIClip->GetDuration() * PPB) - mScrollX;
+		if (clipEndRX < rp.x + gridW) {
+			float shadeX0 = std::max(rp.x, clipEndRX);
+			dl->AddRectFilled(ImVec2(shadeX0, rp.y), ImVec2(rp.x + gridW, rp.y + RULER_H), Theme::WithAlpha(th.bgDeepest, 90));
+		}
+		if (clipEndRX >= rp.x && clipEndRX <= rp.x + gridW)
+			dl->AddLine(ImVec2(clipEndRX, rp.y), ImVec2(clipEndRX, rp.y + RULER_H), Theme::WithAlpha(th.borderStrong, 235), std::max(1.0f, 2.0f * scale));
 
 		// playhead marker
 		if (transport) {

@@ -183,6 +183,16 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 					int64_t noteOnAbs = clipStartSample + (int64_t)(adjustedStart * samplesPerBeat);
 					int64_t noteOffAbs = noteOnAbs + (int64_t)(note.durationBeats * samplesPerBeat);
 
+					// a note may run past the clip's end. once the playhead leaves the clip
+					// the clip is skipped entirely (see the overlap test above), so a note-off
+					// out there would never be emitted and the note would sound forever. gate
+					// the note at the clip boundary like Ableton/FL: clamp its release to the
+					// clip end. also covers a note ending exactly on the clip end that would
+					// otherwise fall on the next (skipped) block
+					bool clampedToClipEnd = noteOffAbs >= clipEndSample;
+					if (clampedToClipEnd)
+						noteOffAbs = clipEndSample;
+
 					// clip start and note onset are truncated to samples separately, and the
 					// playhead is converted through a different beat->sample path, so a note
 					// lined up with the playhead can land a sample or two before the block start.
@@ -204,12 +214,23 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 						msg.frameIndex = (int)(onFrame > 0 ? onFrame : 0); // clamp a chased onset to the block start
 						mIDIMessages.push_back(msg);
 					}
-					if (noteOffAbs >= trackStartSample && noteOffAbs < trackEndSample) {
+
+					// a note-off clamped to the clip end can land on clipEndSample == trackEndSample
+					// (the block's exclusive upper edge), which the plain [start, end) test would drop
+					// and then never revisit; accept the upper edge in that case and clamp the frame
+					// into the block's valid range
+					bool offInBlock = clampedToClipEnd
+										  ? (noteOffAbs > trackStartSample && noteOffAbs <= trackEndSample)
+										  : (noteOffAbs >= trackStartSample && noteOffAbs < trackEndSample);
+					if (offInBlock) {
 						MIDIMessage msg;
 						msg.status = 0x80;
 						msg.data1 = (uint8_t)note.noteNumber;
 						msg.data2 = 0;
-						msg.frameIndex = (int)(noteOffAbs - trackStartSample);
+						int64_t offFrame = noteOffAbs - trackStartSample;
+						if (offFrame > numFrames - 1)
+							offFrame = numFrames - 1; // a boundary-aligned cut belongs to this block's last sample
+						msg.frameIndex = (int)offFrame;
 						mIDIMessages.push_back(msg);
 					}
 				}

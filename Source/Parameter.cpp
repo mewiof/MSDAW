@@ -3,12 +3,32 @@
 
 Parameter* Parameter::sAutomationRequestParameter = nullptr;
 Parameter* Parameter::sSelectedParameter = nullptr;
+int Parameter::sSelectFrame = -1;
 
 Parameter* Parameter::sEditingParam = nullptr;
 float Parameter::sEditOldValue = 0.0f;
 Parameter* Parameter::sLastTouchedParameter = nullptr;
 
 std::function<void(Parameter*, float, float)> Parameter::sOnEditCommitted;
+
+void Parameter::Select() {
+	sSelectedParameter = this;
+	// stamp the current frame so ProcessDeselection (run at the end of the same frame)
+	// knows this frame's click was claimed by a parameter and must not clear selection
+	sSelectFrame = ImGui::GetFrameCount();
+}
+
+void Parameter::ProcessDeselection() {
+	if (!sSelectedParameter)
+		return;
+
+	// a fresh mouse press this frame that no parameter claimed via Select() means the
+	// click landed on empty space or an unrelated widget -> drop the typed-value focus.
+	// dragging a selected widget keeps it selected because that click stamped this frame
+	bool clicked = ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+	if (clicked && sSelectFrame != ImGui::GetFrameCount())
+		sSelectedParameter = nullptr;
+}
 
 void Parameter::BeginEditGesture() {
 	// capture the pre-gesture value once, before any delta is applied this frame

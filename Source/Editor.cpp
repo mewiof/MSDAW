@@ -982,4 +982,8 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 				}
 			}
 		}
+
+	// every parameter widget has been drawn by now, so a click that reached here
+	// unclaimed means the user clicked away from all of them -> deselect
+	Parameter::ProcessDeselection();
 }

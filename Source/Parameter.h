@@ -31,7 +31,12 @@ public:
 	static Parameter* GetAndClearAutomationRequestParameter();
 
 	bool IsSelected() const { return sSelectedParameter == this; }
-	void Select() { sSelectedParameter = this; }
+	void Select();
+
+	// clears the typed-value selection when a frame's click landed on anything other
+	// than a parameter (empty space, another widget), so the digit-entry focus can be
+	// dismissed by clicking away. call once per frame after every parameter is drawn
+	static void ProcessDeselection();
 
 	// ---- edit tracking (undo + "last turned parameter") ----
 	// Draw() implementations call these so that a single user edit becomes one
@@ -64,6 +69,10 @@ public:
 protected:
 	static Parameter* sAutomationRequestParameter;
 	static Parameter* sSelectedParameter;
+
+	// ImGui frame in which Select() was last called. lets ProcessDeselection tell a
+	// click that (re)selected a parameter apart from a click that missed all of them
+	static int sSelectFrame;
 
 	// edit-gesture state
 	static Parameter* sEditingParam;

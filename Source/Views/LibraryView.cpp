@@ -9,23 +9,11 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	ImGui::SetNextWindowSize(ImVec2(width, height));
 	ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 
-	// internal instruments
+	// internal effects
 	ImGui::PushStyleColor(ImGuiCol_Text, th.textMuted);
 	ImGui::Text("INTERNAL");
 	ImGui::Separator();
 	ImGui::PopStyleColor();
-
-	// simple synth
-	ImGui::PushID("SimpleSynth");
-	if (ImGui::Selectable("Simple Synth")) {
-	}
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "SimpleSynth", strlen("SimpleSynth") + 1);
-		ImGui::Text("Simple Synth");
-		ImGui::TextDisabled("Instrument");
-		ImGui::EndDragDropSource();
-	}
-	ImGui::PopID();
 
 	// bit crusher
 	ImGui::PushID("BitCrusher");
@@ -34,42 +22,6 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
 		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "BitCrusher", strlen("BitCrusher") + 1);
 		ImGui::Text("Bit Crusher");
-		ImGui::TextDisabled("Effect");
-		ImGui::EndDragDropSource();
-	}
-	ImGui::PopID();
-
-	// eq eight
-	ImGui::PushID("EqEight");
-	if (ImGui::Selectable("EQ Eight")) {
-	}
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "EqEight", strlen("EqEight") + 1);
-		ImGui::Text("EQ Eight");
-		ImGui::TextDisabled("Effect");
-		ImGui::EndDragDropSource();
-	}
-	ImGui::PopID();
-
-	// ott
-	ImGui::PushID("OTT");
-	if (ImGui::Selectable("OTT")) {
-	}
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "OTT", strlen("OTT") + 1);
-		ImGui::Text("OTT");
-		ImGui::TextDisabled("Effect");
-		ImGui::EndDragDropSource();
-	}
-	ImGui::PopID();
-
-	// delay reverb
-	ImGui::PushID("DelayReverb");
-	if (ImGui::Selectable("DelayReverb")) {
-	}
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "DelayReverb", strlen("DelayReverb") + 1);
-		ImGui::Text("DelayReverb");
 		ImGui::TextDisabled("Effect");
 		ImGui::EndDragDropSource();
 	}
@@ -93,7 +45,7 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	// filter / list
 	static ImGuiTextFilter filter;
 	// drive the filter through a hinted input rather than ImGuiTextFilter::Draw: its label
-	// renders to the right of the box and spilled a clipped half-letter past the panel edge.
+	// renders to the right of the box and spilled a clipped half-letter past the panel edge
 	// a placeholder hint keeps the box clean and inset by the window padding on both sides
 	ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
 	if (ImGui::InputTextWithHint("##libSearch", "Search", filter.InputBuf, IM_ARRAYSIZE(filter.InputBuf)))

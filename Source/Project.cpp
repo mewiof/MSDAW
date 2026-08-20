@@ -1,6 +1,5 @@
 #include "PrecompHeader.h"
 #include "Project.h"
-#include "Processors/SimpleSynth.h"
 #include "Clips/MIDIClip.h"
 #include "Clips/AudioClip.h"
 #include <algorithm>

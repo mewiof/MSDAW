@@ -1059,7 +1059,7 @@ LRESULT CALLBACK VST3Processor::EditorWindowProc(HWND hwnd, UINT msg, WPARAM wPa
 			proc->CloseEditor();
 		return 0;
 	case WM_SIZE:
-		// complete the resize handshake: whenever the window changes size (e.g.
+		// complete the resize handshake: whenever the window changes size (e.g
 		// the plugin requested it via IPlugFrame::resizeView after an internal
 		// scale change), tell the view its new client size so it re-lays out its
 		// content. Without this the plugin only picks up the new size on reopen
@@ -1091,7 +1091,7 @@ void VST3Processor::OpenEditor(void* parentWindowHandle) {
 
 	HWND hParent = (HWND)parentWindowHandle;
 
-	// Native mode: create the window DPI-aware and tell the plugin the display
+	// native mode: create the window DPI-aware and tell the plugin the display
 	// scale via IPlugViewContentScaleSupport, so modern VST3s render their UI
 	// crisply at the real resolution (and report a correctly-scaled size). Scaled
 	// mode keeps the legacy DPI-unaware path where Windows stretches the window
@@ -1191,8 +1191,8 @@ void VST3Processor::CloseEditor() {
 		mPlugFrame = nullptr;
 	}
 	if (mEditorWindow) {
-		// Hide before destroy and hand activation back to the owner explicitly.
-		// Destroying a visible foreground owned window otherwise lets Windows pick
+		// hide before destroy and hand activation back to the owner explicitly
+		// destroying a visible foreground owned window otherwise lets Windows pick
 		// the next window to activate, which can minimize the main DAW window
 		HWND owner = GetWindow(mEditorWindow, GW_OWNER);
 		ShowWindow(mEditorWindow, SW_HIDE);
@@ -1208,7 +1208,7 @@ bool VST3Processor::IsEditorOpen() const {
 }
 
 void VST3Processor::EditorIdle() {
-	// Some plugins (e.g. Serum, OTT) change their editor size from their own UI
+	// some plugins (e.g. Serum, OTT) change their editor size from their own UI
 	// without driving the host resize handshake. When they do, they resize the
 	// child HWND they created inside our editor window. Mirror our window's client
 	// area to that child each frame so the window tracks the plugin size live,

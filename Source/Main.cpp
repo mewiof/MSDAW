@@ -33,7 +33,7 @@ int main(int, char**) {
 	// warn "QApplication was not created in the main() thread" and then bleed a steady
 	// stream of internal debug output ("result 1") from a worker thread that outlives
 	// the scan. our own logging keeps the CRT stdout/stderr fds captured at startup, so
-	// it is unaffected; plugins load later and resolve GetStdHandle to NUL instead.
+	// it is unaffected; plugins load later and resolve GetStdHandle to NUL instead
 	// must run before the first plugin LoadLibrary (Editor::Init starts the background scan)
 	if (HANDLE nul = CreateFileA("NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr); nul != INVALID_HANDLE_VALUE) {
 		SetStdHandle(STD_OUTPUT_HANDLE, nul);
@@ -138,7 +138,7 @@ int main(int, char**) {
 		io.Fonts->AddFontDefault();
 	}
 
-	// single source of truth: neutral dark-gray theme with a reserved amber accent.
+	// single source of truth: neutral dark-gray theme with a reserved amber accent
 	// owns ScaleAllSizes + rounding + every ImGuiCol_ entry (see Theme::ApplyImGuiStyle)
 	Theme::Instance().ApplyImGuiStyle(main_scale);
 

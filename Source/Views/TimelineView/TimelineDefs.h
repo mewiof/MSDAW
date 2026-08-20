@@ -68,7 +68,7 @@ struct TimelineInteractionState {
 	// undo: automation curve captured at the start of an edit gesture
 	std::vector<AutomationPoint> autoEditBefore;
 
-	// point targeted by the automation right-click context menu (for exact value entry).
+	// point targeted by the automation right-click context menu (for exact value entry)
 	// the local closestIdx is recomputed from the mouse each frame, so it can't be trusted
 	// while the popup lives across frames
 	int autoContextPointIndex = -1;

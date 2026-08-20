@@ -285,11 +285,12 @@ void PianoRollView::Render() {
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
 
-	// =====================================================================
-	// center grid child -- the ONLY child that owns real ImGui scroll. it is
-	// rendered first so the frozen ruler / keys / velocity siblings can read
-	// its scroll this same frame and draw at a matching offset (zero lag)
-	// =====================================================================
+	// ================================================================
+	// CENTER GRID
+	// ================================================================
+	// the ONLY child that owns real ImGui scroll. it is rendered first so the
+	// frozen ruler / keys / velocity siblings can read its scroll this same
+	// frame and draw at a matching offset (zero lag)
 	ImGui::SetCursorScreenPos(ImVec2(origin.x + KEY_WIDTH, origin.y + RULER_H));
 	// declare the content size (and, on a zoom, the scroll) up front so the child's
 	// scrollbar is sized and positioned from this frame's zoom with zero lag
@@ -601,9 +602,9 @@ void PianoRollView::Render() {
 	}
 	ImGui::EndChild();
 
-	// =====================================================================
-	// top-left corner cell
-	// =====================================================================
+	// ================================================================
+	// TOP-LEFT CORNER CELL
+	// ================================================================
 	ImGui::SetCursorScreenPos(origin);
 	ImGui::BeginChild("prCorner", ImVec2(KEY_WIDTH, RULER_H), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs);
 	{
@@ -613,9 +614,10 @@ void PianoRollView::Render() {
 	}
 	ImGui::EndChild();
 
-	// =====================================================================
-	// ruler (frozen in Y, x-synced) -- click / drag sets the GLOBAL playhead
-	// =====================================================================
+	// ================================================================
+	// RULER
+	// ================================================================
+	// frozen in Y, x-synced; click / drag sets the GLOBAL playhead
 	ImGui::SetCursorScreenPos(ImVec2(origin.x + KEY_WIDTH, origin.y));
 	ImGui::BeginChild("prRuler", ImVec2(gridW, RULER_H), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs);
 	{
@@ -693,9 +695,10 @@ void PianoRollView::Render() {
 		}
 	}
 
-	// =====================================================================
-	// piano keys column (frozen in X, y-synced) -- click to preview
-	// =====================================================================
+	// ================================================================
+	// PIANO KEYS COLUMN
+	// ================================================================
+	// frozen in X, y-synced; click to preview
 	ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + RULER_H));
 	ImGui::BeginChild("prKeys", ImVec2(KEY_WIDTH, gridH), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs);
 	{
@@ -741,9 +744,10 @@ void PianoRollView::Render() {
 	}
 	ImGui::EndChild();
 
-	// =====================================================================
-	// velocity lane (collapsible, x-synced) -- drag bars to set velocity
-	// =====================================================================
+	// ================================================================
+	// VELOCITY LANE
+	// ================================================================
+	// collapsible, x-synced; drag bars to set velocity
 	if (mVelocityLaneOpen) {
 		ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + RULER_H + gridH));
 		ImGui::BeginChild("prVel", ImVec2(availW, VELO_H), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs);
@@ -828,9 +832,10 @@ void PianoRollView::Render() {
 		wdl->AddLine(ImVec2(origin.x + KEY_WIDTH, origin.y + RULER_H), ImVec2(origin.x + KEY_WIDTH, origin.y + RULER_H + gridH), kDivider, 1.0f);
 	}
 
-	// =====================================================================
-	// keyboard shortcuts (window scope; not while a mouse drag is in progress)
-	// =====================================================================
+	// ================================================================
+	// KEYBOARD SHORTCUTS
+	// ================================================================
+	// window scope; not while a mouse drag is in progress
 	bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 	if (focused && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 		if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A)) {
@@ -885,9 +890,10 @@ void PianoRollView::Render() {
 		}
 	}
 
-	// =====================================================================
-	// end-of-drag: finalize gesture undo + reset interaction state
-	// =====================================================================
+	// ================================================================
+	// END OF DRAG
+	// ================================================================
+	// finalize the gesture undo and reset interaction state
 	if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 		if (mGestureActive)
 			EndGesture(mIDIClip);

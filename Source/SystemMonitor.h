@@ -9,7 +9,7 @@ class SystemMonitor {
 public:
 	SystemMonitor();
 
-	// refresh the cached readings, but no more often than the sample interval.
+	// refresh the cached readings, but no more often than the sample interval
 	// cheap to call every frame - most calls just early-out
 	void Update();
 

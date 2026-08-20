@@ -672,7 +672,7 @@ void VSTProcessor::EditorIdle() {
 
 void VSTProcessor::CloseEditor() {
 	if (mEditorWindow && mAEffect) {
-		// Hide before destroy and reactivate the owner explicitly, otherwise
+		// hide before destroy and reactivate the owner explicitly, otherwise
 		// destroying a visible foreground owned window can minimize the main DAW
 		HWND owner = GetWindow(mEditorWindow, GW_OWNER);
 		mAEffect->dispatcher(mAEffect, effEditClose, 0, 0, 0, 0.0f);

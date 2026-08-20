@@ -12,9 +12,9 @@
 #include "Clips/AudioClip.h"
 
 // ---------------------------------------------------------------------------
-// parameter value change (knob / slider / toggle / typed / reset-to-default).
+// parameter value change (knob / slider / toggle / typed / reset-to-default)
 // value is a plain float also read by the audio thread; writing it without a
-// lock is consistent with how live edits already behave.
+// lock is consistent with how live edits already behave
 // ---------------------------------------------------------------------------
 class ParameterChangeAction : public UndoableAction {
 public:
@@ -38,7 +38,7 @@ private:
 
 // ---------------------------------------------------------------------------
 // device present/absent on a track. Holds the processor shared_ptr so the
-// object (and every Parameter* inside it) stays alive across the whole history.
+// object (and every Parameter* inside it) stays alive across the whole history
 //   isInsert = true  -> the device was ADDED   (Redo inserts, Undo removes)
 //   isInsert = false -> the device was REMOVED (Redo removes, Undo inserts)
 // ---------------------------------------------------------------------------
@@ -221,7 +221,7 @@ private:
 // ---------------------------------------------------------------------------
 // audio-clip warp/pitch edit (warp toggle, mode, segment bpm, transpose, plus
 // any duration/offset the edit clamped). Snapshots the whole warp state before
-// and after; the retained AudioClip shared_ptr keeps it alive across history.
+// and after; the retained AudioClip shared_ptr keeps it alive across history
 // Undo/Redo lock the project mutex because the audio thread reads these fields
 // ---------------------------------------------------------------------------
 class AudioClipWarpAction : public UndoableAction {
@@ -275,8 +275,8 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// piano-roll note edit (add / delete / move / resize / nudge / velocity).
-// Snapshots the whole note list before and after; the retained MIDIClip
+// piano-roll note edit (add / delete / move / resize / nudge / velocity)
+// snapshots the whole note list before and after; the retained MIDIClip
 // shared_ptr keeps the sequence alive across the history. Undo/Redo lock the
 // project mutex because the audio thread iterates the same note vector
 // ---------------------------------------------------------------------------

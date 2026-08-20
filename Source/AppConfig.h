@@ -10,8 +10,8 @@ public:
 	// when true, plugin editor windows are created DPI-aware so they render at the
 	// display's native resolution (crisp). When false, windows are created
 	// DPI-unaware and Windows bitmap-stretches them to match the DAW scale (matches
-	// the DAW size but can look blurry / tear on fractional-DPI displays).
-	// This is the global DEFAULT; individual plugins can override it (see
+	// the DAW size but can look blurry / tear on fractional-DPI displays)
+	// this is the global DEFAULT; individual plugins can override it (see
 	// EditorScalingMode on AudioProcessor)
 	bool pluginEditorsNative = true;
 

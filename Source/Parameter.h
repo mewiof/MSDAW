@@ -20,7 +20,7 @@ public:
 
 	// compact single-row variant for tight horizontal strips (e.g. the transport bar):
 	// a fixed-width framed value box, no label line. base default is a no-op so this can
-	// be called through a Parameter* even for subclasses that do not implement it.
+	// be called through a Parameter* even for subclasses that do not implement it
 	// drawFill paints a left-anchored level bar behind the value (used by the track mixer)
 	virtual bool DrawCompact(float width, const char* valueFmt, bool drawFill = false) { return false; }
 
@@ -41,14 +41,14 @@ public:
 
 	// ---- edit tracking (undo + "last turned parameter") ----
 	// Draw() implementations call these so that a single user edit becomes one
-	// undo entry and updates the "last touched" parameter.
+	// undo entry and updates the "last touched" parameter
 	//   - drag widgets: BeginEditGesture() on gesture start, EndEditGesture() on end
 	//   - instant edits (toggle / typed / reset): CommitEditImmediate(oldValue)
 	void BeginEditGesture();
 	void EndEditGesture();
 	void CommitEditImmediate(float oldValue);
 
-	// Editor installs this to record ParameterChangeActions onto the undo stack.
+	// editor installs this to record ParameterChangeActions onto the undo stack
 	static std::function<void(Parameter* param, float oldValue, float newValue)> sOnEditCommitted;
 
 	// last parameter the user actually changed (drives the "show automation for

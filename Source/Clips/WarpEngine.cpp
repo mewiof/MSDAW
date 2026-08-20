@@ -46,7 +46,7 @@ namespace {
 		return s[idx1] + (float)frac * (s[idx2] - s[idx1]);
 	}
 
-	// raised-cosine window with a flat top: 0 at the edges, ramps over rampLen, then plateaus.
+	// raised-cosine window with a flat top: 0 at the edges, ramps over rampLen, then plateaus
 	// rampLen == halfLen collapses the plateau and yields a Hann; a short rampLen keeps a
 	// near-rectangular grain that preserves transient punch (used by Beats)
 	inline double GrainWindow(double local, double halfLen, double rampLen) {

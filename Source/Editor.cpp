@@ -463,7 +463,7 @@ void Editor::RenderResourceMeter() {
 	float totalW = cpuCellW + sp + ramCellW;
 
 	// right-align without fighting imgui's coordinate origins: stay on the menu
-	// line, then nudge the cursor so exactly totalW of space remains to the edge.
+	// line, then nudge the cursor so exactly totalW of space remains to the edge
 	// if the window is too narrow we just leave it where the menus ended
 	ImGui::SameLine(0.0f, 0.0f);
 	float remaining = ImGui::GetContentRegionAvail().x;
@@ -720,7 +720,7 @@ void Editor::RenderHistoryWindow() {
 		std::vector<std::string> labels = undo.GetHistory();
 		int applied = (int)undo.GetAppliedCount();
 
-		// row 0 is the base state; row (i+1) is the state after applying labels[i].
+		// row 0 is the base state; row (i+1) is the state after applying labels[i]
 		// clicking a row jumps there by undoing/redoing the difference
 		int target = -1;
 

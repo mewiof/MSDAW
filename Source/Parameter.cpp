@@ -23,7 +23,7 @@ void Parameter::ProcessDeselection() {
 		return;
 
 	// a fresh mouse press this frame that no parameter claimed via Select() means the
-	// click landed on empty space or an unrelated widget -> drop the typed-value focus.
+	// click landed on empty space or an unrelated widget -> drop the typed-value focus
 	// dragging a selected widget keeps it selected because that click stamped this frame
 	bool clicked = ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right);
 	if (clicked && sSelectFrame != ImGui::GetFrameCount())

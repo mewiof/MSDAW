@@ -13,7 +13,7 @@ enum class WarpMode {
 };
 
 // snapshot of everything a warp/pitch edit can touch, including the geometry the
-// edit clamps as a side effect (duration/offset), so one edit undoes as one step.
+// edit clamps as a side effect (duration/offset), so one edit undoes as one step
 // used both as the undo payload and as the "before" grabbed when a drag begins
 struct AudioClipWarpState {
 	bool warpingEnabled = false;
@@ -85,7 +85,7 @@ public:
 	void ValidateDuration(double projectBpm);
 
 	// source frames advanced per output sample: base resample (file->device) times
-	// the warp stretch (project/segment bpm, only when warped) times the pitch factor.
+	// the warp stretch (project/segment bpm, only when warped) times the pitch factor
 	// the single place varispeed playback speed is decided (Re-Pitch and unwarped), so the
 	// waveform preview and the audio thread never drift. granular modes split it into the two
 	// rates below so time and pitch move independently
@@ -121,7 +121,7 @@ private:
 
 	// per-mode granular controls
 	double mGrainSizeMs = 80.0;		 // Tones/Texture/Complex grain length
-	double mFluctuation = 0.0;		 // Texture randomization, 0..1
-	double mTransientEnvelope = 0.5; // Beats grain fade shaping, 0..1
+	double mFluctuation = 0.0;		 // texture randomization, 0..1
+	double mTransientEnvelope = 0.5; // beats grain fade shaping, 0..1
 	double mFormants = 1.0;			 // ComplexPro formant compensation, 0..1
 };

@@ -82,7 +82,7 @@ private:
 	void Suspend();
 
 	// flush sounding notes: always releases active notes + all-notes-off (cc 123); when
-	// allSoundOff is true also sends all-sound-off (cc 120), which cuts reverb/delay tails.
+	// allSoundOff is true also sends all-sound-off (cc 120), which cuts reverb/delay tails
 	// Reset() passes true (hard panic), AllNotesOff() passes false (keep tails on loop wrap)
 	void SendMIDIPanic(bool allSoundOff);
 };

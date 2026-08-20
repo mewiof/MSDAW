@@ -34,3 +34,6 @@
 # MSDAW
 .cache
 build
+
+# build/test logs
+*.log

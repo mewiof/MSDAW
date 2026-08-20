@@ -42,3 +42,4 @@ MSDAW is released under the [MIT License](LICENSE) and relies on:
 - **[FreeType](https://github.com/freetype/freetype):** font engine (FreeType License/GPL)
 - **[VST3 SDK](https://github.com/steinbergmedia/vst3sdk):** VST3 plugin hosting (GPLv3 License)
 - **VST 2.4 SDK:** VST2 plugin interface logic (Proprietary/Legacy Steinberg license; contact `mewiof@gmail.com` for instant removal)
+- **[googletest](https://github.com/google/googletest):** test suite only, never linked into the app (BSD 3-Clause License)

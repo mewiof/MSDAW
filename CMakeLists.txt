@@ -10,6 +10,8 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+option(MSDAW_BUILD_TESTS "Build the MSDAW test suite" ON)
+
 # external
 set(SUBMODULES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/External/Submodules")
 
@@ -40,6 +42,18 @@ add_subdirectory("${SUBMODULES_PATH}/rtaudio")
 add_subdirectory("${SUBMODULES_PATH}/freetype")
 add_library(Freetype::Freetype ALIAS freetype)
 
+# NOTE: googletest is added before CMAKE_COMPILE_WARNING_AS_ERROR is turned on,
+# like every other submodule -- its warnings are not ours to fix
+if(MSDAW_BUILD_TESTS)
+	# match Clang's default dynamic CRT on Windows; a mismatch surfaces as link errors
+	set(gtest_force_shared_crt ON CACHE BOOL "Use shared (DLL) run-time lib" FORCE)
+	set(INSTALL_GTEST OFF CACHE BOOL "Install googletest" FORCE)
+	add_subdirectory("${SUBMODULES_PATH}/googletest")
+
+	enable_testing()
+	include(GoogleTest)
+endif()
+
 # VST 2.4 SDK
 set(VST2_SDK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/External/vstsdk2.4")
 file(GLOB VST2_SDK_SOURCE_FILES CONFIGURE_DEPENDS
@@ -51,6 +65,10 @@ file(GLOB VST2_SDK_SOURCE_FILES CONFIGURE_DEPENDS
 set(MSDAW_SOURCE_PATH "${CMAKE_SOURCE_DIR}/Source")
 file(GLOB_RECURSE MSDAW_SOURCE_FILES CONFIGURE_DEPENDS "${MSDAW_SOURCE_PATH}/*.cpp")
 
+# Main.cpp owns the window/audio bootstrap, so it stays out of the core and the
+# test binary can supply its own entry point
+list(REMOVE_ITEM MSDAW_SOURCE_FILES "${MSDAW_SOURCE_PATH}/Main.cpp")
+
 set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
 
 # workaround for VST2 SDK legacy code issues
@@ -60,7 +78,15 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
 	set_source_files_properties(${VST2_SDK_SOURCE_FILES} PROPERTIES COMPILE_OPTIONS "-Wno-writable-strings;-Wno-c++11-narrowing")
 endif()
 
-add_executable(MSDAW
+# ================================================================
+# MSDAWCORE
+# ================================================================
+
+# NOTE: OBJECT, never STATIC -- built-in processors self-register through a
+# file-scope ProcessorRegistrar (see REGISTER_PROCESSOR) that nothing
+# references by symbol. A static archive lets the linker drop those objects
+# and the factory silently comes up empty, in the app and in the tests alike
+add_library(MSDAWCore OBJECT
 	# external
 	${IMGUI_SOURCE_FILES}
 	${VST2_SDK_SOURCE_FILES}
@@ -70,11 +96,11 @@ add_executable(MSDAW
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
 	# VST3 SDK uses #pragma pack which triggers warnings in Clang/GCC, disable them for MSDAW
-	target_compile_options(MSDAW PRIVATE "-Wno-pragma-pack")
+	target_compile_options(MSDAWCore PUBLIC "-Wno-pragma-pack")
 endif()
 
-target_include_directories(MSDAW
-	PRIVATE
+target_include_directories(MSDAWCore
+	PUBLIC
 		${MSDAW_SOURCE_PATH}
 	SYSTEM
 		${SUBMODULES_PATH}/SDL/include
@@ -86,19 +112,49 @@ target_include_directories(MSDAW
 		${VST2_SDK_PATH}/public.sdk/source/vst2.x
 )
 
-target_link_libraries(MSDAW
-	PRIVATE
+target_link_libraries(MSDAWCore
+	PUBLIC
 		opengl32
 		SDL3::SDL3
 		rtaudio
 		Freetype::Freetype
 )
 
-target_compile_definitions(MSDAW
-	PRIVATE
+target_compile_definitions(MSDAWCore
+	PUBLIC
 		_CRT_SECURE_NO_WARNINGS
 )
-target_precompile_headers(MSDAW
-	PRIVATE
+target_precompile_headers(MSDAWCore
+	PUBLIC
 		${MSDAW_SOURCE_PATH}/PrecompHeader.h
 )
+
+# ================================================================
+# MSDAW
+# ================================================================
+
+add_executable(MSDAW ${MSDAW_SOURCE_PATH}/Main.cpp)
+
+target_link_libraries(MSDAW PRIVATE MSDAWCore)
+
+# ================================================================
+# MSDAWTESTS
+# ================================================================
+
+if(MSDAW_BUILD_TESTS)
+	set(MSDAW_TEST_PATH "${CMAKE_SOURCE_DIR}/Tests")
+	file(GLOB_RECURSE MSDAW_TEST_FILES CONFIGURE_DEPENDS "${MSDAW_TEST_PATH}/*.cpp")
+
+	add_executable(MSDAWTests ${MSDAW_TEST_FILES})
+
+	target_link_libraries(MSDAWTests
+		PRIVATE
+			MSDAWCore
+			GTest::gmock
+			GTest::gtest_main
+	)
+
+	# NOTE: DISCOVERY_MODE PRE_TEST defers enumeration to test time; enumerating
+	# at build time would run the binary on a machine that may have no audio device
+	gtest_discover_tests(MSDAWTests DISCOVERY_MODE PRE_TEST)
+endif()

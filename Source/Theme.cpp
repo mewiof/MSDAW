@@ -64,6 +64,8 @@ Theme::Theme() {
 	danger = IM_COL32(224, 80, 72, 255);
 	graphCurve = IM_COL32(235, 180, 70, 255);
 	graphCurveCool = IM_COL32(96, 176, 232, 255);
+	spectrumFill = IM_COL32(150, 152, 165, 46);
+	spectrumEdge = IM_COL32(168, 170, 184, 110);
 
 	// meters (peak level ramp)
 	meterBg = IM_COL32(20, 20, 22, 255);

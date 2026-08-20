@@ -221,6 +221,8 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 			// special case wider devices
 			if (pId == "AutoSidechain")
 				deviceWidth = 430.0f * mContext.state.mainScale; // source picker + graph + a full knob row
+			else if (pId == "EQEight")
+				deviceWidth = 620.0f * mContext.state.mainScale; // knob column + graph + globals, over a strip of eight bands
 
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, defaultPadding);
 			ImGui::BeginChild("DeviceBody", ImVec2(deviceWidth, height), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -337,6 +339,8 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 				float minContentH = 0.0f;
 				if (pId == "AutoSidechain")
 					minContentH = 200.0f * mContext.state.mainScale;
+				else if (pId == "EQEight")
+					minContentH = 330.0f * mContext.state.mainScale; // the globals column alone is taller than the rack
 
 				bool scrollWrap = minContentH > avail.y;
 				if (scrollWrap) {

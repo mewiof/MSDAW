@@ -4,11 +4,11 @@
 // the single source of truth for every color the DAW draws. before this, colors
 // were split between ImGui's built-in dark theme and ~150 ad-hoc IM_COL32 literals
 // scattered across the views, so nothing was consistent and nothing could be
-// retimed. now every draw site reads a named field off Theme::Instance().
+// retimed. now every draw site reads a named field off Theme::Instance()
 //
 // it is a global singleton (like AppConfig) rather than living on EditorContext
 // because processor editors (AudioProcessor::RenderCustomUI) and Parameter::Draw
-// have no context reference. all reads happen on the UI thread, so no locking.
+// have no context reference. all reads happen on the UI thread, so no locking
 //
 // default look: neutral dark gray, Ableton-like, with a single amber/gold accent
 // used sparingly - accent appears only on selection, active toggles, focus, and
@@ -78,6 +78,8 @@ public:
 	ImU32 danger;		   // red
 	ImU32 graphCurve;	   // signature readout curve (eq) = accent
 	ImU32 graphCurveCool;  // secondary readout curve (delay/reverb)
+	ImU32 spectrumFill;	   // translucent body of a spectrum analyzer
+	ImU32 spectrumEdge;	   // the line along the top of that body
 
 	// ================================================================
 	// METERS (peak level ramp)

@@ -39,6 +39,18 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	}
 	ImGui::PopID();
 
+	// eq eight
+	ImGui::PushID("EQEight");
+	if (ImGui::Selectable("EQ Eight")) {
+	}
+	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "EQEight", strlen("EQEight") + 1);
+		ImGui::Text("EQ Eight");
+		ImGui::TextDisabled("Effect");
+		ImGui::EndDragDropSource();
+	}
+	ImGui::PopID();
+
 	ImGui::Dummy(ImVec2(0, 10));
 
 	// VST plugins

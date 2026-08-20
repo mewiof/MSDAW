@@ -41,9 +41,9 @@ public:
 	// selection
 	void SetSelectedTrack(int index);
 
-	// undo support: replace the whole track list (order + membership) atomically.
-	// Parent relationships live on the tracks themselves (SetParent), so the
-	// caller restores those before/after as needed.
+	// undo support: replace the whole track list (order + membership) atomically
+	// parent relationships live on the tracks themselves (SetParent), so the
+	// caller restores those before/after as needed
 	void RestoreTracks(std::vector<std::shared_ptr<Track>> tracks);
 
 	void PrepareToPlay(double sampleRate);
@@ -84,6 +84,11 @@ private:
 
 	// recursive track helper
 	void ProcessTrackRecursively(std::shared_ptr<Track> track, float* accumulationBuffer, int numFrames, int numChannels, const ProcessContext& context, const std::vector<MIDIMessage>& liveMIDIEvents, bool anySolo);
+
+	// true when this track, or anything below it, feeds a sidechain detector. drives
+	// both the render order (producers before consumers) and the rule that a muted or
+	// solo-excluded source still has to be rendered so its detector keeps running
+	bool SubtreeFeedsSidechain(const std::shared_ptr<Track>& track) const;
 
 	// internal helper
 	void PrepareToPlayInternal(double sampleRate);

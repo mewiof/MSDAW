@@ -33,6 +33,14 @@ namespace {
 			else
 				snprintf(buffer, bufferSize, "-inf dB");
 			break;
+		case ImGuiKnobVariant_Milliseconds:
+			if (value >= 100.0f)
+				snprintf(buffer, bufferSize, "%.0f ms", value);
+			else if (value >= 10.0f)
+				snprintf(buffer, bufferSize, "%.1f ms", value);
+			else
+				snprintf(buffer, bufferSize, "%.2f ms", value);
+			break;
 		case ImGuiKnobVariant_Linear:
 		default:
 			snprintf(buffer, bufferSize, "%.2f", value);

@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "Project.h"
+#include "SidechainHub.h"
 #include "Clips/MIDIClip.h"
 #include "Clips/AudioClip.h"
 #include <algorithm>
@@ -13,9 +14,14 @@
 const int kCurrentProjectVersion = 1; // 1: initial format
 
 Project::Project() {
+	// device UIs reach the track list through the hub (an AudioProcessor has no
+	// context pointer of its own); AudioEngine owns the one and only Project
+	SidechainHub::Instance().SetProject(this);
 }
 
 Project::~Project() {
+	if (SidechainHub::Instance().GetProject() == this)
+		SidechainHub::Instance().SetProject(nullptr);
 }
 
 void Project::Initialize() {
@@ -309,7 +315,7 @@ void Project::SetBpm(double bpm) {
 
 void Project::ProcessTrackRecursively(std::shared_ptr<Track> track, float* destinationBuffer, int numFrames, int numChannels, const ProcessContext& context, const std::vector<MIDIMessage>& liveMIDIEvents, bool anySolo) {
 
-	// determine if this track is "effectively soloed".
+	// determine if this track is "effectively soloed"
 	// includes explicit/inheriting solo from an ancestor
 	bool ancestorSolo = false;
 	auto p = track->GetParent();
@@ -323,12 +329,17 @@ void Project::ProcessTrackRecursively(std::shared_ptr<Track> track, float* desti
 
 	bool isEffectiveSolo = track->GetSolo() || ancestorSolo;
 
+	// a silenced track is normally skipped outright. the exception is a sidechain
+	// source: it is still rendered, into a buffer we throw away, so muting the kick
+	// (or soloing the bass to audition the ducking) does not stall the detector
+	bool silenced = false;
+
 	// must be soloed to bypass mute
 	if (track->GetMute() && !isEffectiveSolo)
-		return;
+		silenced = true;
 
 	// global check
-	if (anySolo && !isEffectiveSolo) {
+	if (!silenced && anySolo && !isEffectiveSolo) {
 		bool childSolo = false;
 		if (track->IsGroup()) {
 			// recursively check if any descendant is soloed
@@ -346,17 +357,31 @@ void Project::ProcessTrackRecursively(std::shared_ptr<Track> track, float* desti
 			childSolo = hasSoloChild(track);
 		}
 		if (!childSolo)
-			return;
+			silenced = true;
 	}
+
+	if (silenced && !SubtreeFeedsSidechain(track))
+		return;
 
 	if (track->IsGroup()) {
 		track->ClearAccumulator();
+
+		std::vector<std::shared_ptr<Track>> children;
 		for (auto& child : mTracks) {
-			if (child->GetParent() == track) {
-				std::vector<float> childBuffer(numFrames * numChannels, 0.0f);
-				ProcessTrackRecursively(child, childBuffer.data(), numFrames, numChannels, context, liveMIDIEvents, anySolo);
-				track->AddToAccumulator(childBuffer.data(), numFrames, numChannels);
-			}
+			if (child->GetParent() == track)
+				children.push_back(child);
+		}
+		// same producer-before-consumer ordering as the root pass below
+		if (SidechainHub::Instance().HasSources()) {
+			std::stable_partition(children.begin(), children.end(),
+								  [this](const std::shared_ptr<Track>& t) { return SubtreeFeedsSidechain(t); });
+		}
+
+		for (auto& child : children) {
+			std::vector<float> childBuffer(numFrames * numChannels, 0.0f);
+			ProcessTrackRecursively(child, childBuffer.data(), numFrames, numChannels, context, liveMIDIEvents, anySolo);
+			// a silenced child leaves its buffer untouched, so this stays a no-op for it
+			track->AddToAccumulator(childBuffer.data(), numFrames, numChannels);
 		}
 	}
 
@@ -371,11 +396,31 @@ void Project::ProcessTrackRecursively(std::shared_ptr<Track> track, float* desti
 		trackMIDI = liveMIDIEvents;
 	}
 
-	track->Process(processBuffer.data(), numFrames, numChannels, trackMIDI, context);
+	// Track::Process publishes to the detector bus on its way out, which is the whole
+	// point of having rendered a silenced source; only the audible sum is dropped
+	track->Process(processBuffer.data(), numFrames, numChannels, trackMIDI, context, false, silenced);
+
+	if (silenced)
+		return;
 
 	for (int i = 0; i < numFrames * numChannels; ++i) {
 		destinationBuffer[i] += processBuffer[i];
 	}
+}
+
+bool Project::SubtreeFeedsSidechain(const std::shared_ptr<Track>& track) const {
+	if (!track)
+		return false;
+	const SidechainHub& hub = SidechainHub::Instance();
+	if (hub.IsSource(track->GetId()))
+		return true;
+	if (!track->IsGroup())
+		return false;
+	for (const auto& child : mTracks) {
+		if (child->GetParent() == track && SubtreeFeedsSidechain(child))
+			return true;
+	}
+	return false;
 }
 
 void Project::ProcessAudioGraph(float* destinationBuffer, int numFrames, int numChannels, const ProcessContext& context, const std::vector<MIDIMessage>& liveMIDIEvents, bool anySolo) {
@@ -384,10 +429,25 @@ void Project::ProcessAudioGraph(float* destinationBuffer, int numFrames, int num
 	}
 	std::fill(mMixBuffer.begin(), mMixBuffer.begin() + (numFrames * numChannels), 0.0f);
 
+	SidechainHub& hub = SidechainHub::Instance();
+	hub.BeginBlock(numFrames);
+
+	std::vector<std::shared_ptr<Track>> roots;
 	for (auto& track : mTracks) {
-		if (track->GetParent() == nullptr) {
-			ProcessTrackRecursively(track, mMixBuffer.data(), numFrames, numChannels, context, liveMIDIEvents, anySolo);
-		}
+		if (track->GetParent() == nullptr)
+			roots.push_back(track);
+	}
+	// render detector sources first so a sidechain reads this block's audio rather
+	// than the previous one. summing is commutative, so reordering the roots cannot
+	// change the mix; a cycle (two tracks ducking each other) just leaves the later
+	// one reading one block late, which the hub handles by keeping the last buffer
+	if (hub.HasSources()) {
+		std::stable_partition(roots.begin(), roots.end(),
+							  [this](const std::shared_ptr<Track>& t) { return SubtreeFeedsSidechain(t); });
+	}
+
+	for (auto& track : roots) {
+		ProcessTrackRecursively(track, mMixBuffer.data(), numFrames, numChannels, context, liveMIDIEvents, anySolo);
 	}
 
 	if (mMasterTrack) {
@@ -425,7 +485,7 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 	mWasPlaying = isPlaying;
 
 	// beat->sample rounding can place the playhead a sample or two past a note's computed
-	// onset, so a note lined up with the playhead would be dropped by the exact window test.
+	// onset, so a note lined up with the playhead would be dropped by the exact window test
 	// on the block where we just started or jumped, tell the sequencer to chase those onsets
 	bool playheadJumped = startedPlaying || seeked;
 

@@ -6,6 +6,7 @@
 #include "Clips/AudioClip.h"
 #include "Clips/WarpEngine.h"
 #include "ProcessorFactory.h"
+#include "SidechainHub.h"
 #include "Theme.h"
 #include "Processors/VSTProcessor.h"
 #include "Processors/VST3Processor.h"
@@ -54,11 +55,27 @@ float AutomationCurve::Evaluate(double beat) const {
 	return points.back().value;
 }
 
+// hands out Track::mId. ids only need to be unique within a session: loading a project
+// adopts the saved ids and pushes the counter past them, so ids created afterwards can
+// never collide with the ones a cross-track reference was saved against
+static std::atomic<uint32_t> sNextTrackId{1};
+
+static uint32_t AllocateTrackId() {
+	return sNextTrackId.fetch_add(1);
+}
+
+static void ReserveTrackId(uint32_t id) {
+	uint32_t expected = sNextTrackId.load();
+	while (id >= expected && !sNextTrackId.compare_exchange_weak(expected, id + 1)) {
+	}
+}
+
 Track::Track() {
+	mId = AllocateTrackId();
 
 	mVolumeParam = std::make_unique<SliderParameter>("Volume", 0.0f, -60.0f, 6.0f);
 	mPanParam = std::make_unique<SliderParameter>("Pan", 0.0f, -1.0f, 1.0f);
-	// cycle the curated on-theme palette instead of rolling muddy random grays.
+	// cycle the curated on-theme palette instead of rolling muddy random grays
 	// the counter is static so successive new tracks step through distinct hues
 	static int sNextTrackColor = 0;
 	mColor = Theme::Instance().TrackColor(sNextTrackColor++);
@@ -142,7 +159,8 @@ void Track::EvaluateAutomation(double currentBeat) {
 void Track::Process(float* buffer, int numFrames, int numChannels,
 					std::vector<MIDIMessage>& mIDIMessages,
 					const ProcessContext& context,
-					bool accumulateToOutput) {
+					bool accumulateToOutput,
+					bool detectorOnly) {
 
 	// automation processing
 	if (context.isPlaying) {
@@ -198,7 +216,7 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 
 					// clip start and note onset are truncated to samples separately, and the
 					// playhead is converted through a different beat->sample path, so a note
-					// lined up with the playhead can land a sample or two before the block start.
+					// lined up with the playhead can land a sample or two before the block start
 					// on a fresh start/seek, chase such onsets (but only while the note is still
 					// sounding, so a fully-past note is never turned on without a matching off)
 					const int64_t kOnsetChaseSlopSamples = 4;
@@ -357,17 +375,30 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 		currentPeakR = currentPeakL;
 	}
 
-	float oldL = mPeakL.load();
-	if (currentPeakL > oldL)
-		mPeakL.store(currentPeakL);
-	else
-		mPeakL.store(oldL * 0.95f);
+	if (detectorOnly) {
+		// nothing of this render reaches the mix, so let the meter fall to rest
+		mPeakL.store(mPeakL.load() * 0.95f);
+		mPeakR.store(mPeakR.load() * 0.95f);
+	} else {
+		float oldL = mPeakL.load();
+		if (currentPeakL > oldL)
+			mPeakL.store(currentPeakL);
+		else
+			mPeakL.store(oldL * 0.95f);
 
-	float oldR = mPeakR.load();
-	if (currentPeakR > oldR)
-		mPeakR.store(currentPeakR);
-	else
-		mPeakR.store(oldR * 0.95f);
+		float oldR = mPeakR.load();
+		if (currentPeakR > oldR)
+			mPeakR.store(currentPeakR);
+		else
+			mPeakR.store(oldR * 0.95f);
+	}
+
+	// feed the detector bus, post-fader, so "what the kick sounds like" is literally
+	// what drives a sidechain on another track. no-op unless something subscribed to
+	// this track, so ordinary tracks pay one map lookup per block
+	SidechainHub& hub = SidechainHub::Instance();
+	if (hub.IsSource(mId))
+		hub.Publish(mId, buffer, numFrames, numChannels);
 }
 
 void Track::AddClip(std::shared_ptr<Clip> clip) {
@@ -557,6 +588,7 @@ void Track::RebindAutomation() {
 
 void Track::Save(std::ostream& out, int trackIndex) {
 	out << "TRACK_BEGIN\n";
+	out << "ID " << mId << "\n";
 	out << "NAME \"" << mName << "\"\n";
 	out << "COLOR " << mColor << "\n";
 	out << "VOL " << mVolumeParam->value << "\n";
@@ -612,7 +644,16 @@ void Track::Load(std::istream& in) {
 		std::string token;
 		ss >> token;
 
-		if (token == "NAME") {
+		if (token == "ID") {
+			// projects saved before cross-track references existed have no ID line;
+			// those tracks keep the fresh id the constructor handed out
+			uint32_t loadedId = 0;
+			ss >> loadedId;
+			if (loadedId != 0) {
+				mId = loadedId;
+				ReserveTrackId(loadedId);
+			}
+		} else if (token == "NAME") {
 			size_t q1 = line.find('"');
 			size_t q2 = line.find('"', q1 + 1);
 			if (q1 != std::string::npos && q2 != std::string::npos)

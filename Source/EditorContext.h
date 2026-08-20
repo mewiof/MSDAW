@@ -13,7 +13,7 @@
 
 struct EditorLayout {
 	float transportHeight = 40.0f;	  // single control row - taller left a dead strip under the buttons
-	float bottomPanelHeight = 280.0f; // tall enough to give device UIs (e.g. EQ Eight's knob column) room to breathe
+	float bottomPanelHeight = 280.0f; // tall enough to give device UIs (e.g. Auto Sidechain's knob row) room to breathe
 	float libraryWidth = 200.0f;
 	float trackListWidth = 240.0f;
 	float trackRowHeight = 80.0f;

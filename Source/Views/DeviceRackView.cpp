@@ -52,6 +52,7 @@ static std::shared_ptr<AudioProcessor> CloneProcessor(std::shared_ptr<AudioProce
 
 	// 3. copy state
 	dst->SetBypassed(src->IsBypassed());
+	dst->CopyStateFrom(*src); // anything the parameter list does not cover
 
 	return dst;
 }
@@ -216,6 +217,10 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 
 			// increased device width for side-by-side controls
 			float deviceWidth = 280.0f * mContext.state.mainScale;
+			std::string pId = proc->GetProcessorId();
+			// special case wider devices
+			if (pId == "AutoSidechain")
+				deviceWidth = 430.0f * mContext.state.mainScale; // source picker + graph + a full knob row
 
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, defaultPadding);
 			ImGui::BeginChild("DeviceBody", ImVec2(deviceWidth, height), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -325,11 +330,13 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 			// parameters/ui
 			ImVec2 avail = ImGui::GetContentRegionAvail();
 			if (!proc->IsBypassed()) {
-				// a custom device UI can have a fixed vertical layout taller than the short
-				// device rack. when the rack is shorter than a device needs, render it inside
-				// a scrollable child at its natural height so every control stays reachable
-				// instead of clipped
+				// some custom device UIs have a fixed vertical layout taller than the short
+				// device rack (Auto Sidechain stacks a source picker, graph and knob row). when
+				// the rack is shorter than a device needs, render it inside a scrollable child at
+				// its natural height so every control stays reachable instead of clipped
 				float minContentH = 0.0f;
+				if (pId == "AutoSidechain")
+					minContentH = 200.0f * mContext.state.mainScale;
 
 				bool scrollWrap = minContentH > avail.y;
 				if (scrollWrap) {

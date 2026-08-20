@@ -27,6 +27,18 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	}
 	ImGui::PopID();
 
+	// auto sidechain
+	ImGui::PushID("AutoSidechain");
+	if (ImGui::Selectable("Auto Sidechain")) {
+	}
+	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "AutoSidechain", strlen("AutoSidechain") + 1);
+		ImGui::Text("Auto Sidechain");
+		ImGui::TextDisabled("Effect");
+		ImGui::EndDragDropSource();
+	}
+	ImGui::PopID();
+
 	ImGui::Dummy(ImVec2(0, 10));
 
 	// VST plugins

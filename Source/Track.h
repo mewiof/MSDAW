@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <string>
 #include <atomic>
+#include <cstdint>
 #include <iostream>
 #include "AudioProcessor.h"
 #include "MIDITypes.h"
@@ -35,6 +36,11 @@ public:
 
 	void SetName(const std::string& name) { mName = name; }
 	const std::string& GetName() const { return mName; }
+
+	// stable per-track identity, unique within a session and preserved by save/load
+	// unlike the track index it survives reordering and grouping, so cross-track
+	// references (the Auto Sidechain source) can be stored safely
+	uint32_t GetId() const { return mId; }
 
 	// color (ImU32 - ABGR packed)
 	void SetColor(ImU32 color) { mColor = color; }
@@ -73,10 +79,14 @@ public:
 	void AddToAccumulator(const float* input, int numFrames, int numChannels);
 
 	// process the entire chain for this track
+	// detectorOnly marks a render whose output is thrown away - a muted or
+	// solo-excluded track that some other track sidechains from. it still runs (and
+	// still feeds the detector bus) but must not light up its meter as if audible
 	void Process(float* buffer, int numFrames, int numChannels,
 				 std::vector<MIDIMessage>& mIDIMessages,
 				 const ProcessContext& context,
-				 bool accumulateToOutput = false);
+				 bool accumulateToOutput = false,
+				 bool detectorOnly = false);
 
 	// processor management
 	void AddProcessor(std::shared_ptr<AudioProcessor> processor);
@@ -134,7 +144,10 @@ public:
 	int mLoadedParentIndex = -1;
 private:
 	std::string mName = "Track";
-	ImU32 mColor = IM_COL32(100, 100, 100, 255);
+	uint32_t mId = 0;
+	// no in-class default: Track::Track sets this from Theme::TrackColor, so a
+	// literal here would be a second, dead source of truth for a color
+	ImU32 mColor = 0;
 
 	std::vector<std::shared_ptr<AudioProcessor>> mProcessors;
 	std::vector<std::shared_ptr<Clip>> mClips;

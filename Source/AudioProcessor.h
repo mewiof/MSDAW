@@ -48,7 +48,7 @@ public:
 	// setup
 	virtual void PrepareToPlay(double sampleRate) = 0;
 
-	// reset state: a hard panic that also clears reverb/delay tails and internal buffers.
+	// reset state: a hard panic that also clears reverb/delay tails and internal buffers
 	// used on transport stop and seek, where a clean restart is wanted
 	virtual void Reset() {}
 
@@ -107,6 +107,11 @@ public:
 		(void)size;
 		return false;
 	}
+
+	// copy whatever state does not live in mParameters (the device rack's copy /
+	// paste / duplicate path only transfers parameter values). both sides are the
+	// same concrete type; the base has nothing of its own to copy
+	virtual void CopyStateFrom(const AudioProcessor& other) { (void)other; }
 
 	// serialization
 	virtual void Save(std::ostream& out) {

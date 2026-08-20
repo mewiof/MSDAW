@@ -35,13 +35,49 @@ void Project::Initialize() {
 
 void Project::CreateTrack() {
 	std::lock_guard<std::mutex> lock(mMutex);
+	InsertNewTrack((int)mTracks.size(), nullptr);
+}
+
+void Project::CreateTrackAfter(int index) {
+	std::lock_guard<std::mutex> lock(mMutex);
+
+	if (index < 0 || index >= (int)mTracks.size()) {
+		InsertNewTrack((int)mTracks.size(), nullptr);
+		return;
+	}
+
+	// mTracks is flat and a group's children follow their header, so stepping over
+	// every descendant is what puts the new track after the group instead of inside it
+	const std::shared_ptr<Track> anchor = mTracks[index];
+	int insertAt = index + 1;
+	while (insertAt < (int)mTracks.size()) {
+		bool nested = false;
+		for (auto parent = mTracks[insertAt]->GetParent(); parent; parent = parent->GetParent()) {
+			if (parent == anchor) {
+				nested = true;
+				break;
+			}
+		}
+		if (!nested)
+			break;
+		++insertAt;
+	}
+
+	// a sibling, so a track added below one that lives in a group joins that group
+	InsertNewTrack(insertAt, anchor->GetParent());
+}
+
+// NOTE: callers hold mMutex. the audio thread walks mTracks for the whole block, so
+// growing it anywhere but under that lock would pull the vector out from under it
+void Project::InsertNewTrack(int index, std::shared_ptr<Track> parent) {
 	auto track = std::make_shared<Track>();
 	track->SetName("Track " + std::to_string(mTracks.size() + 1));
+	track->SetParent(parent);
 
 	if (mTransport.GetSampleRate() > 0) {
 		track->PrepareToPlay(mTransport.GetSampleRate());
 	}
-	mTracks.push_back(track);
+	mTracks.insert(mTracks.begin() + std::clamp(index, 0, (int)mTracks.size()), track);
 }
 
 void Project::RemoveTrack(int index) {

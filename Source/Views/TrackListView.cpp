@@ -62,7 +62,8 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 	int trackToProcess = -1;
 	enum Action { None,
 				  Delete,
-				  Ungroup };
+				  Ungroup,
+				  AddAfter };
 	Action action = None;
 
 	ImVec2 clipMin(fixedPos.x, stickyY + headerHeight);
@@ -217,6 +218,11 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		}
 
 		if (ImGui::BeginPopupContextItem()) {
+			if (ImGui::MenuItem("Add Track After This One")) {
+				trackToProcess = (int)i;
+				action = AddAfter;
+			}
+			ImGui::Separator();
 			if (ImGui::MenuItem("Rename")) {
 				mRenamingIndex = (int)i;
 				strcpy(mRenameBuf, track->GetName().c_str());
@@ -434,17 +440,27 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		ImGui::EndDragDropTarget();
 	}
 
+	// the empty space under the last track: the only place left to ask for a track when
+	// the list is empty, which is exactly when there is no row to right-click
+	const float emptyTop = trackAreaStartY + TrackLayout::TotalHeight(rows) + 10.0f;
+	const float emptyHeight = masterY - emptyTop;
+	if (emptyHeight > 1.0f) {
+		ImGui::SetCursorScreenPos(ImVec2(fixedPos.x, emptyTop));
+		ImGui::InvisibleButton("##TrackListEmpty", ImVec2(width, emptyHeight), ImGuiButtonFlags_MouseButtonRight);
+		if (ImGui::BeginPopupContextItem()) {
+			if (ImGui::MenuItem("Add Track")) {
+				TrackTopologyAction::Record(mContext.undoManager, project, "Add track", [&] {
+					project->CreateTrack();
+				});
+			}
+			ImGui::EndPopup();
+		}
+	}
+
 	ImGui::PopClipRect();
 
 	drawList->AddRectFilled(ImVec2(fixedPos.x, stickyY), ImVec2(fixedPos.x + width, stickyY + headerHeight), th.bgHeader);
 	drawList->AddLine(ImVec2(fixedPos.x, stickyY + headerHeight), ImVec2(fixedPos.x + width, stickyY + headerHeight), th.borderStrong);
-
-	ImGui::SetCursorScreenPos(ImVec2(fixedPos.x + 8 * mContext.state.mainScale, stickyY + 6 * mContext.state.mainScale));
-	if (ImGui::Button("+ Add Track", ImVec2(width - 16 * mContext.state.mainScale, 22 * mContext.state.mainScale))) {
-		TrackTopologyAction::Record(mContext.undoManager, project, "Add track", [&] {
-			project->CreateTrack();
-		});
-	}
 
 	if (trackToProcess != -1) {
 		if (action == Delete) {
@@ -457,6 +473,10 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		} else if (action == Ungroup) {
 			TrackTopologyAction::Record(mContext.undoManager, project, "Ungroup track", [&] {
 				project->UngroupTrack(trackToProcess);
+			});
+		} else if (action == AddAfter) {
+			TrackTopologyAction::Record(mContext.undoManager, project, "Add track", [&] {
+				project->CreateTrackAfter(trackToProcess);
 			});
 		}
 	}

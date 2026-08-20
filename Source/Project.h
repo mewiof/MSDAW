@@ -30,6 +30,12 @@ public:
 
 	// track management
 	void CreateTrack();
+
+	// creates a track directly below `index` and everything nested under it, as a
+	// sibling of that track - so "after this one" on a group header lands after the
+	// whole group rather than as its first child. an out-of-range index appends at the
+	// root, which is what CreateTrack does
+	void CreateTrackAfter(int index);
 	void RemoveTrack(int index);
 	void MoveTrack(int srcIndex, int dstIndex, bool asChild);
 
@@ -67,6 +73,10 @@ public:
 	ProjectViewState& GetViewState() { return mViewState; }
 	void SetViewState(const ProjectViewState& state) { mViewState = state; }
 private:
+	// the one place a track is born, shared by both CreateTrack paths. callers hold
+	// mMutex; a null parent means the root level
+	void InsertNewTrack(int index, std::shared_ptr<Track> parent);
+
 	Transport mTransport;
 	std::vector<std::shared_ptr<Track>> mTracks;
 	ProjectViewState mViewState;

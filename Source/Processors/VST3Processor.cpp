@@ -1,5 +1,6 @@
 #include "Parameters/SliderParameter.h"
 #include "PrecompHeader.h"
+#include "PluginManager.h"
 
 // define INIT_CLASS_IID before including the VST3 headers for GUIDs
 #define INIT_CLASS_IID
@@ -371,6 +372,10 @@ VST3Processor::VST3Processor(const std::string& path, const std::string& classID
 VST3Processor::~VST3Processor() {
 	CloseEditor();
 
+	// serialized against every other plugin binary touching the process: the scan
+	// thread and the UI thread both arrive here (see PluginManager::BinaryLock)
+	std::lock_guard<std::mutex> binaryLock(PluginManager::BinaryLock());
+
 	if (mIsActive && mComponent) {
 		mComponent->setActive(false);
 		mIsActive = false;
@@ -408,6 +413,10 @@ VST3Processor::~VST3Processor() {
 bool VST3Processor::Load() {
 	if (mComponent)
 		return true;
+
+	// serialized against every other plugin binary touching the process: the scan
+	// thread and the UI thread both arrive here (see PluginManager::BinaryLock)
+	std::lock_guard<std::mutex> binaryLock(PluginManager::BinaryLock());
 
 #ifdef _WIN32
 	mModuleHandle = LoadLibraryA(mPath.c_str());
@@ -1258,6 +1267,11 @@ bool VST3Processor::IsEditorOpen() const {
 #ifdef _WIN32
 std::vector<PluginInfo> VST3Processor::EnumeratePlugins(const std::string& path) {
 	std::vector<PluginInfo> results;
+
+	// serialized against every other plugin binary touching the process: the scan
+	// thread and the UI thread both arrive here (see PluginManager::BinaryLock)
+	std::lock_guard<std::mutex> binaryLock(PluginManager::BinaryLock());
+
 	HMODULE moduleHandle = LoadLibraryA(path.c_str());
 	if (!moduleHandle)
 		return results;

@@ -71,3 +71,23 @@ TEST(PluginScan, DestructionWaitsForAScanInFlight) {
 
 	SUCCEED();
 }
+
+// two threads reaching a plugin binary at once is what the lock exists to stop; it
+// has to be plain enough to take twice in a row from one thread without seizing up
+TEST(PluginScan, TheBinaryLockIsAvailableAndNotSelfBlocking) {
+	{
+		std::lock_guard<std::mutex> lock(PluginManager::BinaryLock());
+	}
+	{
+		std::lock_guard<std::mutex> lock(PluginManager::BinaryLock());
+	}
+
+	bool takenOnAnotherThread = false;
+	std::thread other([&takenOnAnotherThread] {
+		std::lock_guard<std::mutex> lock(PluginManager::BinaryLock());
+		takenOnAnotherThread = true;
+	});
+	other.join();
+
+	EXPECT_TRUE(takenOnAnotherThread) << "every load site shares one lock instance";
+}

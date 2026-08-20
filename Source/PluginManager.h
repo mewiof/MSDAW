@@ -38,6 +38,13 @@ public:
 		return mPlugins;
 	}
 
+	// held around every load, instantiation and unload of a plugin binary, wherever it
+	// happens from. a plugin's entry point does global initialization on the way in -
+	// GL contexts, COM apartments, static registries - and none of that is written to
+	// survive two threads arriving at once. the scan thread and the UI thread both
+	// reach it, and opening a project while the startup scan is still running is the
+	// usual way they meet
+	static std::mutex& BinaryLock();
 private:
 	std::vector<std::string> mSearchPaths; // UI thread only; the scan copies it before starting
 	std::vector<PluginInfo> mPlugins;

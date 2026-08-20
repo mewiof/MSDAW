@@ -8,6 +8,11 @@
 
 namespace fs = std::filesystem;
 
+std::mutex& PluginManager::BinaryLock() {
+	static std::mutex lock;
+	return lock;
+}
+
 PluginManager::PluginManager() {
 	// default paths
 	mSearchPaths.push_back("C:\\Program Files\\VSTPlugins");

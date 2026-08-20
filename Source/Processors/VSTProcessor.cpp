@@ -1,6 +1,7 @@
 #include "Parameters/SliderParameter.h"
 #include "PrecompHeader.h"
 #include "VSTProcessor.h"
+#include "PluginManager.h"
 #include <iostream>
 #include <mutex>
 #include <map>
@@ -116,6 +117,10 @@ VSTProcessor::~VSTProcessor() {
 	CloseEditor();
 	Suspend();
 
+	// serialized against every other plugin binary touching the process: the scan
+	// thread and the UI thread both arrive here (see PluginManager::BinaryLock)
+	std::lock_guard<std::mutex> binaryLock(PluginManager::BinaryLock());
+
 	if (mAEffect) {
 		{
 			std::lock_guard<std::mutex> lock(gEffectMapMutex);
@@ -136,6 +141,10 @@ VSTProcessor::~VSTProcessor() {
 bool VSTProcessor::Load() {
 	if (mAEffect)
 		return true;
+
+	// serialized against every other plugin binary touching the process: the scan
+	// thread and the UI thread both arrive here (see PluginManager::BinaryLock)
+	std::lock_guard<std::mutex> binaryLock(PluginManager::BinaryLock());
 
 #ifdef _WIN32
 	mLibrary = LoadLibraryA(mPath.c_str());

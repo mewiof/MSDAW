@@ -16,6 +16,14 @@ PluginManager::PluginManager() {
 	mSearchPaths.push_back("C:\\Program Files\\Common Files\\VST3");
 }
 
+PluginManager::~PluginManager() {
+	// the scan writes mPlugins through `this`. a detached thread outliving the manager
+	// is a use-after-free that lands on whatever gets built where it used to be
+	mAbortScan.store(true, std::memory_order_relaxed);
+	if (mScanThread.joinable())
+		mScanThread.join();
+}
+
 void PluginManager::AddSearchPath(const std::string& path) {
 	// avoid duplicates
 	for (const auto& p : mSearchPaths) {
@@ -32,23 +40,37 @@ void PluginManager::RemoveSearchPath(int index) {
 }
 
 void PluginManager::ScanPlugins() {
-	std::vector<std::string> pathsToScan;
-	{
-		std::lock_guard<std::mutex> lock(mMutex);
-		pathsToScan = mSearchPaths;
-	}
+	// one scan at a time. the flag is claimed here, on the calling thread, so two
+	// clicks in the same frame cannot both get through
+	bool idle = false;
+	if (!mScanning.compare_exchange_strong(idle, true, std::memory_order_acq_rel))
+		return;
 
-	std::thread([this, pathsToScan]() {
+	// the previous scan has finished its work - that is what cleared the flag - but the
+	// thread object still owns a handle, and assigning over a joinable one terminates
+	if (mScanThread.joinable())
+		mScanThread.join();
+
+	// mSearchPaths belongs to the UI thread, which is the only caller here
+	const std::vector<std::string> pathsToScan = mSearchPaths;
+	mAbortScan.store(false, std::memory_order_relaxed);
+
+	mScanThread = std::thread([this, pathsToScan]() {
 		std::cout << "Scanning for Plugins in background...\n";
 		std::vector<PluginInfo> foundPlugins;
 
 		for (const auto& pathStr : pathsToScan) {
+			if (mAbortScan.load(std::memory_order_relaxed))
+				break;
 			fs::path root(pathStr);
 			if (!fs::exists(root) || !fs::is_directory(root))
 				continue;
 
 			try {
 				for (const auto& entry : fs::recursive_directory_iterator(root)) {
+					// quitting must not wait out a full sweep of every VST folder
+					if (mAbortScan.load(std::memory_order_relaxed))
+						break;
 					if (entry.is_regular_file()) {
 						std::string ext = entry.path().extension().string();
 						std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
@@ -84,10 +106,15 @@ void PluginManager::ScanPlugins() {
 			}
 		}
 
-		{
+		// an aborted scan only saw part of the tree, so it must not replace the list the
+		// UI is already showing with a truncated one
+		if (!mAbortScan.load(std::memory_order_relaxed)) {
 			std::lock_guard<std::mutex> lock(mMutex);
 			mPlugins = std::move(foundPlugins);
 		}
 		std::cout << "Scan Complete. Found plugins.\n";
-	}).detach();
+		// last thing the thread does: clearing this lets the next scan start, and the
+		// join above is what waits for the thread itself to finish
+		mScanning.store(false, std::memory_order_release);
+	});
 }

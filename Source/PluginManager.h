@@ -1,7 +1,9 @@
 #pragma once
-#include <vector>
-#include <string>
+#include <atomic>
 #include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
 
 struct PluginInfo {
 	std::string name;
@@ -15,21 +17,33 @@ struct PluginInfo {
 class PluginManager {
 public:
 	PluginManager();
+	~PluginManager();
 
 	// add VST search path
 	void AddSearchPath(const std::string& path);
 	void RemoveSearchPath(int index);
 	const std::vector<std::string>& GetSearchPaths() const { return mSearchPaths; }
 
-	// recursive plugin scan
+	// recursive plugin scan, on a background thread
+	//
+	// NOTE: a call made while a scan is already running is dropped, not queued. every
+	// call used to detach a thread of its own, so holding the settings button down put
+	// several of them inside plugin entry points at the same time
 	void ScanPlugins();
+
+	bool IsScanning() const { return mScanning.load(std::memory_order_relaxed); }
 
 	std::vector<PluginInfo> GetKnownPlugins() {
 		std::lock_guard<std::mutex> lock(mMutex);
 		return mPlugins;
 	}
+
 private:
-	std::vector<std::string> mSearchPaths;
+	std::vector<std::string> mSearchPaths; // UI thread only; the scan copies it before starting
 	std::vector<PluginInfo> mPlugins;
 	std::mutex mMutex;
+
+	std::thread mScanThread;
+	std::atomic<bool> mScanning{false};
+	std::atomic<bool> mAbortScan{false};
 };

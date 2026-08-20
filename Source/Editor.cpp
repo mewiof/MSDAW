@@ -826,8 +826,13 @@ void Editor::RenderSettingsWindow() {
 					}
 				}
 				ImGui::Separator();
-				if (ImGui::Button("Scan Plugins", ImVec2(120, 30)))
+				// disabled while one is running: a second scan is dropped rather than
+				// queued, so a live button would just look broken
+				const bool scanning = pm.IsScanning();
+				ImGui::BeginDisabled(scanning);
+				if (ImGui::Button(scanning ? "Scanning..." : "Scan Plugins", ImVec2(120, 30)))
 					pm.ScanPlugins();
+				ImGui::EndDisabled();
 				ImGui::SameLine();
 				ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::Instance().textMuted), "Found: %d", (int)pm.GetKnownPlugins().size());
 				ImGui::EndTabItem();

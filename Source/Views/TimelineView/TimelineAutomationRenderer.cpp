@@ -404,9 +404,10 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 		if (ImGui::BeginPopup("AutomationContext")) {
 			std::vector<AutomationPoint> menuBefore = curve->points; // undo baseline
 
-			// exact numeric entry for the right-clicked point. EnterReturnsTrue so a change
-			// commits once (one undo entry, captured by the menuBefore diff below), not per
-			// keystroke
+			// exact numeric entry for the right-clicked point. the commit is deferred to
+			// IsItemDeactivatedAfterEdit so a change lands once (one undo entry, captured by
+			// the menuBefore diff below) instead of per keystroke -- InputScalar asserts on
+			// ImGuiInputTextFlags_EnterReturnsTrue and this is its documented replacement
 			int ci = interaction.autoContextPointIndex;
 			if (ci >= 0 && ci < (int)curve->points.size()) {
 				double editBeat = curve->points[ci].beat;
@@ -414,12 +415,14 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				bool applied = false;
 
 				ImGui::SetNextItemWidth(110 * context.state.mainScale);
-				if (ImGui::InputDouble("Beat", &editBeat, 0.0, 0.0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
+				ImGui::InputDouble("Beat", &editBeat, 0.0, 0.0, "%.3f");
+				if (ImGui::IsItemDeactivatedAfterEdit()) {
 					curve->points[ci].beat = editBeat < 0.0 ? 0.0 : editBeat;
 					applied = true;
 				}
 				ImGui::SetNextItemWidth(110 * context.state.mainScale);
-				if (ImGui::InputFloat("Value", &editValue, 0.0f, 0.0f, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
+				ImGui::InputFloat("Value", &editValue, 0.0f, 0.0f, "%.3f");
+				if (ImGui::IsItemDeactivatedAfterEdit()) {
 					curve->points[ci].value = std::clamp(editValue, minVal, maxVal);
 					applied = true;
 				}

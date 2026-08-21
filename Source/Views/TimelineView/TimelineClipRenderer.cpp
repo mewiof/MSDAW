@@ -64,7 +64,10 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 	}
 
 	// draw clips
-	auto& clips = t->GetClips();
+	// iterate a copy of the list, not the live one: committing a drag calls ResolveOverlaps
+	// and the "Duplicate" menu entry calls AddClip, both of which erase from / push onto the
+	// track's clip vector from inside this loop and would invalidate its iterators
+	std::vector<std::shared_ptr<Clip>> clips = t->GetClips();
 	for (auto& clip : clips) {
 		bool isDraggingThis = (interaction.dragState != DragState::None && context.state.selectedClip == clip);
 

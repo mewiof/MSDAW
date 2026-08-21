@@ -66,6 +66,14 @@ Theme::Theme() {
 	graphCurveCool = IM_COL32(96, 176, 232, 255);
 	spectrumFill = IM_COL32(150, 152, 165, 46);
 	spectrumEdge = IM_COL32(168, 170, 184, 110);
+	spectrumFillAlt = IM_COL32(96, 176, 232, 40);
+	spectrumEdgeAlt = IM_COL32(110, 186, 240, 120);
+
+	// the spectrogram ramp climbs out of the panel background rather than out of
+	// black, so a quiet passage reads as empty instead of as a hole in the panel
+	spectrogramFloor = IM_COL32(16, 16, 18, 255);
+	spectrogramMid = IM_COL32(58, 84, 128, 255);
+	spectrogramPeak = IM_COL32(240, 196, 110, 255);
 
 	// meters (peak level ramp)
 	meterBg = IM_COL32(20, 20, 22, 255);
@@ -244,6 +252,12 @@ ImU32 Theme::MeterColor(float norm) const {
 	if (norm < 0.75f)
 		return Lerp(meterLow, meterMid, norm / 0.75f);
 	return Lerp(meterMid, meterHigh, (norm - 0.75f) / 0.25f);
+}
+
+ImU32 Theme::SpectrogramColor(float t) const {
+	if (t < 0.5f)
+		return Lerp(spectrogramFloor, spectrogramMid, t / 0.5f);
+	return Lerp(spectrogramMid, spectrogramPeak, (t - 0.5f) / 0.5f);
 }
 
 ImU32 Theme::TrackColor(int index) const {

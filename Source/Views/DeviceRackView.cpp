@@ -341,6 +341,8 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 					minContentH = 200.0f * mContext.state.mainScale;
 				else if (pId == "EQEight")
 					minContentH = 330.0f * mContext.state.mainScale; // the globals column alone is taller than the rack
+				else if (pId == "Analyzer")
+					minContentH = 300.0f * mContext.state.mainScale; // a goniometer and ten band rows need the room
 
 				bool scrollWrap = minContentH > avail.y;
 				if (scrollWrap) {

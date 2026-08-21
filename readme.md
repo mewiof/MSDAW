@@ -5,7 +5,7 @@ https://github.com/user-attachments/assets/1edac651-7c0c-4511-9eb0-d284dfb59650
 ## Features
 
 - **plugin hosting:** support for VST2 and VST3 instruments/effects
-- **built-in plugins:** Bit Crusher, Auto Sidechain, EQ Eight
+- **built-in plugins:** Bit Crusher, Auto Sidechain, EQ Eight, Analyzer
 - **timeline engine:** audio/MIDI clips (with linking)
 - **track management:** hierarchical track grouping and routing
 - **automation:** parameter automation with curved tension

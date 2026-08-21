@@ -51,6 +51,18 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	}
 	ImGui::PopID();
 
+	// analyzer
+	ImGui::PushID("Analyzer");
+	if (ImGui::Selectable("Analyzer")) {
+	}
+	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "Analyzer", strlen("Analyzer") + 1);
+		ImGui::Text("Analyzer");
+		ImGui::TextDisabled("Effect");
+		ImGui::EndDragDropSource();
+	}
+	ImGui::PopID();
+
 	ImGui::Dummy(ImVec2(0, 10));
 
 	// VST plugins

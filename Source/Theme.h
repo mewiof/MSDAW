@@ -80,6 +80,11 @@ public:
 	ImU32 graphCurveCool;  // secondary readout curve (delay/reverb)
 	ImU32 spectrumFill;	   // translucent body of a spectrum analyzer
 	ImU32 spectrumEdge;	   // the line along the top of that body
+	ImU32 spectrumFillAlt; // second overlaid spectrum (right / side channel)
+	ImU32 spectrumEdgeAlt;
+	ImU32 spectrogramFloor; // spectrogram ramp: at or under the noise floor
+	ImU32 spectrogramMid;	// ... halfway up the scale
+	ImU32 spectrogramPeak;	// ... the loudest thing on screen
 
 	// ================================================================
 	// METERS (peak level ramp)
@@ -147,6 +152,8 @@ public:
 	ImU32 HeatColor(float t) const;
 	// green -> red ramp for a per-channel peak meter, norm in 0..1
 	ImU32 MeterColor(float norm) const;
+	// floor -> mid -> peak ramp for one spectrogram cell, t in 0..1
+	ImU32 SpectrogramColor(float t) const;
 	// curated on-theme track color chosen by index, cycling a fixed palette
 	// (replaces the old rand() that produced muddy grays)
 	ImU32 TrackColor(int index) const;

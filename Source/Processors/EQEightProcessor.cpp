@@ -4,6 +4,7 @@
 #include "Parameters/SliderParameter.h"
 #include "Parameters/ToggleParameter.h"
 #include "ProcessorFactory.h"
+#include "Analysis/Spectrum.h"
 #include "Theme.h"
 #include <cmath>
 #include <complex>
@@ -58,12 +59,10 @@ namespace {
 		return 20.0 * std::log10(std::max(linear, 1.0e-9));
 	}
 
-	// center frequency of one of the analyzer's log-spaced display points. the mapping,
-	// the drawing and the headless readout all have to agree on this or the spectrum
-	// lands next to the curve it is supposed to sit under
+	// center frequency of one of the analyzer's log-spaced display points, on the
+	// shared axis the fold and every readout agree on
 	double AnalyzerPointFrequency(int index, int count) {
-		const double ratio = std::log(kMaxFrequency / kMinFrequency);
-		return kMinFrequency * std::exp(ratio * ((double)index + 0.5) / (double)count);
+		return spectrum::LogAxisPointFrequency(index, count, kMinFrequency, kMaxFrequency);
 	}
 
 	bool TypeUsesGain(EQFilterType type) {
@@ -762,100 +761,26 @@ void EQEightProcessor::PushAnalyzerSample(float sample) {
 }
 
 void EQEightProcessor::RefreshAnalyzer() {
-	// a Hann-windowed radix-2 transform of the newest samples, folded onto the graph's
-	// log axis. all of it runs here on the UI thread, so the audio thread's only job is
-	// to append to the ring - and a torn read there costs one frame of a stale bin
+	// a Hann-windowed transform of the newest samples, folded onto the graph's log
+	// axis. all of it runs here on the UI thread, so the audio thread's only job is to
+	// append to the ring - and a torn read there costs one frame of a stale bin
 	//
 	// NOTE: the scratch is function-local rather than per-instance because only the UI
 	// thread ever reaches this, and it is refilled from scratch on every call
+	static std::vector<float> samples(kTransformSize);
 	static std::vector<double> real(kTransformSize);
 	static std::vector<double> imaginary(kTransformSize);
-
-	const int size = kTransformSize;
-	const int write = mAnalyzerWrite.load(std::memory_order_relaxed);
-	for (int i = 0; i < size; ++i) {
-		const float sample = mAnalyzerRing[(write - size + i) & (kRingSize - 1)];
-		const double window = 0.5 - 0.5 * std::cos(2.0 * kPi * (double)i / (double)(size - 1));
-		real[i] = (double)sample * window;
-		imaginary[i] = 0.0;
-	}
-
-	for (int i = 1, j = 0; i < size; ++i) {
-		int bit = size >> 1;
-		for (; j & bit; bit >>= 1)
-			j ^= bit;
-		j ^= bit;
-		if (i < j) {
-			std::swap(real[i], real[j]);
-			std::swap(imaginary[i], imaginary[j]);
-		}
-	}
-
-	for (int length = 2; length <= size; length <<= 1) {
-		const double angle = -2.0 * kPi / (double)length;
-		const double stepReal = std::cos(angle);
-		const double stepImaginary = std::sin(angle);
-		for (int start = 0; start < size; start += length) {
-			double twiddleReal = 1.0;
-			double twiddleImaginary = 0.0;
-			for (int k = 0; k < length / 2; ++k) {
-				const int low = start + k;
-				const int high = low + length / 2;
-				const double productReal = real[high] * twiddleReal - imaginary[high] * twiddleImaginary;
-				const double productImaginary = real[high] * twiddleImaginary + imaginary[high] * twiddleReal;
-				real[high] = real[low] - productReal;
-				imaginary[high] = imaginary[low] - productImaginary;
-				real[low] += productReal;
-				imaginary[low] += productImaginary;
-
-				const double nextReal = twiddleReal * stepReal - twiddleImaginary * stepImaginary;
-				twiddleImaginary = twiddleReal * stepImaginary + twiddleImaginary * stepReal;
-				twiddleReal = nextReal;
-			}
-		}
-	}
-
 	static std::vector<double> magnitude(kTransformSize / 2 + 1);
-	for (int k = 0; k <= size / 2; ++k)
-		magnitude[k] = std::sqrt(real[k] * real[k] + imaginary[k] * imaginary[k]);
-
-	const double rate = mSampleRate > 1.0 ? mSampleRate : 48000.0;
-	const double binHz = rate / (double)size;
-	const double ratio = std::log(kMaxFrequency / kMinFrequency);
-
-	// the log axis and the transform's linear bins disagree at both ends, in opposite
-	// directions, and taking a peak over a span only answers one of them:
-	//   low  - a display point is narrower than one bin, so a plain lookup repeats the
-	//          same bin across dozens of points and the curve comes out in steps
-	//   high - a display point spans dozens of bins, where the peak is the honest
-	//          answer because a lone tone must not average itself away
-	// so interpolate between neighboring bins below the crossover and peak above it
 	static std::vector<float> fresh(kAnalyzerBins);
-	for (int bin = 0; bin < kAnalyzerBins; ++bin) {
-		const double low = kMinFrequency * std::exp(ratio * (double)bin / (double)kAnalyzerBins);
-		const double high = kMinFrequency * std::exp(ratio * (double)(bin + 1) / (double)kAnalyzerBins);
 
-		const int first = std::max((int)std::floor(low / binHz), 1);
-		const int last = std::min((int)std::ceil(high / binHz), size / 2 - 1);
+	const int write = mAnalyzerWrite.load(std::memory_order_relaxed);
+	for (int i = 0; i < kTransformSize; ++i)
+		samples[i] = mAnalyzerRing[(write - kTransformSize + i) & (kRingSize - 1)];
 
-		// NOTE: the first few points sit below bin 1's center, where the transform has
-		// nothing to say, so they all report it. that is two percent of the width at
-		// the extreme left edge and no window short enough to be responsive fixes it
-		double level = 0.0;
-		if (last - first < 2) {
-			const double exact = AnalyzerPointFrequency(bin, kAnalyzerBins) / binHz;
-			const int lower = std::clamp((int)std::floor(exact), 1, size / 2 - 2);
-			const double t = std::clamp(exact - (double)lower, 0.0, 1.0);
-			level = magnitude[lower] * (1.0 - t) + magnitude[lower + 1] * t;
-		} else {
-			for (int k = first; k <= last; ++k)
-				level = std::max(level, magnitude[k]);
-		}
-
-		// 4/N undoes both the transform's length and the Hann window's 0.5 coherent
-		// gain, so a full-scale sine reads 0 dBFS
-		fresh[bin] = (float)LinearToDb(level * 4.0 / (double)size);
-	}
+	spectrum::WindowedTransform(samples.data(), kTransformSize, real.data(), imaginary.data());
+	spectrum::Magnitudes(real.data(), imaginary.data(), kTransformSize, magnitude.data());
+	spectrum::FoldToLogAxis(magnitude.data(), kTransformSize, mSampleRate,
+							kMinFrequency, kMaxFrequency, fresh.data(), kAnalyzerBins);
 
 	for (int bin = 0; bin < kAnalyzerBins; ++bin) {
 		// NOTE: no smoothing across neighboring points. it reads better on a noise

@@ -193,7 +193,13 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 							int targetIdx = TrackLayout::RowAtY(rows, relY);
 							if (targetIdx < 0)
 								targetIdx = trackIndex;
-							interaction.dragTargetTrackIdx = targetIdx;
+							// hovering a lane that cannot take clips (a group, or a track with its
+							// automation lane open) must not retarget the drag: the drop would be
+							// refused on release and the clip would snap back with no explanation.
+							// leave the ghost on the last lane that can actually take it
+							auto& projectTracks = project->GetTracks();
+							if (targetIdx >= 0 && targetIdx < (int)projectTracks.size() && projectTracks[targetIdx]->AcceptsClips())
+								interaction.dragTargetTrackIdx = targetIdx;
 						}
 					}
 
@@ -254,7 +260,7 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 						// cross track
 						auto& tracks = project->GetTracks();
 						if (interaction.dragTargetTrackIdx >= 0 && interaction.dragTargetTrackIdx < (int)tracks.size()) {
-							if (!tracks[interaction.dragTargetTrackIdx]->mShowAutomation) {
+							if (tracks[interaction.dragTargetTrackIdx]->AcceptsClips()) {
 								pendingMove.clip = clip;
 								pendingMove.fromTrackIdx = trackIndex;
 								pendingMove.toTrackIdx = interaction.dragTargetTrackIdx;

@@ -128,6 +128,13 @@ public:
 	void SetParent(std::shared_ptr<Track> parent) { mParent = parent; }
 	std::shared_ptr<Track> GetParent() const { return mParent.lock(); }
 
+	// a group is a mixing container: it sums its children and carries devices and
+	// automation of its own, but never holds clips. an open automation lane owns the
+	// row for as long as it is up, so nothing can be dropped there either. every
+	// place that puts a clip on a track (menus, paste, file drop, cross-track drag)
+	// asks this first
+	bool AcceptsClips() const { return !mIsGroup && !mShowAutomation; }
+
 	bool mIsCollapsed = false;
 
 	// ui state

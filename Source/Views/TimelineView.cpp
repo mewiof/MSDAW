@@ -138,7 +138,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 				}
 				if (ImGui::IsKeyPressed(ImGuiKey_V) && mInteraction.clipboard) {
 					int trackIdx = mContext.state.selectedTrackIndex;
-					if (trackIdx >= 0 && trackIdx < (int)tracks.size() && !tracks[trackIdx]->mShowAutomation) {
+					if (trackIdx >= 0 && trackIdx < (int)tracks.size() && tracks[trackIdx]->AcceptsClips()) {
 						auto newClip = CloneClip(mInteraction.clipboard);
 						if (newClip) {
 							double currentBeat = (double)transport->GetPosition() / transport->GetSampleRate() * (transport->GetBpm() / 60.0);
@@ -152,7 +152,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 				}
 				if (ImGui::IsKeyPressed(ImGuiKey_D) && mContext.state.selectedClip) {
 					int trackIdx = mContext.state.selectedTrackIndex;
-					if (trackIdx >= 0 && trackIdx < (int)tracks.size()) {
+					if (trackIdx >= 0 && trackIdx < (int)tracks.size() && tracks[trackIdx]->AcceptsClips()) {
 						auto newClip = CloneClip(mContext.state.selectedClip);
 						if (newClip) {
 							double endBeat = mContext.state.selectedClip->GetEndBeat();
@@ -338,7 +338,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 				bool handled = false;
 
 				if ((ext == ".wav" || ext == ".mp3" || ext == ".flac") && trackIndex >= 0 && trackIndex < (int)tracks.size()) {
-					if (!tracks[trackIndex]->mShowAutomation) {
+					if (tracks[trackIndex]->AcceptsClips()) {
 						auto clip = std::make_shared<AudioClip>();
 						clip->SetName(p.filename().string());
 						if (clip->LoadFromFile(mContext.state.droppedPath)) {
@@ -359,7 +359,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 						}
 					}
 				} else if ((ext == ".mid" || ext == ".mIDI") && trackIndex >= 0 && trackIndex < (int)tracks.size()) {
-					if (!tracks[trackIndex]->mShowAutomation) {
+					if (tracks[trackIndex]->AcceptsClips()) {
 						auto clip = std::make_shared<MIDIClip>();
 						clip->SetName(p.filename().string());
 						if (clip->LoadFromFile(mContext.state.droppedPath)) {
@@ -420,7 +420,8 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 				if (mContext.state.timelineGrid > 0.0)
 					startBeat = round(startBeat / mContext.state.timelineGrid) * mContext.state.timelineGrid;
 
-				if (trackIndex >= 0 && trackIndex < (int)tracks.size()) {
+				// no marker over a lane that cannot take the file (a group, or an open automation lane)
+				if (trackIndex >= 0 && trackIndex < (int)tracks.size() && tracks[trackIndex]->AcceptsClips()) {
 					// draw insertion marker (instead of fake box)
 					float ghostX = winPos.x + (float)(startBeat * mContext.state.pixelsPerBeat);
 					float ghostY = trackAreaStartY + rows[trackIndex].top;

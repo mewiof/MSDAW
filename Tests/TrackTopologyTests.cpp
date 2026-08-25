@@ -155,3 +155,36 @@ TEST(TrackTopology, ANestedGroupIsSteppedOverWholesale) {
 	EXPECT_EQ(Names(project).back(), project.GetTracks()[before]->GetName())
 		<< "the new track clears every descendant of the outer group";
 }
+
+// a group is a mixing container: the timeline refuses to place clips on one, and
+// every drop site asks the track itself rather than re-deriving the rule
+TEST(TrackTopology, AGroupDoesNotAcceptClips) {
+	Project project;
+	project.Initialize();
+	MakeThreeTracks(project);
+	project.GroupSelectedTracks({0, 1});
+
+	int groups = 0;
+	for (const auto& track : project.GetTracks()) {
+		if (track->IsGroup()) {
+			++groups;
+			EXPECT_FALSE(track->AcceptsClips());
+		} else {
+			EXPECT_TRUE(track->AcceptsClips());
+		}
+	}
+	EXPECT_EQ(groups, 1);
+}
+
+// an open automation lane owns the row while it is up, so it takes no clips either
+TEST(TrackTopology, ATrackShowingItsAutomationLaneDoesNotAcceptClips) {
+	Project project;
+	project.Initialize();
+	project.CreateTrack();
+
+	auto track = project.GetTracks()[0];
+	ASSERT_TRUE(track->AcceptsClips());
+
+	track->mShowAutomation = true;
+	EXPECT_FALSE(track->AcceptsClips());
+}

@@ -9,6 +9,7 @@
 #include <cmath>
 
 #include "TimelineClipRenderer.h"
+#include "TimelineGroupRenderer.h"
 #include "TimelineAutomationRenderer.h"
 #include "TrackLayout.h"
 #include "Theme.h"
@@ -129,6 +130,9 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 		bool minimized = t->mIsCollapsed && !t->IsGroup();
 		if (t->mShowAutomation && !minimized) {
 			TimelineAutomationRenderer::Render(context, interaction, t.get(), (int)i, winPos, contentWidth, viewWidth, scrollX, yPos);
+		} else if (t->IsGroup()) {
+			// a group has no clip lane of its own; folded, it stands in for the rows it hides
+			TimelineGroupRenderer::Render(context, t.get(), (int)i, winPos, viewWidth, scrollX, yPos, rowH);
 		} else {
 			TimelineClipRenderer::Render(context, interaction, pendingMove, pendingDelete, t.get(), (int)i, winPos, contentWidth, viewWidth, scrollX, yPos, rowH);
 		}

@@ -472,11 +472,11 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				ImGui::Separator();
 			}
 
-			if (ImGui::Selectable("Copy"))
+			if (ImGui::Selectable("Copy\tCtrl+C"))
 				context.state.automationClipboard = AutomationEdits::CopySelection(curve->points);
-			if (ImGui::Selectable("Paste", false, context.state.automationClipboard.empty() ? ImGuiSelectableFlags_Disabled : 0))
+			if (ImGui::Selectable("Paste\tCtrl+V", false, context.state.automationClipboard.empty() ? ImGuiSelectableFlags_Disabled : 0))
 				AutomationEdits::PasteAt(curve->points, context.state.automationClipboard, interaction.autoContextBeat, minVal, maxVal);
-			if (ImGui::Selectable("Duplicate"))
+			if (ImGui::Selectable("Duplicate\tCtrl+D"))
 				AutomationEdits::DuplicateSelection(curve->points, context.state.timelineGrid);
 			if (ImGui::Selectable("Delete"))
 				AutomationEdits::DeleteSelected(curve->points);
@@ -550,6 +550,47 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 					project, trackPtr, t->mSelectedAutomationParam, menuBefore, curve->points));
 			}
 			ImGui::EndPopup();
+		}
+
+		// clipboard shortcuts. they live here rather than in Editor's global handler because the
+		// selection and its time range are lane-local state, and a lane only reacts when it is
+		// the one holding a selection -- so with one lane open this behaves like a global binding
+		bool hasSelection = false;
+		for (const auto& p : curve->points) {
+			if (p.selected) {
+				hasSelection = true;
+				break;
+			}
+		}
+
+		bool keysGoHere = io.KeyCtrl && !io.WantTextInput && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+		if (keysGoHere) {
+			std::vector<AutomationPoint> keyBefore = curve->points; // undo baseline
+
+			if (hasSelection && ImGui::IsKeyPressed(ImGuiKey_C, false))
+				context.state.automationClipboard = AutomationEdits::CopySelection(curve->points);
+			if (hasSelection && ImGui::IsKeyPressed(ImGuiKey_D, false))
+				AutomationEdits::DuplicateSelection(curve->points, context.state.timelineGrid);
+			if (!context.state.automationClipboard.empty() && ImGui::IsKeyPressed(ImGuiKey_V, false)) {
+				// no cursor to aim at, so paste lands just past the selection it would otherwise
+				// overwrite -- or at the playhead when nothing is selected
+				double anchorBeat = 0.0;
+				if (hasSelection) {
+					for (const auto& p : curve->points) {
+						if (p.selected)
+							anchorBeat = std::max(anchorBeat, p.beat);
+					}
+				} else if (project) {
+					Transport& tp = project->GetTransport();
+					anchorBeat = (double)tp.GetPosition() / tp.GetSampleRate() * (tp.GetBpm() / 60.0);
+				}
+				AutomationEdits::PasteAt(curve->points, context.state.automationClipboard, anchorBeat, minVal, maxVal);
+			}
+
+			if (trackPtr && !pointsEqual(keyBefore, curve->points)) {
+				context.undoManager.Push(std::make_unique<AutomationEditAction>(
+					project, trackPtr, t->mSelectedAutomationParam, keyBefore, curve->points));
+			}
 		}
 
 		// handle dragging logic

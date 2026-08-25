@@ -26,7 +26,7 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 	ImGui::SetNextItemAllowOverlap();
 	if (ImGui::InvisibleButton(("##TrackBG" + std::to_string(trackIndex)).c_str(), ImVec2(viewWidth, rowHeight))) {
 		context.state.selectedClip = nullptr;
-		context.state.selectedTrackIndex = trackIndex;
+		context.state.SelectTrack(trackIndex);
 	}
 	if (ImGui::BeginPopupContextItem()) {
 		double clickBeat = (ImGui::GetMousePos().x - winPos.x) / context.state.pixelsPerBeat;
@@ -56,7 +56,7 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 					if (trackPtr)
 						context.undoManager.Push(std::make_unique<ClipSnapshotAction>(project, trackPtr, before, ClipSnapshotAction::Snapshot(trackPtr), "Paste clip"));
 					context.state.selectedClip = newClip;
-					context.state.selectedTrackIndex = trackIndex;
+					context.state.SelectTrack(trackIndex);
 				}
 			}
 		}
@@ -143,7 +143,7 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 
 			if (isActivated) {
 				context.state.selectedClip = clip;
-				context.state.selectedTrackIndex = trackIndex;
+				context.state.SelectTrack(trackIndex);
 
 				// snapshot the track's clips for undo of the drag/resize about to begin
 				interaction.dragClipsBefore = ClipSnapshotAction::Snapshot(trackPtr);

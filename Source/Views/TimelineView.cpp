@@ -265,7 +265,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 						if (project->GetTransport().GetSampleRate() > 0)
 							vST->PrepareToPlay(project->GetTransport().GetSampleRate());
 					}
-					mContext.state.selectedTrackIndex = (int)allTracks.size() - 1;
+					mContext.state.SelectTrack((int)allTracks.size() - 1);
 				}
 			}
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("VST3_PLUGIN")) {
@@ -287,7 +287,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 							if (project->GetTransport().GetSampleRate() > 0)
 								vST->PrepareToPlay(project->GetTransport().GetSampleRate());
 						}
-						mContext.state.selectedTrackIndex = (int)allTracks.size() - 1;
+						mContext.state.SelectTrack((int)allTracks.size() - 1);
 					}
 				}
 			}
@@ -304,7 +304,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 						newTrack->AddProcessor(proc);
 						if (project->GetTransport().GetSampleRate() > 0)
 							proc->PrepareToPlay(project->GetTransport().GetSampleRate());
-						mContext.state.selectedTrackIndex = (int)allTracks.size() - 1;
+						mContext.state.SelectTrack((int)allTracks.size() - 1);
 					}
 				}
 			}
@@ -388,7 +388,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 			fromTrack->RemoveClip(pendingMove.clip);
 			pendingMove.clip->SetStartBeat(pendingMove.newStartBeat);
 			toTrack->AddClip(pendingMove.clip);
-			mContext.state.selectedTrackIndex = pendingMove.toTrackIdx;
+			mContext.state.SelectTrack(pendingMove.toTrackIdx);
 			// record both tracks' clip changes as one undo step
 			mContext.undoManager.BeginTransaction("Move clip");
 			mContext.undoManager.Push(std::make_unique<ClipSnapshotAction>(project, fromTrack, fromBefore, ClipSnapshotAction::Snapshot(fromTrack), "Move clip"));

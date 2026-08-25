@@ -153,9 +153,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 					mContext.state.multiSelectedTracks.insert(k);
 				mContext.state.selectedTrackIndex = (int)i;
 			} else {
-				mContext.state.multiSelectedTracks.clear();
-				mContext.state.multiSelectedTracks.insert((int)i);
-				mContext.state.selectedTrackIndex = (int)i;
+				mContext.state.SelectTrack((int)i);
 			}
 		}
 

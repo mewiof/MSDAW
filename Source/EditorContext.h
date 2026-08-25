@@ -61,6 +61,31 @@ struct EditorState {
 	int selectedTrackIndex = 0;		   // primary selection
 	std::set<int> multiSelectedTracks; // multi-selection
 
+	// the one way to say "the user picked this track". the primary index and the
+	// multi-selection set are drawn as one highlight and consumed as one by the
+	// grouping commands, so a caller that sets only the index leaves the other
+	// stale - the track list would keep lighting up the old row and Group would
+	// act on it
+	// a topology change (undo/redo, a removed track) can leave either half of the
+	// selection pointing past the end of the list
+	void ClampTrackSelection(int trackCount) {
+		if (selectedTrackIndex >= trackCount)
+			selectedTrackIndex = trackCount - 1;
+		for (auto it = multiSelectedTracks.begin(); it != multiSelectedTracks.end();) {
+			if (*it >= trackCount)
+				it = multiSelectedTracks.erase(it);
+			else
+				++it;
+		}
+	}
+
+	void SelectTrack(int index) {
+		selectedTrackIndex = index;
+		multiSelectedTracks.clear();
+		if (index >= 0)
+			multiSelectedTracks.insert(index);
+	}
+
 	std::shared_ptr<Clip> selectedClip = nullptr;
 
 	// clipboard

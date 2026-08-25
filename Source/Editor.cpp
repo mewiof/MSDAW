@@ -247,18 +247,14 @@ void Editor::PerformUndo() {
 	mContext.undoManager.Undo();
 	// topology changes may have shifted or removed the selected track
 	if (Project* p = GetProject()) {
-		int count = (int)p->GetTracks().size();
-		if (mContext.state.selectedTrackIndex >= count)
-			mContext.state.selectedTrackIndex = count - 1;
+		mContext.state.ClampTrackSelection((int)p->GetTracks().size());
 	}
 }
 
 void Editor::PerformRedo() {
 	mContext.undoManager.Redo();
 	if (Project* p = GetProject()) {
-		int count = (int)p->GetTracks().size();
-		if (mContext.state.selectedTrackIndex >= count)
-			mContext.state.selectedTrackIndex = count - 1;
+		mContext.state.ClampTrackSelection((int)p->GetTracks().size());
 	}
 }
 
@@ -970,7 +966,7 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 				if (std::find(params.begin(), params.end(), requestedParameter) != params.end()) {
 					track->mShowAutomation = true;
 					track->mSelectedAutomationParam = requestedParameter;
-					mContext.state.selectedTrackIndex = (int)i;
+					mContext.state.SelectTrack((int)i);
 					found = true;
 					break;
 				}
@@ -982,7 +978,7 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 					if (std::find(params.begin(), params.end(), requestedParameter) != params.end()) {
 						master->mShowAutomation = true;
 						master->mSelectedAutomationParam = requestedParameter;
-						mContext.state.selectedTrackIndex = -1;
+						mContext.state.SelectTrack(-1);
 					}
 				}
 			}

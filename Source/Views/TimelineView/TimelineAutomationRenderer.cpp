@@ -208,33 +208,42 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 					prevPt = ImVec2(curX, curY);
 				}
 
-				// draw tension handle
-				double midT = 0.5;
-				double midCurvedT = midT;
-				if (std::abs(tension) > 0.001f) {
-					if (tension > 0.0)
-						midCurvedT = 1.0 - std::pow(1.0 - midT, exponent);
-					else
-						midCurvedT = std::pow(midT, exponent);
-				}
-				float midX = x1 + (float)midT * (x2 - x1);
-				float midY = y1 + (float)midCurvedT * (y2 - y1);
-				drawList->AddCircleFilled(ImVec2(midX, midY), 4.0f, th.ghost);
+				// a tension handle only means something on a segment that both slopes and has
+				// room for it. a vertical (90 degree) run leaves the knob sitting on top of its
+				// own points, and a flat one has no curve to shape at all
+				const float kTensionMinSpanPx = 14.0f;
+				const float kTensionMinRisePx = 3.0f;
+				bool tensionHandleVisible = (x2 - x1) > kTensionMinSpanPx && std::abs(y2 - y1) > kTensionMinRisePx;
 
-				float dx = mousePos.x - midX;
-				float dy = mousePos.y - midY;
-				bool knobHovered = (dx * dx + dy * dy < 36.0f);
+				if (tensionHandleVisible) {
+					// draw tension handle
+					double midT = 0.5;
+					double midCurvedT = midT;
+					if (std::abs(tension) > 0.001f) {
+						if (tension > 0.0)
+							midCurvedT = 1.0 - std::pow(1.0 - midT, exponent);
+						else
+							midCurvedT = std::pow(midT, exponent);
+					}
+					float midX = x1 + (float)midT * (x2 - x1);
+					float midY = y1 + (float)midCurvedT * (y2 - y1);
+					drawList->AddCircleFilled(ImVec2(midX, midY), 4.0f, th.ghost);
 
-				if (knobHovered) {
-					drawList->AddCircle(ImVec2(midX, midY), 6.0f, th.noteBorderSelected);
-				}
-				if (isTrackClicked && knobHovered) {
-					interaction.autoEditBefore = curve->points; // undo baseline
-					interaction.autoDragTrackIndex = trackIndex;
-					interaction.autoDragPointIndex = (int)pIdx;
-					interaction.autoDragIsTension = true;
-					interaction.dragStartY = mousePos.y;
-					interaction.dragStartVal = p1.tension;
+					float dx = mousePos.x - midX;
+					float dy = mousePos.y - midY;
+					bool knobHovered = (dx * dx + dy * dy < 36.0f);
+
+					if (knobHovered) {
+						drawList->AddCircle(ImVec2(midX, midY), 6.0f, th.noteBorderSelected);
+					}
+					if (isTrackClicked && knobHovered) {
+						interaction.autoEditBefore = curve->points; // undo baseline
+						interaction.autoDragTrackIndex = trackIndex;
+						interaction.autoDragPointIndex = (int)pIdx;
+						interaction.autoDragIsTension = true;
+						interaction.dragStartY = mousePos.y;
+						interaction.dragStartVal = p1.tension;
+					}
 				}
 			}
 

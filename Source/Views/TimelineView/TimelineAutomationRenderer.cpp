@@ -5,6 +5,7 @@
 #include "Clips/AudioClip.h"
 #include "Clips/MIDIClip.h"
 #include "Project.h"
+#include "AutomationEdits.h"
 #include "Undo/Actions.h"
 #include "Theme.h"
 #include <algorithm>
@@ -394,8 +395,10 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 						}
 					}
 					// remember which point the menu targets so its Beat/Value fields survive
-					// across the frames the popup is open
+					// across the frames the popup is open, and where the click landed so Paste
+					// has an anchor once the cursor has moved onto the popup itself
 					interaction.autoContextPointIndex = closestIdx;
+					interaction.autoContextBeat = mouseBeat;
 					ImGui::OpenPopup("AutomationContext");
 				}
 			}
@@ -467,61 +470,14 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				ImGui::Separator();
 			}
 
-			if (ImGui::Selectable("Copy")) {
-				context.state.automationClipboard.clear();
-				std::vector<AutomationPoint> sortedSel;
-				for (const auto& p : curve->points) {
-					if (p.selected)
-						sortedSel.push_back(p);
-				}
-				if (!sortedSel.empty()) {
-					double baseBeat = sortedSel[0].beat;
-					for (auto& p : sortedSel) {
-						p.beat -= baseBeat;
-						context.state.automationClipboard.push_back(p);
-					}
-				}
-			}
-			if (ImGui::Selectable("Paste", false, context.state.automationClipboard.empty() ? ImGuiSelectableFlags_Disabled : 0)) {
-				for (const auto& clipPt : context.state.automationClipboard) {
-					t->AddAutomationPoint(t->mSelectedAutomationParam, mouseBeat + clipPt.beat, clipPt.value);
-				}
-				t->SortAutomationPoints(t->mSelectedAutomationParam);
-			}
-			if (ImGui::Selectable("Duplicate")) {
-				std::vector<AutomationPoint> newPoints;
-				double minB = 1e9, maxB = -1e9;
-				for (const auto& p : curve->points) {
-					if (p.selected) {
-						if (p.beat < minB)
-							minB = p.beat;
-						if (p.beat > maxB)
-							maxB = p.beat;
-					}
-				}
-				double duration = (maxB - minB);
-				if (duration < context.state.timelineGrid)
-					duration = context.state.timelineGrid;
-
-				for (const auto& p : curve->points) {
-					if (p.selected) {
-						AutomationPoint np = p;
-						np.beat += duration;
-						newPoints.push_back(np);
-					}
-				}
-				for (const auto& np : newPoints) {
-					t->AddAutomationPoint(t->mSelectedAutomationParam, np.beat, np.value);
-				}
-				t->SortAutomationPoints(t->mSelectedAutomationParam);
-			}
-			if (ImGui::Selectable("Delete")) {
-				for (int k = (int)curve->points.size() - 1; k >= 0; --k) {
-					if (curve->points[k].selected) {
-						curve->points.erase(curve->points.begin() + k);
-					}
-				}
-			}
+			if (ImGui::Selectable("Copy"))
+				context.state.automationClipboard = AutomationEdits::CopySelection(curve->points);
+			if (ImGui::Selectable("Paste", false, context.state.automationClipboard.empty() ? ImGuiSelectableFlags_Disabled : 0))
+				AutomationEdits::PasteAt(curve->points, context.state.automationClipboard, interaction.autoContextBeat, minVal, maxVal);
+			if (ImGui::Selectable("Duplicate"))
+				AutomationEdits::DuplicateSelection(curve->points, context.state.timelineGrid);
+			if (ImGui::Selectable("Delete"))
+				AutomationEdits::DeleteSelected(curve->points);
 			ImGui::Separator();
 			if (ImGui::Selectable("Flip Vertical")) {
 				float minV = 1e9f, maxV = -1e9f;

@@ -80,9 +80,11 @@ struct TimelineInteractionState {
 	// while the popup lives across frames
 	int autoContextPointIndex = -1;
 
-	// tension handle targeted by the right-click context menu. it has no beat or value of its
-	// own, so it gets a menu of its own rather than sharing the point one
+	// tension handle targeted by the right-click context menu, and the beat the menu was
+	// opened at. the live mouse sits over the popup once it is up, so paste needs the
+	// remembered beat instead
 	int autoContextTensionIndex = -1;
+	double autoContextBeat = 0.0;
 
 	// automation selection state (marquee)
 	bool autoMarqueeActive = false;

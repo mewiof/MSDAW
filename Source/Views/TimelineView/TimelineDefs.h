@@ -65,6 +65,13 @@ struct TimelineInteractionState {
 	// automation dragging multiple points: maps index -> original state (beat, value)
 	std::map<int, std::pair<double, float>> autoDragInitialStates;
 
+	// mouse position (unsnapped beat, unclamped value) when a point drag began. deltas are
+	// measured from here rather than from the point itself so grabbing a point off-centre --
+	// or adding one on the curve under a cursor that sits a few pixels off it -- doesn't
+	// teleport the point to the cursor
+	double autoDragAnchorBeat = 0.0;
+	float autoDragAnchorVal = 0.0f;
+
 	// undo: automation curve captured at the start of an edit gesture
 	std::vector<AutomationPoint> autoEditBefore;
 

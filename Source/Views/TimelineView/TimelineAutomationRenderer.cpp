@@ -116,17 +116,19 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 		float curveHeight = curveBottomY - curveTopY;
 
 		ImVec2 mousePos = ImGui::GetMousePos();
-		double mouseBeat = (mousePos.x - winPos.x) / context.state.pixelsPerBeat;
+		bool snapToGrid = !io.KeyShift && context.state.timelineGrid > 0.0;
 
-		if (!io.KeyShift && context.state.timelineGrid > 0.0) {
+		// the raw pair is what drag deltas are measured against; snapping or clamping the
+		// anchor would fold the cursor's offset from the grabbed point back into the delta
+		double mouseBeatRaw = (mousePos.x - winPos.x) / context.state.pixelsPerBeat;
+		double mouseBeat = mouseBeatRaw;
+		if (snapToGrid)
 			mouseBeat = round(mouseBeat / context.state.timelineGrid) * context.state.timelineGrid;
-		}
 		if (mouseBeat < 0)
 			mouseBeat = 0;
 
 		float mouseNormY = (curveBottomY - mousePos.y) / curveHeight;
-		float mouseVal = minVal + mouseNormY * range;
-		mouseVal = std::clamp(mouseVal, minVal, maxVal);
+		float mouseValRaw = minVal + mouseNormY * range;
 
 		// segment whose tension handle the mouse is over, resolved while the curve is drawn
 		int hoveredTensionIdx = -1;
@@ -328,6 +330,8 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 								curve->points[k].selected = true;
 								interaction.autoDragInitialStates.clear();
 								interaction.autoDragInitialStates[k] = {curve->points[k].beat, curve->points[k].value};
+								interaction.autoDragAnchorBeat = mouseBeatRaw;
+								interaction.autoDragAnchorVal = mouseValRaw;
 								break;
 							}
 						}
@@ -358,6 +362,8 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 							interaction.autoDragInitialStates[k] = {curve->points[k].beat, curve->points[k].value};
 						}
 					}
+					interaction.autoDragAnchorBeat = mouseBeatRaw;
+					interaction.autoDragAnchorVal = mouseValRaw;
 				} else {
 					// marquee start
 					float curveVal = curve->Evaluate(mouseBeat);
@@ -609,9 +615,18 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				auto it = interaction.autoDragInitialStates.find(interaction.autoDragPointIndex);
 				if (it != interaction.autoDragInitialStates.end()) {
 					double origBeat = it->second.first;
-					float origVal = it->second.second;
-					double deltaBeat = mouseBeat - origBeat;
-					float deltaVal = mouseVal - origVal;
+
+					// travel is measured from where the mouse was grabbed, so a point keeps its
+					// offset from the cursor. only the grabbed point snaps; the rest of the
+					// selection follows by the same delta
+					double newPrimaryBeat = origBeat + (mouseBeatRaw - interaction.autoDragAnchorBeat);
+					if (snapToGrid)
+						newPrimaryBeat = round(newPrimaryBeat / context.state.timelineGrid) * context.state.timelineGrid;
+					if (newPrimaryBeat < 0)
+						newPrimaryBeat = 0;
+
+					double deltaBeat = newPrimaryBeat - origBeat;
+					float deltaVal = mouseValRaw - interaction.autoDragAnchorVal;
 					for (auto& pair : interaction.autoDragInitialStates) {
 						int idx = pair.first;
 						if (idx < (int)curve->points.size()) {

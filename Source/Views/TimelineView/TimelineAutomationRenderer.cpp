@@ -128,6 +128,9 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 		float mouseVal = minVal + mouseNormY * range;
 		mouseVal = std::clamp(mouseVal, minVal, maxVal);
 
+		// segment whose tension handle the mouse is over, resolved while the curve is drawn
+		int hoveredTensionIdx = -1;
+
 		// draw curve
 		if (curve->points.empty()) {
 			float norm = (t->mSelectedAutomationParam->value - minVal) / range;
@@ -235,6 +238,7 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 
 					if (knobHovered) {
 						drawList->AddCircle(ImVec2(midX, midY), 6.0f, th.noteBorderSelected);
+						hoveredTensionIdx = (int)pIdx;
 					}
 					if (isTrackClicked && knobHovered) {
 						interaction.autoEditBefore = curve->points; // undo baseline
@@ -372,17 +376,22 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 			}
 
 			if (isTrackRightClicked) {
-				if (closestIdx != -1) {
-					if (!curve->points[closestIdx].selected) {
-						for (auto& p : curve->points)
-							p.selected = false;
-						curve->points[closestIdx].selected = true;
+				if (hoveredTensionIdx != -1) {
+					interaction.autoContextTensionIndex = hoveredTensionIdx;
+					ImGui::OpenPopup("AutomationTensionContext");
+				} else {
+					if (closestIdx != -1) {
+						if (!curve->points[closestIdx].selected) {
+							for (auto& p : curve->points)
+								p.selected = false;
+							curve->points[closestIdx].selected = true;
+						}
 					}
+					// remember which point the menu targets so its Beat/Value fields survive
+					// across the frames the popup is open
+					interaction.autoContextPointIndex = closestIdx;
+					ImGui::OpenPopup("AutomationContext");
 				}
-				// remember which point the menu targets so its Beat/Value fields survive
-				// across the frames the popup is open
-				interaction.autoContextPointIndex = closestIdx;
-				ImGui::OpenPopup("AutomationContext");
 			}
 		}
 
@@ -544,6 +553,34 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				t->SortAutomationPoints(t->mSelectedAutomationParam);
 			}
 			// record any curve mutation the menu performed as one undo step
+			if (trackPtr && !pointsEqual(menuBefore, curve->points)) {
+				context.undoManager.Push(std::make_unique<AutomationEditAction>(
+					project, trackPtr, t->mSelectedAutomationParam, menuBefore, curve->points));
+			}
+			ImGui::EndPopup();
+		}
+
+		// a tension handle has no beat or value of its own, so it gets its own menu rather
+		// than sharing the point one
+		if (ImGui::BeginPopup("AutomationTensionContext")) {
+			std::vector<AutomationPoint> menuBefore = curve->points; // undo baseline
+
+			int ti = interaction.autoContextTensionIndex;
+			if (ti >= 0 && ti < (int)curve->points.size()) {
+				float editTension = curve->points[ti].tension;
+
+				ImGui::SetNextItemWidth(110 * context.state.mainScale);
+				ImGui::InputFloat("Tension", &editTension, 0.0f, 0.0f, "%.3f");
+				if (ImGui::IsItemDeactivatedAfterEdit())
+					curve->points[ti].tension = std::clamp(editTension, -0.99f, 0.99f);
+				ImGui::TextDisabled("range -0.99 .. 0.99");
+				ImGui::Separator();
+				if (ImGui::Selectable("Reset To Linear"))
+					curve->points[ti].tension = 0.0f;
+			} else {
+				ImGui::TextDisabled("no segment");
+			}
+
 			if (trackPtr && !pointsEqual(menuBefore, curve->points)) {
 				context.undoManager.Push(std::make_unique<AutomationEditAction>(
 					project, trackPtr, t->mSelectedAutomationParam, menuBefore, curve->points));

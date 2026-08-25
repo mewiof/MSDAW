@@ -73,6 +73,10 @@ struct TimelineInteractionState {
 	// while the popup lives across frames
 	int autoContextPointIndex = -1;
 
+	// tension handle targeted by the right-click context menu. it has no beat or value of its
+	// own, so it gets a menu of its own rather than sharing the point one
+	int autoContextTensionIndex = -1;
+
 	// automation selection state (marquee)
 	bool autoMarqueeActive = false;
 	ImVec2 autoMarqueeStart = {0, 0};

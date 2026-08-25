@@ -25,6 +25,9 @@ Theme::Theme() {
 	bgHover = IM_COL32(84, 84, 92, 255);			// hovered frame/row/button
 	bgActive = IM_COL32(100, 100, 109, 255);		// selected row (neutral, never the accent)
 	bgOverlay = IM_COL32(18, 18, 22, 236);			// translucent box floating over the canvas
+	bgLane = IM_COL32(32, 32, 36, 255);				// timeline lane, same ground as the canvas
+	bgLaneSelected = IM_COL32(43, 43, 49, 255);		// selected track lane, one visible step up
+	bgLaneGroup = IM_COL32(26, 26, 30, 255);		// group lane, recessed: nothing lives here
 
 	// lines & borders - kept a hair brighter than the surfaces they sit on so
 	// delineation comes from crisp 1px edges, not from cranking fill contrast

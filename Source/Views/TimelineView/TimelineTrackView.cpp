@@ -33,8 +33,14 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 		ImVec2 trackMin(winPos.x, yPos);
 		ImVec2 trackMax(winPos.x + contentWidth, yPos + rowH);
 
-		// track background
-		drawList->AddRectFilled(trackMin, trackMax, th.bgWindow);
+		// track background. the selected track is lifted here as well as in the track
+		// list - the arrangement is where the eye is while editing, and "which lane am I
+		// pasting into" was only answerable by looking away at the list
+		bool laneSelected = ((int)i == context.state.selectedTrackIndex) || context.state.multiSelectedTracks.count((int)i) > 0;
+		ImU32 laneColor = t->IsGroup() ? th.bgLaneGroup : th.bgLane;
+		if (laneSelected)
+			laneColor = th.bgLaneSelected;
+		drawList->AddRectFilled(trackMin, trackMax, laneColor);
 		drawList->AddRect(trackMin, trackMax, th.border);
 
 		// grid logic

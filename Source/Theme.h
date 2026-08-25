@@ -32,6 +32,9 @@ public:
 	ImU32 bgDeviceEffect;	  // device rack slot: effect
 	ImU32 bgDeviceInstrument; // device rack slot: instrument
 	ImU32 bgOverlay;		  // translucent dark box floating over the canvas
+	ImU32 bgLane;				  // timeline lane behind an ordinary track
+	ImU32 bgLaneSelected;		  // ... behind the selected track
+	ImU32 bgLaneGroup;			  // ... behind a group, which holds no clips of its own
 
 	// ================================================================
 	// LINES & BORDERS

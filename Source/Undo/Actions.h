@@ -179,6 +179,7 @@ public:
 		double start;
 		double duration;
 		double offset;
+		bool enabled;
 	};
 
 	ClipSnapshotAction(Project* project, std::shared_ptr<Track> track,
@@ -192,7 +193,7 @@ public:
 	static std::vector<Entry> Snapshot(const std::shared_ptr<Track>& track) {
 		std::vector<Entry> entries;
 		for (auto& c : track->GetClips())
-			entries.push_back({c, c->GetStartBeat(), c->GetDuration(), c->GetOffset()});
+			entries.push_back({c, c->GetStartBeat(), c->GetDuration(), c->GetOffset(), c->IsEnabled()});
 		return entries;
 	}
 private:
@@ -206,6 +207,7 @@ private:
 			e.clip->SetStartBeat(e.start);
 			e.clip->SetDuration(e.duration);
 			e.clip->SetOffset(e.offset);
+			e.clip->SetEnabled(e.enabled);
 			clips.push_back(e.clip);
 		}
 		mTrack->SetClips(std::move(clips));
@@ -217,6 +219,27 @@ private:
 	std::vector<Entry> mAfter;
 	const char* mName;
 };
+
+// ---------------------------------------------------------------------------
+// flip a clip between active and deactivated. the sequencer reads the flag on
+// the audio thread, so the write takes the project lock; the undo step is a
+// plain clip snapshot, which carries activation along with the geometry
+// ---------------------------------------------------------------------------
+inline void ToggleClipEnabled(Project* project, UndoManager& undoManager,
+							  const std::shared_ptr<Track>& track,
+							  const std::shared_ptr<Clip>& clip) {
+	if (!project || !track || !clip)
+		return;
+
+	std::vector<ClipSnapshotAction::Entry> before = ClipSnapshotAction::Snapshot(track);
+	{
+		std::lock_guard<std::mutex> lock(project->GetMutex());
+		clip->SetEnabled(!clip->IsEnabled());
+	}
+	undoManager.Push(std::make_unique<ClipSnapshotAction>(project, track, before,
+														  ClipSnapshotAction::Snapshot(track),
+														  clip->IsEnabled() ? "Activate clip" : "Deactivate clip"));
+}
 
 // ---------------------------------------------------------------------------
 // audio-clip warp/pitch edit (warp toggle, mode, segment bpm, transpose, plus

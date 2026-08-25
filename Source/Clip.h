@@ -21,6 +21,12 @@ public:
 	void SetName(const std::string& name) { mName = name; }
 	const std::string& GetName() const { return mName; }
 
+	// a deactivated clip keeps its place on the timeline but is skipped by the
+	// sequencer, so muting one part of an arrangement never means moving clips out
+	// of the way and back
+	void SetEnabled(bool enabled) { mEnabled = enabled; }
+	bool IsEnabled() const { return mEnabled; }
+
 	// per-clip grid snapping settings
 	void SetGrid(int num, int den) {
 		mGridNumerator = num;
@@ -34,6 +40,7 @@ public:
 		out << "START " << mStartBeat << "\n";
 		out << "DUR " << mDuration << "\n";
 		out << "OFFSET " << mOffset << "\n";
+		out << "ENABLED " << (mEnabled ? 1 : 0) << "\n";
 	}
 
 	virtual void Load(std::istream& in) {
@@ -44,6 +51,7 @@ protected:
 	double mDuration = 4.0; // 1 bar
 	double mOffset = 0.0;	// content offset
 	std::string mName = "Clip";
+	bool mEnabled = true;
 
 	int mGridNumerator = 1;
 	int mGridDenominator = 4;

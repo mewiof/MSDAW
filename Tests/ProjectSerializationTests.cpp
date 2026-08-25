@@ -3,7 +3,11 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <string>
+#include <vector>
 
+#include "Clips/MIDIClip.h"
 #include "Project.h"
 
 // ================================================================
@@ -105,4 +109,73 @@ TEST_F(ProjectSerializationTest, LoadingAMissingFileLeavesTheProjectIntact) {
 	project.Load((mPath.parent_path() / "msdaw-does-not-exist.msdaw").string());
 
 	EXPECT_EQ(project.GetTracks().size(), 1u);
+}
+
+// activation lives on the clip, so two clips on one track must come back with the
+// flags they were saved with
+TEST_F(ProjectSerializationTest, ClipActivationRoundTrips) {
+	Project saved;
+	saved.Initialize();
+	saved.CreateTrack();
+
+	auto active = std::make_shared<MIDIClip>();
+	active->SetName("On");
+	active->SetStartBeat(0.0);
+	active->SetDuration(4.0);
+
+	auto deactivated = std::make_shared<MIDIClip>();
+	deactivated->SetName("Off");
+	deactivated->SetStartBeat(4.0);
+	deactivated->SetDuration(4.0);
+	deactivated->SetEnabled(false);
+
+	saved.GetTracks()[0]->AddClip(active);
+	saved.GetTracks()[0]->AddClip(deactivated);
+	saved.Save(mPath.string());
+
+	Project loaded;
+	loaded.Initialize();
+	loaded.Load(mPath.string());
+
+	ASSERT_EQ(loaded.GetTracks().size(), 1u);
+	const auto& clips = loaded.GetTracks()[0]->GetClips();
+	ASSERT_EQ(clips.size(), 2u);
+	EXPECT_TRUE(clips[0]->IsEnabled());
+	EXPECT_FALSE(clips[1]->IsEnabled());
+}
+
+// version 1 files predate the flag entirely; those clips have to load as active
+TEST_F(ProjectSerializationTest, AClipSavedWithoutAnActivationFlagLoadsActive) {
+	Project saved;
+	saved.Initialize();
+	saved.CreateTrack();
+
+	auto clip = std::make_shared<MIDIClip>();
+	clip->SetEnabled(false);
+	saved.GetTracks()[0]->AddClip(clip);
+	saved.Save(mPath.string());
+
+	// strip the ENABLED lines back out, leaving the file as an older version wrote it
+	std::vector<std::string> lines;
+	{
+		std::ifstream in(mPath);
+		std::string line;
+		while (std::getline(in, line)) {
+			if (line.rfind("ENABLED", 0) != 0)
+				lines.push_back(line);
+		}
+	}
+	{
+		std::ofstream out(mPath, std::ios::trunc);
+		for (const auto& line : lines)
+			out << line << "\n";
+	}
+
+	Project loaded;
+	loaded.Initialize();
+	loaded.Load(mPath.string());
+
+	ASSERT_EQ(loaded.GetTracks().size(), 1u);
+	ASSERT_EQ(loaded.GetTracks()[0]->GetClips().size(), 1u);
+	EXPECT_TRUE(loaded.GetTracks()[0]->GetClips()[0]->IsEnabled());
 }

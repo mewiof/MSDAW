@@ -163,6 +163,12 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 					}
 				}
 			}
+			// 0 activates/deactivates the selected clip, as in Ableton
+			if (ImGui::IsKeyPressed(ImGuiKey_0) && !io.KeyCtrl && mContext.state.selectedClip) {
+				int selTrackIdx = mContext.state.selectedTrackIndex;
+				if (selTrackIdx >= 0 && selTrackIdx < (int)tracks.size())
+					ToggleClipEnabled(project, mContext.undoManager, tracks[selTrackIdx], mContext.state.selectedClip);
+			}
 			if (ImGui::IsKeyPressed(ImGuiKey_Delete) && mContext.state.selectedClip) {
 				int selTrackIdx = mContext.state.selectedTrackIndex;
 				if (selTrackIdx >= 0 && selTrackIdx < (int)tracks.size()) {

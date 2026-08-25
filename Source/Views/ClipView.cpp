@@ -38,6 +38,22 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 	ImGui::Text("Clip: %s", clip->GetName().c_str());
 	ImGui::SameLine();
 	ImGui::TextDisabled("(%.2f beats)", clip->GetDuration());
+	ImGui::SameLine();
+
+	// activation toggle. the undo step snapshots the owning track, so it needs the
+	// selected track rather than the clip alone
+	bool clipEnabled = clip->IsEnabled();
+	if (ImGui::Checkbox("Active", &clipEnabled)) {
+		Project* clipProject = mContext.GetProject();
+		std::shared_ptr<Track> ownerTrack = nullptr;
+		if (clipProject) {
+			auto& tracks = clipProject->GetTracks();
+			int idx = mContext.state.selectedTrackIndex;
+			if (idx >= 0 && idx < (int)tracks.size())
+				ownerTrack = tracks[idx];
+		}
+		ToggleClipEnabled(clipProject, mContext.undoManager, ownerTrack, clip);
+	}
 	ImGui::Separator();
 
 	if (auto ac = std::dynamic_pointer_cast<AudioClip>(clip)) {

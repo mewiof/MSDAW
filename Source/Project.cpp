@@ -11,7 +11,9 @@
 #include <functional>
 
 // version history
-const int kCurrentProjectVersion = 1; // 1: initial format
+// 1: initial format
+// 2: per-clip ENABLED flag; a clip saved without one loads as active
+const int kCurrentProjectVersion = 2;
 
 Project::Project() {
 	// device UIs reach the track list through the hub (an AudioProcessor has no

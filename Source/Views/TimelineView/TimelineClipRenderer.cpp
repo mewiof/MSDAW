@@ -112,6 +112,9 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 					interaction.triggerRenamePopup = true;
 					ImGui::CloseCurrentPopup();
 				}
+				if (ImGui::Selectable(clip->IsEnabled() ? "Deactivate" : "Activate")) {
+					ToggleClipEnabled(project, context.undoManager, trackPtr, clip);
+				}
 				auto mIDIClip = std::dynamic_pointer_cast<MIDIClip>(clip);
 				if (mIDIClip) {
 					if (ImGui::Selectable("Make Unique")) {
@@ -295,7 +298,9 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 
 			// visuals
 			bool isSelected = (context.state.selectedClip == clip);
-			ImU32 baseColor = t->GetColor();
+			// a deactivated clip drops the track color for a neutral grey, so a glance at the
+			// arrangement says which clips are going to sound
+			ImU32 baseColor = clip->IsEnabled() ? t->GetColor() : Theme::Instance().clipDisabled;
 
 			// if dragging, the original clip stays in place but dimmed
 			if (isDraggingThis) {
@@ -332,6 +337,9 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 
 	Project* project = context.GetProject();
 	const Theme& th = Theme::Instance();
+	// the content of a deactivated clip recedes with its body: still readable, but
+	// clearly not part of what is playing. a ghost preview passes its own colors
+	bool enabled = clip->IsEnabled();
 
 	drawList->AddRectFilled(pMin, pMax, baseColor, 0.0f);
 	drawList->AddRect(pMin, pMax, th.clipBorder, 0.0f);
@@ -355,6 +363,8 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 			ImU32 waveColor = customWaveColor != 0
 								  ? customWaveColor
 								  : ((channels == 2) ? th.waveBgMono : th.waveBgMid);
+			if (!enabled && customWaveColor == 0)
+				waveColor = Theme::WithAlpha(waveColor, 70);
 
 			double playbackRate = 1.0;
 			double projectSR = 48000.0;
@@ -398,6 +408,8 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 		ImU32 noteColor = customMIDIColor != 0
 							  ? customMIDIColor
 							  : Theme::WithAlpha(th.clipText, 160);
+		if (!enabled && customMIDIColor == 0)
+			noteColor = Theme::WithAlpha(noteColor, 70);
 
 		for (const auto& n : notes) {
 			// use effective offset for MIDI note culling/positioning
@@ -443,7 +455,7 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	if (textX < pMin.x + textPadding)
 		textX = pMin.x + textPadding;
 
-	drawList->AddText(ImVec2(textX, pMin.y + textPadding), th.clipText, clipName);
+	drawList->AddText(ImVec2(textX, pMin.y + textPadding), enabled ? th.clipText : th.clipTextDim, clipName);
 
 	drawList->PopClipRect();
 }

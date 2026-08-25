@@ -182,6 +182,11 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 		int64_t trackEndSample = trackStartSample + numFrames;
 
 		for (const auto& clipBase : mClips) {
+			// a deactivated clip is inert: no notes, no audio. it still occupies its span
+			// on the timeline, so overlap resolution and dragging are unaffected
+			if (!clipBase->IsEnabled())
+				continue;
+
 			int64_t clipStartSample = (int64_t)(clipBase->GetStartBeat() * samplesPerBeat);
 			int64_t clipDurationSamples = (int64_t)(clipBase->GetDuration() * samplesPerBeat);
 			int64_t clipEndSample = clipStartSample + clipDurationSamples;

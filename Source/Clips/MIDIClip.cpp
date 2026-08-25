@@ -225,6 +225,8 @@ void MIDIClip::Load(std::istream& in) {
 			mDuration = std::stod(line.substr(4));
 		} else if (line.rfind("OFFSET ", 0) == 0) {
 			mOffset = std::stod(line.substr(7));
+		} else if (line.rfind("ENABLED ", 0) == 0) {
+			mEnabled = (std::stoi(line.substr(8)) != 0);
 		}
 
 		// parse MIDI fields

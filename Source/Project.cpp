@@ -372,8 +372,10 @@ void Project::ProcessTrackRecursively(std::shared_ptr<Track> track, float* desti
 	// (or soloing the bass to audition the ducking) does not stall the detector
 	bool silenced = false;
 
-	// must be soloed to bypass mute
-	if (track->GetMute() && !isEffectiveSolo)
+	// mute is bypassed only by this track's OWN solo. an ancestor's solo says
+	// "play this branch instead of the rest of the mix", not "unmute everything
+	// inside it" - soloing a group must still respect a child the user muted
+	if (track->GetMute() && !track->GetSolo())
 		silenced = true;
 
 	// global check

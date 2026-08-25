@@ -86,10 +86,11 @@ struct TimelineInteractionState {
 	int autoContextTensionIndex = -1;
 	double autoContextBeat = 0.0;
 
-	// automation selection state (marquee)
+	// automation selection state (marquee). it is a time range, so it is held as grid-snapped
+	// beats rather than pixels -- zooming or scrolling mid-drag can't drift it that way
 	bool autoMarqueeActive = false;
-	ImVec2 autoMarqueeStart = {0, 0};
-	ImVec2 autoMarqueeCurrent = {0, 0};
+	double autoMarqueeStartBeat = 0.0;
+	double autoMarqueeEndBeat = 0.0;
 
 	// ruler selection
 	double selectionDragStart = 0.0;

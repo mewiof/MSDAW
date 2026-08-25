@@ -372,8 +372,8 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 					float curveY = curveBottomY - curveNorm * curveHeight;
 					if (std::abs(mousePos.y - curveY) >= 15.0f) {
 						interaction.autoMarqueeActive = true;
-						interaction.autoMarqueeStart = mousePos;
-						interaction.autoMarqueeCurrent = mousePos;
+						interaction.autoMarqueeStartBeat = mouseBeat;
+						interaction.autoMarqueeEndBeat = mouseBeat;
 						if (!io.KeyShift && !io.KeyCtrl) {
 							for (auto& p : curve->points)
 								p.selected = false;
@@ -406,21 +406,23 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 
 		if (interaction.autoMarqueeActive) {
 			if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-				interaction.autoMarqueeCurrent = ImGui::GetMousePos();
-				ImVec2 rMin(std::min(interaction.autoMarqueeStart.x, interaction.autoMarqueeCurrent.x), std::min(interaction.autoMarqueeStart.y, interaction.autoMarqueeCurrent.y));
-				ImVec2 rMax(std::max(interaction.autoMarqueeStart.x, interaction.autoMarqueeCurrent.x), std::max(interaction.autoMarqueeStart.y, interaction.autoMarqueeCurrent.y));
+				// the selection is a time range: it spans the whole lane and only its horizontal
+				// bounds decide what is caught, so dragging across a curve can't miss a point
+				// that happens to sit above or below the cursor. both edges ride the grid (hold
+				// shift to place them freely), same as everything else on the timeline
+				interaction.autoMarqueeEndBeat = mouseBeat;
+				double selMinBeat = std::min(interaction.autoMarqueeStartBeat, interaction.autoMarqueeEndBeat);
+				double selMaxBeat = std::max(interaction.autoMarqueeStartBeat, interaction.autoMarqueeEndBeat);
+
+				ImVec2 rMin(winPos.x + (float)(selMinBeat * context.state.pixelsPerBeat), trackMin.y);
+				ImVec2 rMax(winPos.x + (float)(selMaxBeat * context.state.pixelsPerBeat), trackMax.y);
 				drawList->AddRectFilled(rMin, rMax, th.selectionFill);
 				drawList->AddRect(rMin, rMax, th.selectionStroke);
 
 				for (int k = 0; k < (int)curve->points.size(); ++k) {
-					float val = curve->points[k].value;
-					float norm = (val - minVal) / range;
-					float py = curveBottomY - norm * curveHeight;
-					float px = winPos.x + (float)(curve->points[k].beat * context.state.pixelsPerBeat);
-
-					if (px >= rMin.x && px <= rMax.x && py >= rMin.y && py <= rMax.y) {
+					double beat = curve->points[k].beat;
+					if (beat >= selMinBeat - AutomationEdits::kBeatEpsilon && beat <= selMaxBeat + AutomationEdits::kBeatEpsilon)
 						curve->points[k].selected = true;
-					}
 				}
 			} else {
 				interaction.autoMarqueeActive = false;

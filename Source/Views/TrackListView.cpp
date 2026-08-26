@@ -103,10 +103,6 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			ImGui::EndDragDropTarget();
 		}
 
-		bool isTrackSelected = (mContext.state.selectedTrackIndex == (int)i);
-		if (mContext.state.multiSelectedTracks.count((int)i))
-			isTrackSelected = true;
-
 		float s = mContext.state.mainScale;
 
 		float indent = 0.0f;
@@ -122,13 +118,6 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		bool minimized = track->mIsCollapsed && !track->IsGroup();
 
 		// ---- shared row surface: background, colour strip, selection + drag/drop ----
-		ImU32 bgCol = isTrackSelected ? th.bgActive : th.bgPanel;
-		if (track->IsGroup())
-			bgCol = isTrackSelected ? th.bgActive : th.bgPanelAlt; // groups read as slightly raised containers
-
-		drawList->AddRectFilled(ImVec2(fixedPos.x + indent, curY), ImVec2(fixedPos.x + width, curY + rowH), bgCol);
-		drawList->AddRectFilled(ImVec2(fixedPos.x + indent, curY), ImVec2(fixedPos.x + indent + 6 * s, curY + rowH), track->GetColor());
-
 		float meterW = 6 * s;
 		float meterX = fixedPos.x + width - meterW - 4 * s;
 
@@ -156,6 +145,19 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 				mContext.state.SelectTrack((int)i);
 			}
 		}
+
+		// NOTE: the row surface is painted HERE, below the selection button rather than
+		// above it. the button draws nothing of its own, so the fill still lands under
+		// everything on the row - but the selection it reads is this frame's, so a
+		// clicked row lights up immediately instead of one frame later
+		bool isTrackSelected = (mContext.state.selectedTrackIndex == (int)i) ||
+							   mContext.state.multiSelectedTracks.count((int)i) > 0;
+		ImU32 bgCol = isTrackSelected ? th.bgActive : th.bgPanel;
+		if (track->IsGroup())
+			bgCol = isTrackSelected ? th.bgActive : th.bgPanelAlt; // groups read as slightly raised containers
+
+		drawList->AddRectFilled(ImVec2(fixedPos.x + indent, curY), ImVec2(fixedPos.x + width, curY + rowH), bgCol);
+		drawList->AddRectFilled(ImVec2(fixedPos.x + indent, curY), ImVec2(fixedPos.x + indent + 6 * s, curY + rowH), track->GetColor());
 
 		if (ImGui::BeginDragDropSource()) {
 			TrackMovePayload payload;
@@ -481,13 +483,9 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 
 	auto master = project->GetMasterTrack();
 	if (master) {
-		bool isMasterSelected = (mContext.state.selectedTrackIndex == -1);
-		ImU32 bgCol = isMasterSelected ? th.bgActive : th.bgPanelAlt;
 		ImVec2 curPos = ImVec2(fixedPos.x, masterY);
 
 		float masterHeight = mContext.layout.trackRowHeight + mContext.layout.trackGap;
-
-		drawList->AddRectFilled(curPos, ImVec2(curPos.x + width, curPos.y + masterHeight), bgCol);
 
 		ImGui::SetCursorScreenPos(curPos);
 		ImGui::SetNextItemAllowOverlap();
@@ -498,6 +496,11 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			// selected lane lit in the arrangement after picking master
 			mContext.state.SelectTrack(-1);
 		}
+
+		// painted after the button, so picking master lights it up on this frame
+		bool isMasterSelected = (mContext.state.selectedTrackIndex == -1);
+		ImU32 bgCol = isMasterSelected ? th.bgActive : th.bgPanelAlt;
+		drawList->AddRectFilled(curPos, ImVec2(curPos.x + width, curPos.y + masterHeight), bgCol);
 
 		if (ImGui::BeginDragDropTarget()) {
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("VST_PLUGIN")) {

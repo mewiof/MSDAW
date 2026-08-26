@@ -22,6 +22,8 @@ public:
 	// a fixed-width framed value box, no label line. base default is a no-op so this can
 	// be called through a Parameter* even for subclasses that do not implement it
 	// drawFill paints a left-anchored level bar behind the value (used by the track mixer)
+	// a null valueFmt means "whatever unit this parameter reads best in" - a knob prints
+	// its own kHz / dB / ms formatting, so a caller does not have to know which
 	virtual bool DrawCompact(float width, const char* valueFmt, bool drawFill = false) { return false; }
 
 	// e.g., double-click to reset or right-click for the context menu

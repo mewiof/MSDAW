@@ -19,4 +19,11 @@ public:
 		: ContinuousParameter(name, value, minValue, maxValue), variant(variant) {}
 
 	bool Draw() override;
+protected:
+	// a Hertz knob travels logarithmically and prints kHz / dB / ms rather than a bare
+	// number. both the dial and the compact box go through these, so the same parameter
+	// cannot end up behaving differently depending on which widget drew it
+	float NormalizedFromValue() const override;
+	void SetValueFromNormalized(float t) override;
+	void FormatValue(char* buffer, size_t bufferSize, const char* valueFmt) const override;
 };

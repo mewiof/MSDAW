@@ -7,6 +7,19 @@ char ContinuousParameter::s_TextBuffer[64] = "";
 bool ContinuousParameter::s_FocusNextFrame = false;
 bool ContinuousParameter::s_MoveCursorToEnd = false;
 
+float ContinuousParameter::NormalizedFromValue() const {
+	const float range = maxValue - minValue;
+	return range != 0.0f ? (value - minValue) / range : 0.0f;
+}
+
+void ContinuousParameter::SetValueFromNormalized(float t) {
+	value = minValue + std::clamp(t, 0.0f, 1.0f) * (maxValue - minValue);
+}
+
+void ContinuousParameter::FormatValue(char* buffer, size_t bufferSize, const char* valueFmt) const {
+	snprintf(buffer, bufferSize, valueFmt ? valueFmt : "%.2f", value);
+}
+
 bool ContinuousParameter::DrawCompact(float width, const char* valueFmt, bool drawFill) {
 	bool changed = false;
 	ImGui::PushID(this);
@@ -36,14 +49,13 @@ bool ContinuousParameter::DrawCompact(float width, const char* valueFmt, bool dr
 
 			float deltaY = GetSafeMouseDeltaY();
 			if (deltaY != 0.0f) {
-				float range = maxValue - minValue;
-				float sensitivity = range / 200.0f;
+				// 200 px of travel covers the whole range, in whatever space this
+				// parameter maps normalized values through
+				float sensitivity = 0.005f;
 				if (ImGui::GetIO().KeyShift)
 					sensitivity *= 0.1f;
 
-				float minV = std::min(minValue, maxValue);
-				float maxV = std::max(minValue, maxValue);
-				value = std::clamp(value - (deltaY * sensitivity), minV, maxV);
+				SetValueFromNormalized(NormalizedFromValue() - deltaY * sensitivity);
 				changed = true;
 			}
 			HandleInfiniteDrag();
@@ -59,14 +71,14 @@ bool ContinuousParameter::DrawCompact(float width, const char* valueFmt, bool dr
 		ImU32 bgColor = ImGui::GetColorU32(isHovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
 		drawList->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, ImGui::GetStyle().FrameRounding);
 		if (drawFill) {
-			float fraction = std::clamp((value - minValue) / (maxValue - minValue), 0.0f, 1.0f);
+			float fraction = std::clamp(NormalizedFromValue(), 0.0f, 1.0f);
 			ImU32 fillColor = ImGui::GetColorU32(isActive ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab);
 			drawList->AddRectFilled(pos, ImVec2(pos.x + fraction * size.x, pos.y + size.y), fillColor, ImGui::GetStyle().FrameRounding);
 		}
 		drawList->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), IsSelected() ? th.accent : th.border, ImGui::GetStyle().FrameRounding);
 
 		char valText[32];
-		snprintf(valText, sizeof(valText), valueFmt, value);
+		FormatValue(valText, sizeof(valText), valueFmt);
 		ImVec2 textSize = ImGui::CalcTextSize(valText);
 		ImVec2 textPos = ImVec2(pos.x + (size.x - textSize.x) * 0.5f, pos.y + (size.y - textSize.y) * 0.5f);
 		drawList->AddText(textPos, ImGui::GetColorU32(ImGuiCol_Text), valText);

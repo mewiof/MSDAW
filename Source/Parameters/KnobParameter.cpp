@@ -49,6 +49,27 @@ namespace {
 	}
 } //namespace
 
+float KnobParameter::NormalizedFromValue() const {
+	if (variant == ImGuiKnobVariant_Hertz)
+		return LogToLinear(value, minValue, maxValue);
+	return ContinuousParameter::NormalizedFromValue();
+}
+
+void KnobParameter::SetValueFromNormalized(float t) {
+	if (variant == ImGuiKnobVariant_Hertz)
+		value = LinearToLog(std::clamp(t, 0.0f, 1.0f), minValue, maxValue);
+	else
+		ContinuousParameter::SetValueFromNormalized(t);
+}
+
+void KnobParameter::FormatValue(char* buffer, size_t bufferSize, const char* valueFmt) const {
+	// an explicit format still wins: a caller that asked for "%.0f" wants that
+	if (valueFmt)
+		ContinuousParameter::FormatValue(buffer, bufferSize, valueFmt);
+	else
+		FormatKnobValue(buffer, bufferSize, value, variant);
+}
+
 bool KnobParameter::Draw() {
 	bool changed = false;
 	ImGui::PushID(this);
@@ -61,7 +82,7 @@ bool KnobParameter::Draw() {
 	const float lineHeight = ImGui::GetTextLineHeight();
 
 	char valBuffer[64];
-	FormatKnobValue(valBuffer, sizeof(valBuffer), value, variant);
+	FormatValue(valBuffer, sizeof(valBuffer), nullptr);
 
 	ImVec2 labelSize = ImGui::CalcTextSize(name.c_str());
 	ImVec2 valSize = ImGui::CalcTextSize(valBuffer);
@@ -94,11 +115,7 @@ bool KnobParameter::Draw() {
 				if (ImGui::GetIO().KeyShift)
 					mouseSensitivity *= 0.1f;
 
-				float t = (variant == ImGuiKnobVariant_Hertz) ? LogToLinear(value, minValue, maxValue) : (value - minValue) / (maxValue - minValue);
-				t -= deltaY * mouseSensitivity;
-				t = std::clamp(t, 0.0f, 1.0f);
-
-				value = (variant == ImGuiKnobVariant_Hertz) ? LinearToLog(t, minValue, maxValue) : (minValue + t * (maxValue - minValue));
+				SetValueFromNormalized(NormalizedFromValue() - deltaY * mouseSensitivity);
 				changed = true;
 			}
 			HandleInfiniteDrag();
@@ -117,7 +134,7 @@ bool KnobParameter::Draw() {
 		float knobCenterY = pos.y + lineHeight + style.ItemInnerSpacing.y + radius;
 		ImVec2 center = ImVec2(pos.x + totalWidth * 0.5f, knobCenterY);
 
-		float t = (variant == ImGuiKnobVariant_Hertz) ? LogToLinear(value, minValue, maxValue) : (value - minValue) / (maxValue - minValue);
+		float t = NormalizedFromValue();
 		float angle = ANGLE_MIN + (ANGLE_MAX - ANGLE_MIN) * t;
 
 		ImU32 colBackgroud = ImGui::GetColorU32(ImGuiCol_FrameBg);

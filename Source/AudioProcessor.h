@@ -103,6 +103,10 @@ public:
 		}
 	}
 
+	// draws this device's own editor inline in the rack, inside exactly `size`. the
+	// rack is a fixed-height strip and never scrolls, so an implementation lays itself
+	// out to fit whatever height it is handed - or returns false when there is genuinely
+	// too little room, and the rack falls back to the plain parameter list
 	virtual bool RenderCustomUI(const ImVec2& size) {
 		(void)size;
 		return false;

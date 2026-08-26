@@ -97,6 +97,14 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 		// use horizontal scrolling for the devices area
 		ImGui::BeginChild("DevicesArea", ImVec2(width, height), false, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
+		const ImGuiStyle& style = ImGui::GetStyle();
+
+		// every device is exactly as tall as the strip has room for, horizontal
+		// scrollbar included. measured rather than assumed: handing the devices the
+		// rack height is what pushed them past the bottom and grew a second, vertical
+		// scrollbar over the whole row
+		const float bodyHeight = std::max(ImGui::GetContentRegionAvail().y, 1.0f);
+
 		auto& processors = selectedTrack->GetProcessors();
 
 		// iterate processors with drag targets in between
@@ -112,7 +120,7 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 					dropWidth = availWidth;
 			}
 
-			ImGui::InvisibleButton("##DropZone", ImVec2(dropWidth, height));
+			ImGui::InvisibleButton("##DropZone", ImVec2(dropWidth, bodyHeight));
 
 			// reordering acceptance
 			if (ImGui::BeginDragDropTarget()) {
@@ -225,7 +233,7 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 				deviceWidth = 620.0f * mContext.state.mainScale; // knob column + graph + globals, over a strip of eight bands
 
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, defaultPadding);
-			ImGui::BeginChild("DeviceBody", ImVec2(deviceWidth, height), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+			ImGui::BeginChild("DeviceBody", ImVec2(deviceWidth, bodyHeight), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 			ImGui::PopStyleVar();
 
 			// header: enable toggle & name
@@ -330,40 +338,21 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 			ImGui::Separator();
 
 			// parameters/ui
+			// what is left of the body once the header strip is out of the way, and the
+			// one height every device lays itself out inside. nothing below this point
+			// scrolls: a custom editor fits itself to what it is handed, and a plain
+			// parameter list wraps into columns
 			ImVec2 avail = ImGui::GetContentRegionAvail();
-			if (!proc->IsBypassed()) {
-				// some custom device UIs have a fixed vertical layout taller than the short
-				// device rack (Auto Sidechain stacks a source picker, graph and knob row). when
-				// the rack is shorter than a device needs, render it inside a scrollable child at
-				// its natural height so every control stays reachable instead of clipped
-				float minContentH = 0.0f;
-				if (pId == "AutoSidechain")
-					minContentH = 200.0f * mContext.state.mainScale;
-				else if (pId == "EQEight")
-					minContentH = 330.0f * mContext.state.mainScale; // the globals column alone is taller than the rack
-				else if (pId == "Analyzer")
-					minContentH = 300.0f * mContext.state.mainScale; // a goniometer and ten band rows need the room
-
-				bool scrollWrap = minContentH > avail.y;
-				if (scrollWrap) {
-					ImGui::BeginChild("DeviceUIScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
-					ImVec2 uiSize(ImGui::GetContentRegionAvail().x, minContentH);
-					ImVec2 uiTop = ImGui::GetCursorScreenPos();
-					ImGui::Dummy(uiSize); // reserve the tall region so the child actually scrolls
-					ImGui::SetCursorScreenPos(uiTop);
-					if (!proc->RenderCustomUI(uiSize)) {
-						for (auto& param : proc->GetParameters())
-							param->Draw();
-					}
-					ImGui::EndChild();
-				} else if (!proc->RenderCustomUI(avail)) {
-					ImGui::BeginChild("ParamsScroll", ImVec2(0, 0));
-					for (auto& param : proc->GetParameters())
-						param->Draw();
-					ImGui::EndChild();
-				}
-			} else {
+			if (proc->IsBypassed()) {
 				ImGui::TextDisabled("Device Bypassed");
+			} else if (!proc->RenderCustomUI(avail)) {
+				// a plugin with no editor of its own is drawn from its parameter list,
+				// and that list is as long as the plugin says it is - a hundred sliders
+				// belong behind a scrollbar, not spread across a device ten columns wide
+				ImGui::BeginChild("ParamsScroll", ImVec2(0, 0));
+				for (auto& param : proc->GetParameters())
+					param->Draw();
+				ImGui::EndChild();
 			}
 
 			ImGui::EndChild();
@@ -411,7 +400,7 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 		}
 
 		if (processors.empty()) {
-			ImGui::SetCursorPos(ImVec2(20, height / 2));
+			ImGui::SetCursorPos(ImVec2(20, bodyHeight / 2));
 			ImGui::TextDisabled("Drag Instruments or Effects here from the Library");
 		}
 

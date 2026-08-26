@@ -56,7 +56,10 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 		if (clickBeat < 0)
 			clickBeat = 0;
 
-		if (ImGui::Selectable("Add MIDI Clip")) {
+		// MenuItem rather than Selectable throughout the clip menus: it is the only
+		// entry that carries a shortcut column, and the arrangement's keys are the fast
+		// path that the menu is supposed to teach
+		if (ImGui::MenuItem("Add MIDI Clip")) {
 			auto clip = std::make_shared<MIDIClip>();
 			clip->SetName("New Clip");
 			clip->SetStartBeat(clickBeat);
@@ -70,7 +73,7 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 		if (!interaction.clipboard.empty()) {
 			ImGui::Separator();
 			bool multi = interaction.clipboard.size() > 1;
-			if (ImGui::Selectable(multi ? "Paste Clips" : "Paste")) {
+			if (ImGui::MenuItem(multi ? "Paste Clips" : "Paste", "Ctrl+V")) {
 				// the block lands with its top-left corner where the menu was opened
 				TimelineClipOps::PasteAt(context, interaction, clickBeat, trackIndex);
 				context.state.SelectTrack(trackIndex);
@@ -124,18 +127,20 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 				if (selectedCount > 1)
 					ImGui::TextDisabled("%d clips selected", selectedCount);
 
-				if (ImGui::Selectable("Copy"))
+				if (ImGui::MenuItem("Copy", "Ctrl+C"))
 					TimelineClipOps::CopySelection(context, interaction);
-				if (ImGui::Selectable("Duplicate"))
+				if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
 					TimelineClipOps::DuplicateSelection(context);
-				if (ImGui::Selectable("Rename")) {
+				if (ImGui::MenuItem("Split At Marker", "Ctrl+E"))
+					TimelineClipOps::SplitSelectionAt(context, context.state.selectionStart);
+				if (ImGui::MenuItem("Rename", "F2")) {
 					interaction.clipToRename = clip;
 					strncpy(interaction.renameBuffer, clip->GetName().c_str(), sizeof(interaction.renameBuffer));
 					interaction.renameBuffer[sizeof(interaction.renameBuffer) - 1] = 0;
 					interaction.triggerRenamePopup = true;
 					ImGui::CloseCurrentPopup();
 				}
-				if (ImGui::Selectable(clip->IsEnabled() ? "Deactivate" : "Activate"))
+				if (ImGui::MenuItem(clip->IsEnabled() ? "Deactivate" : "Activate", "D"))
 					TimelineClipOps::ToggleSelectionEnabled(context);
 
 				// only worth offering when it would actually detach something: a clip
@@ -145,7 +150,7 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 					if (auto selMIDI = std::dynamic_pointer_cast<MIDIClip>(sel))
 						anyLinked = anyLinked || selMIDI->IsSequenceShared();
 				}
-				if (anyLinked && ImGui::Selectable("Make Unique")) {
+				if (anyLinked && ImGui::MenuItem("Make Unique")) {
 					// swapping the note vector out from under the sequencer, which walks
 					// it on the audio thread for the whole block
 					std::unique_lock<std::mutex> lock;
@@ -157,7 +162,7 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 					}
 				}
 				ImGui::Separator();
-				if (ImGui::Selectable("Delete")) {
+				if (ImGui::MenuItem("Delete", "Del")) {
 					// deferred: removing clips here would erase from the vector this
 					// loop copied its list from while the popup is still up
 					for (const auto& r : TimelineClipOps::ResolveSelection(context))

@@ -14,18 +14,57 @@ struct DeviceMovePayload {
 	int deviceIndex;
 };
 
+// a committed cross-track drag. it is deferred out of the clip loop because moving a
+// clip erases from one track's vector and pushes onto another's, both of which the
+// loop is iterating. a multi-clip drag lands as one batch so the whole selection
+// moves (and undoes) together
 struct PendingClipMove {
-	std::shared_ptr<Clip> clip;
-	int fromTrackIdx;
-	int toTrackIdx;
-	double newStartBeat;
+	struct Entry {
+		std::shared_ptr<Clip> clip;
+		int fromTrackIdx;
+		int toTrackIdx;
+		double newStartBeat;
+	};
+	std::vector<Entry> entries;
 	bool valid = false;
 };
 
 struct PendingClipDelete {
+	struct Entry {
+		std::shared_ptr<Clip> clip;
+		int trackIdx;
+	};
+	std::vector<Entry> entries;
+	bool valid = false;
+};
+
+// one clip travelling with the current drag, captured at drag start. the whole
+// selection moves/resizes as a rigid body, so every entry gets the same deltas
+// measured off the clip the gesture actually started on
+struct DragClipEntry {
 	std::shared_ptr<Clip> clip;
 	int trackIdx;
-	bool valid = false;
+	double startBeat;
+	double duration;
+	double offset;
+};
+
+// where a dragged clip would land, derived from the gesture's deltas. the ghost
+// preview and the commit both read this, so what is drawn is what gets applied
+struct DraggedClipGeometry {
+	int trackIdx = -1;
+	double start = 0.0;
+	double duration = 0.0;
+	double offset = 0.0;
+};
+
+// one clip on the timeline clipboard. positions are stored relative to the copied
+// block's top-left corner (its earliest start beat, its topmost track), so a paste
+// only has to pick an anchor and the block keeps its internal shape
+struct ClipboardClip {
+	std::shared_ptr<Clip> clip; // a detached clone, never a clip that is on a track
+	double beatOffset = 0.0;
+	int trackOffset = 0;
 };
 
 enum class DragState {
@@ -52,8 +91,20 @@ struct TimelineInteractionState {
 	double dragCurrentDuration = 0.0;
 	double dragCurrentOffset = 0.0;
 
-	// undo: dragged track's clip state captured at drag start
-	std::vector<ClipSnapshotAction::Entry> dragClipsBefore;
+	// every clip moving with this drag (the whole clip selection), plus the tracks
+	// they started on so the commit can snapshot exactly what it is about to change
+	std::vector<DragClipEntry> dragEntries;
+	std::vector<int> dragTrackIndices;
+
+	// has this drag actually travelled, or is the mouse merely held down on a clip.
+	// the ghosts and the dimmed originals only appear once it has, so a plain click
+	// does not flash the whole selection out and straight back in
+	bool dragMoved = false;
+
+	// a plain click on a clip that is already part of a multi-selection collapses the
+	// selection down to it - but only on release, so click-and-drag still moves the
+	// whole block. remembered here between the press and the release
+	std::shared_ptr<Clip> dragCollapseCandidate;
 
 	// automation dragging
 	int autoDragTrackIndex = -1;
@@ -92,11 +143,25 @@ struct TimelineInteractionState {
 	double autoMarqueeStartBeat = 0.0;
 	double autoMarqueeEndBeat = 0.0;
 
+	// clip marquee (rubber band) dragged over empty lane space. held as beats and
+	// track indices rather than pixels so scrolling or zooming mid-drag cannot drift
+	// it, and both edges ride the grid (hold shift to place them freely) - the same
+	// rules the automation lane's marquee follows
+	bool clipMarqueeActive = false;
+	double clipMarqueeStartBeat = 0.0;
+	double clipMarqueeEndBeat = 0.0;
+	int clipMarqueeStartTrack = -1;
+	int clipMarqueeEndTrack = -1;
+	bool clipMarqueeMoved = false;
+	// selection the marquee started from, so a Ctrl/Shift-drag adds to it instead of
+	// replacing it and a shrinking box gives back what it never covered
+	std::vector<std::shared_ptr<Clip>> clipMarqueeBase;
+
 	// ruler selection
 	double selectionDragStart = 0.0;
 
 	// clipboard
-	std::shared_ptr<Clip> clipboard;
+	std::vector<ClipboardClip> clipboard;
 
 	// renaming
 	std::shared_ptr<Clip> clipToRename = nullptr;

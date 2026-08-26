@@ -9,6 +9,7 @@
 #include <cmath>
 
 #include "TimelineClipRenderer.h"
+#include "TimelineClipOps.h"
 #include "TimelineGroupRenderer.h"
 #include "TimelineAutomationRenderer.h"
 #include "TrackLayout.h"
@@ -146,41 +147,86 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 		ImGui::PopID(); // track id
 	}
 
-	// handles moving, resizingleft, and resizingright
-	if (interaction.dragState != DragState::None && context.state.selectedClip) {
+	// ================================================================
+	// CLIP MARQUEE
+	// ================================================================
+	// a rubber band dragged over empty lane space. it is resolved here rather than in
+	// the per-track renderer that starts it, because the box spans tracks and only this
+	// level knows every row's band
+	if (interaction.clipMarqueeActive) {
+		ImGuiIO& io = ImGui::GetIO();
 
-		// determine the ghost properties based on drag state
-		double ghostStart = interaction.dragCurrentBeat;
-		double ghostDuration = interaction.dragCurrentDuration;
-		double ghostOffset = interaction.dragCurrentOffset;
-		int ghostTrackIdx = -1;
-
-		if (interaction.dragState == DragState::Moving) {
-			ghostTrackIdx = interaction.dragTargetTrackIdx;
-			// during move, duration/offset usually don't change
-		} else if (interaction.dragState == DragState::ResizingLeft || interaction.dragState == DragState::ResizingRight) {
-			// resize stays on the source track
-			ghostTrackIdx = interaction.dragSourceTrackIdx;
+		double endBeat = TimelineClipOps::SnapMarqueeBeat(context, (io.MousePos.x - winPos.x) / context.state.pixelsPerBeat);
+		int endTrack = TrackLayout::RowAtY(rows, io.MousePos.y - startY);
+		if (endTrack >= 0) {
+			interaction.clipMarqueeEndBeat = endBeat;
+			interaction.clipMarqueeEndTrack = endTrack;
 		}
 
-		if (ghostTrackIdx >= 0 && ghostTrackIdx < (int)rows.size() && rows[ghostTrackIdx].visible) {
-			float ghostY = startY + rows[ghostTrackIdx].top;
+		// a press with no travel is a plain click on the background, not a box. the
+		// threshold keeps a twitchy click from selecting whatever it grazed
+		if (ImGui::IsMouseDragging(ImGuiMouseButton_Left, 4.0f))
+			interaction.clipMarqueeMoved = true;
 
-			float clipStartX = winPos.x + (float)(ghostStart * context.state.pixelsPerBeat);
-			float clipWidth = (float)(ghostDuration * context.state.pixelsPerBeat);
-			float clipEndX = clipStartX + clipWidth;
+		if (interaction.clipMarqueeMoved) {
+			auto hits = TimelineClipOps::ClipsInBox(project,
+													interaction.clipMarqueeStartTrack, interaction.clipMarqueeEndTrack,
+													interaction.clipMarqueeStartBeat, interaction.clipMarqueeEndBeat);
+			// the selection is rebuilt from scratch every frame so shrinking the box
+			// gives back what it no longer covers; anything held before a modifier-drag
+			// began is carried along in the base
+			std::vector<std::shared_ptr<Clip>> selection = interaction.clipMarqueeBase;
+			for (const auto& hit : hits) {
+				if (std::find(selection.begin(), selection.end(), hit) == selection.end())
+					selection.push_back(hit);
+			}
+			context.state.SetClipSelection(std::move(selection), context.state.selectedClip);
 
-			// calculate target rect
+			int bandTop = std::clamp(std::min(interaction.clipMarqueeStartTrack, interaction.clipMarqueeEndTrack), 0, (int)rows.size() - 1);
+			int bandBottom = std::clamp(std::max(interaction.clipMarqueeStartTrack, interaction.clipMarqueeEndTrack), 0, (int)rows.size() - 1);
+			float boxX1 = winPos.x + (float)(std::min(interaction.clipMarqueeStartBeat, interaction.clipMarqueeEndBeat) * context.state.pixelsPerBeat);
+			float boxX2 = winPos.x + (float)(std::max(interaction.clipMarqueeStartBeat, interaction.clipMarqueeEndBeat) * context.state.pixelsPerBeat);
+			float boxY1 = startY + rows[bandTop].top;
+			float boxY2 = startY + rows[bandBottom].top + rows[bandBottom].height;
+
+			drawList->AddRectFilled(ImVec2(boxX1, boxY1), ImVec2(boxX2, boxY2), th.selectionFill);
+			drawList->AddRect(ImVec2(boxX1, boxY1), ImVec2(boxX2, boxY2), th.selectionStroke);
+		}
+
+		if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+			// a click on empty space that never became a box drops the selection, the
+			// way clicking away from a selection does everywhere else
+			if (!interaction.clipMarqueeMoved)
+				context.state.ClearClipSelection();
+			interaction.clipMarqueeActive = false;
+			interaction.clipMarqueeMoved = false;
+			interaction.clipMarqueeBase.clear();
+		}
+	}
+
+	// ================================================================
+	// DRAG GHOSTS
+	// ================================================================
+	// handles moving, resizingleft, and resizingright. every clip in the selection
+	// travels with the gesture, so each one gets its own preview at the position the
+	// commit will actually put it - both go through ComputeDragGeometry
+	if (interaction.dragState != DragState::None && interaction.dragMoved) {
+		for (const auto& entry : interaction.dragEntries) {
+			DraggedClipGeometry geom = TimelineClipOps::ComputeDragGeometry(context, interaction, entry);
+			if (geom.trackIdx < 0 || geom.trackIdx >= (int)rows.size() || !rows[geom.trackIdx].visible)
+				continue;
+
+			float ghostY = startY + rows[geom.trackIdx].top;
+			float clipStartX = winPos.x + (float)(geom.start * context.state.pixelsPerBeat);
+			float clipWidth = std::max((float)(geom.duration * context.state.pixelsPerBeat), 1.0f);
+
 			ImVec2 pMin(clipStartX, ghostY + 1);
-			ImVec2 pMax(clipEndX, ghostY + rows[ghostTrackIdx].height - 1);
-
-			// use highlight color for preview
-			ImU32 ghostColor = th.ghost;
+			ImVec2 pMax(clipStartX + clipWidth, ghostY + rows[geom.trackIdx].height - 1);
 
 			// draw using helper, passing overrides for start, duration, and offset
-			TimelineClipRenderer::DrawClipContent(drawList, context.state.selectedClip,
-												  pMin, pMax, winPos, viewWidth, context, ghostColor,
-												  ghostStart, ghostDuration, ghostOffset);
+			TimelineClipRenderer::DrawClipContent(drawList, entry.clip,
+												  pMin, pMax, winPos, viewWidth, context, th.ghost,
+												  geom.start, geom.duration, geom.offset);
 		}
 	}
 }

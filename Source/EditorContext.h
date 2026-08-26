@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <string>
 #include <memory>
 #include <set>
@@ -86,7 +87,65 @@ struct EditorState {
 			multiSelectedTracks.insert(index);
 	}
 
+	// ---- clip selection ----
+	// selectedClip is the FOCUSED member of selectedClips: the clip the piano roll and
+	// the clip view edit, the one a drag anchors its deltas on, and the one drawn with
+	// the accent outline. it is always also present in selectedClips, so a caller that
+	// writes only the pointer leaves the other stale - every editing command reads the
+	// vector. go through the helpers below instead
 	std::shared_ptr<Clip> selectedClip = nullptr;
+	std::vector<std::shared_ptr<Clip>> selectedClips;
+
+	bool IsClipSelected(const std::shared_ptr<Clip>& clip) const {
+		return clip && std::find(selectedClips.begin(), selectedClips.end(), clip) != selectedClips.end();
+	}
+
+	void ClearClipSelection() {
+		selectedClips.clear();
+		selectedClip = nullptr;
+	}
+
+	// exclusive select: the clip becomes the whole selection and the focus
+	void SelectClip(std::shared_ptr<Clip> clip) {
+		selectedClips.clear();
+		if (clip)
+			selectedClips.push_back(clip);
+		selectedClip = std::move(clip);
+	}
+
+	// additive select (shift/ctrl-click, marquee): joins the selection and takes focus
+	void AddClipToSelection(std::shared_ptr<Clip> clip) {
+		if (!clip)
+			return;
+		if (!IsClipSelected(clip))
+			selectedClips.push_back(clip);
+		selectedClip = std::move(clip);
+	}
+
+	// ctrl-click on a clip already in the selection drops it back out. focus follows to
+	// another member rather than going null, so the piano roll keeps showing something
+	void ToggleClipSelection(const std::shared_ptr<Clip>& clip) {
+		if (!clip)
+			return;
+		auto it = std::find(selectedClips.begin(), selectedClips.end(), clip);
+		if (it == selectedClips.end()) {
+			AddClipToSelection(clip);
+			return;
+		}
+		selectedClips.erase(it);
+		if (selectedClip == clip)
+			selectedClip = selectedClips.empty() ? nullptr : selectedClips.back();
+	}
+
+	// replace the whole selection at once (marquee, paste, duplicate). focus falls back
+	// to the first member when the caller has no particular clip in mind
+	void SetClipSelection(std::vector<std::shared_ptr<Clip>> clips, std::shared_ptr<Clip> focus = nullptr) {
+		selectedClips = std::move(clips);
+		if (focus && IsClipSelected(focus))
+			selectedClip = std::move(focus);
+		else
+			selectedClip = selectedClips.empty() ? nullptr : selectedClips.front();
+	}
 
 	// clipboard
 	std::shared_ptr<AudioProcessor> processorClipboard = nullptr;

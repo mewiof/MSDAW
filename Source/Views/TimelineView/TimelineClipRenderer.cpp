@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "TimelineClipRenderer.h"
+#include "TimelineClipOps.h"
 #include "TimelineUtils.h"
 #include "TrackLayout.h"
 #include "Clips/AudioClip.h"
@@ -16,6 +17,7 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	Project* project = context.GetProject();
+	ImGuiIO& io = ImGui::GetIO();
 
 	// shared_ptr to this track, used when recording clip undo actions
 	std::shared_ptr<Track> trackPtr = nullptr;
@@ -24,10 +26,28 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 
 	ImGui::SetCursorScreenPos(ImVec2(winPos.x + scrollX, yPos));
 	ImGui::SetNextItemAllowOverlap();
-	if (ImGui::InvisibleButton(("##TrackBG" + std::to_string(trackIndex)).c_str(), ImVec2(viewWidth, rowHeight))) {
-		context.state.selectedClip = nullptr;
+	ImGui::InvisibleButton(("##TrackBG" + std::to_string(trackIndex)).c_str(), ImVec2(viewWidth, rowHeight));
+
+	// a press on empty lane space starts a rubber band. only the anchor is recorded
+	// here - the box spans tracks, so where it ends and what it caught is resolved
+	// once per frame above the per-track loop, in TimelineTrackView
+	if (ImGui::IsItemActivated()) {
+		double anchorBeat = TimelineClipOps::SnapMarqueeBeat(context, (ImGui::GetMousePos().x - winPos.x) / context.state.pixelsPerBeat);
+
+		interaction.clipMarqueeActive = true;
+		interaction.clipMarqueeMoved = false;
+		interaction.clipMarqueeStartBeat = anchorBeat;
+		interaction.clipMarqueeEndBeat = anchorBeat;
+		interaction.clipMarqueeStartTrack = trackIndex;
+		interaction.clipMarqueeEndTrack = trackIndex;
+		// a modifier means "add to what I already have"; a bare drag starts fresh
+		interaction.clipMarqueeBase.clear();
+		if (io.KeyCtrl || io.KeyShift)
+			interaction.clipMarqueeBase = context.state.selectedClips;
+
 		context.state.SelectTrack(trackIndex);
 	}
+
 	if (ImGui::BeginPopupContextItem()) {
 		double clickBeat = (ImGui::GetMousePos().x - winPos.x) / context.state.pixelsPerBeat;
 		if (context.state.timelineGrid > 0.0)
@@ -44,20 +64,15 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 			t->AddClip(clip);
 			if (trackPtr)
 				context.undoManager.Push(std::make_unique<ClipSnapshotAction>(project, trackPtr, before, ClipSnapshotAction::Snapshot(trackPtr), "Add clip"));
+			context.state.SelectClip(clip);
 		}
-		if (interaction.clipboard) {
+		if (!interaction.clipboard.empty()) {
 			ImGui::Separator();
-			if (ImGui::Selectable("Paste")) {
-				auto newClip = CloneClip(interaction.clipboard);
-				if (newClip) {
-					newClip->SetStartBeat(clickBeat);
-					auto before = ClipSnapshotAction::Snapshot(trackPtr);
-					t->AddClip(newClip);
-					if (trackPtr)
-						context.undoManager.Push(std::make_unique<ClipSnapshotAction>(project, trackPtr, before, ClipSnapshotAction::Snapshot(trackPtr), "Paste clip"));
-					context.state.selectedClip = newClip;
-					context.state.SelectTrack(trackIndex);
-				}
+			bool multi = interaction.clipboard.size() > 1;
+			if (ImGui::Selectable(multi ? "Paste Clips" : "Paste")) {
+				// the block lands with its top-left corner where the menu was opened
+				TimelineClipOps::PasteAt(context, interaction, clickBeat, trackIndex);
+				context.state.SelectTrack(trackIndex);
 			}
 		}
 		ImGui::EndPopup();
@@ -69,7 +84,10 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 	// track's clip vector from inside this loop and would invalidate its iterators
 	std::vector<std::shared_ptr<Clip>> clips = t->GetClips();
 	for (auto& clip : clips) {
-		bool isDraggingThis = (interaction.dragState != DragState::None && context.state.selectedClip == clip);
+		// only what the interaction below needs to gate itself is sampled up here.
+		// everything the clip is DRAWN with is read after that interaction has run,
+		// down in the visuals block - see the note there
+		bool isFocused = (context.state.selectedClip == clip);
 
 		// we always draw the "original" state here. if dragging, it becomes the "background/placeholder"
 		double drawStart = clip->GetStartBeat();
@@ -95,42 +113,45 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 			ImGui::InvisibleButton("##ClipHit", ImVec2(clipWidth, rowHeight - 2));
 
 			if (ImGui::BeginPopupContextItem()) {
-				if (ImGui::Selectable("Copy")) {
-					interaction.clipboard = CloneClip(clip);
-					context.state.selectedClip = clip;
+				// a right-click outside the current selection retargets it, so the menu
+				// always describes the clips it is about to act on
+				if (!context.state.IsClipSelected(clip)) {
+					context.state.SelectClip(clip);
+					context.state.SelectTrack(trackIndex);
 				}
-				if (ImGui::Selectable("Duplicate")) {
-					auto newClip = CloneClip(clip);
-					if (newClip) {
-						newClip->SetStartBeat(clip->GetEndBeat());
-						auto before = ClipSnapshotAction::Snapshot(trackPtr);
-						t->AddClip(newClip);
-						if (trackPtr)
-							context.undoManager.Push(std::make_unique<ClipSnapshotAction>(project, trackPtr, before, ClipSnapshotAction::Snapshot(trackPtr), "Duplicate clip"));
-						context.state.selectedClip = newClip;
-					}
-				}
+				int selectedCount = (int)context.state.selectedClips.size();
+				if (selectedCount > 1)
+					ImGui::TextDisabled("%d clips selected", selectedCount);
+
+				if (ImGui::Selectable("Copy"))
+					TimelineClipOps::CopySelection(context, interaction);
+				if (ImGui::Selectable("Duplicate"))
+					TimelineClipOps::DuplicateSelection(context);
 				if (ImGui::Selectable("Rename")) {
 					interaction.clipToRename = clip;
 					strncpy(interaction.renameBuffer, clip->GetName().c_str(), sizeof(interaction.renameBuffer));
-					interaction.renameBuffer[sizeof(interaction.renameBuffer) - 1] = '\0';
+					interaction.renameBuffer[sizeof(interaction.renameBuffer) - 1] = 0;
 					interaction.triggerRenamePopup = true;
 					ImGui::CloseCurrentPopup();
 				}
-				if (ImGui::Selectable(clip->IsEnabled() ? "Deactivate" : "Activate")) {
-					ToggleClipEnabled(project, context.undoManager, trackPtr, clip);
-				}
+				if (ImGui::Selectable(clip->IsEnabled() ? "Deactivate" : "Activate"))
+					TimelineClipOps::ToggleSelectionEnabled(context);
 				auto mIDIClip = std::dynamic_pointer_cast<MIDIClip>(clip);
 				if (mIDIClip) {
 					if (ImGui::Selectable("Make Unique")) {
-						mIDIClip->MakeUnique();
+						for (const auto& sel : context.state.selectedClips) {
+							if (auto selMIDI = std::dynamic_pointer_cast<MIDIClip>(sel))
+								selMIDI->MakeUnique();
+						}
 					}
 				}
 				ImGui::Separator();
 				if (ImGui::Selectable("Delete")) {
-					pendingDelete.clip = clip;
-					pendingDelete.trackIdx = trackIndex;
-					pendingDelete.valid = true;
+					// deferred: removing clips here would erase from the vector this
+					// loop copied its list from while the popup is still up
+					for (const auto& r : TimelineClipOps::ResolveSelection(context))
+						pendingDelete.entries.push_back({r.clip, r.trackIndex});
+					pendingDelete.valid = !pendingDelete.entries.empty();
 				}
 				ImGui::EndPopup();
 			}
@@ -147,34 +168,61 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 				ImGui::SetMouseCursor((nearLeft || nearRight) ? ImGuiMouseCursor_ResizeEW : ImGuiMouseCursor_Hand);
 
 			if (isActivated) {
-				context.state.selectedClip = clip;
+				interaction.dragCollapseCandidate = nullptr;
+				interaction.dragMoved = false;
+
+				if (io.KeyCtrl) {
+					context.state.ToggleClipSelection(clip);
+				} else if (io.KeyShift) {
+					TimelineClipOps::SelectRangeTo(context, clip);
+				} else if (context.state.IsClipSelected(clip)) {
+					// keep the block intact so the drag can carry all of it. a press
+					// that turns out not to be a drag collapses to this clip on release
+					context.state.selectedClip = clip;
+					interaction.dragCollapseCandidate = clip;
+				} else {
+					context.state.SelectClip(clip);
+				}
 				context.state.SelectTrack(trackIndex);
 
-				// snapshot the track's clips for undo of the drag/resize about to begin
-				interaction.dragClipsBefore = ClipSnapshotAction::Snapshot(trackPtr);
+				// a Ctrl+click that took the clip back out of the selection is a
+				// deselect, not the start of a drag
+				if (context.state.IsClipSelected(clip)) {
+					interaction.dragOriginalStart = clip->GetStartBeat();
+					interaction.dragOriginalDuration = clip->GetDuration();
+					interaction.dragOriginalOffset = clip->GetOffset();
 
-				interaction.dragOriginalStart = clip->GetStartBeat();
-				interaction.dragOriginalDuration = clip->GetDuration();
-				interaction.dragOriginalOffset = clip->GetOffset();
+					// initialize drag state
+					interaction.dragSourceTrackIdx = trackIndex;
+					interaction.dragTargetTrackIdx = trackIndex;
 
-				// initialize drag state
-				interaction.dragSourceTrackIdx = trackIndex;
-				interaction.dragTargetTrackIdx = trackIndex;
+					// init dynamic values
+					interaction.dragCurrentBeat = clip->GetStartBeat();
+					interaction.dragCurrentDuration = clip->GetDuration();
+					interaction.dragCurrentOffset = clip->GetOffset();
 
-				// init dynamic values
-				interaction.dragCurrentBeat = clip->GetStartBeat();
-				interaction.dragCurrentDuration = clip->GetDuration();
-				interaction.dragCurrentOffset = clip->GetOffset();
+					// every selected clip travels with the gesture; capture the geometry
+					// each of them started from so the deltas stay relative
+					interaction.dragEntries.clear();
+					for (const auto& r : TimelineClipOps::ResolveSelection(context)) {
+						interaction.dragEntries.push_back({r.clip, r.trackIndex,
+														   r.clip->GetStartBeat(), r.clip->GetDuration(), r.clip->GetOffset()});
+					}
 
-				if (nearLeft)
-					interaction.dragState = DragState::ResizingLeft;
-				else if (nearRight)
-					interaction.dragState = DragState::ResizingRight;
-				else
-					interaction.dragState = DragState::Moving;
+					if (nearLeft)
+						interaction.dragState = DragState::ResizingLeft;
+					else if (nearRight)
+						interaction.dragState = DragState::ResizingRight;
+					else
+						interaction.dragState = DragState::Moving;
+				}
 			}
 
-			if (isActive && isDraggingThis && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
+			if (isActive && isFocused && interaction.dragState != DragState::None && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
+				// past the drag threshold this stops being a click and becomes a gesture:
+				// only now do the ghosts appear and the click-to-collapse get called off
+				if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+					interaction.dragMoved = true;
 				ImVec2 dragDelta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 0.0f);
 				double deltaBeats = dragDelta.x / context.state.pixelsPerBeat;
 
@@ -183,10 +231,18 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 					double newStart = interaction.dragOriginalStart + deltaBeats;
 					if (context.state.timelineGrid > 0.0)
 						newStart = round(newStart / context.state.timelineGrid) * context.state.timelineGrid;
-					if (newStart < 0)
-						newStart = 0;
 
-					interaction.dragCurrentBeat = newStart;
+					// the whole block stops at the left edge together: the earliest clip
+					// in the selection decides how far the gesture can travel, otherwise
+					// clamping the anchor alone would squash the block against beat 0
+					double delta = newStart - interaction.dragOriginalStart;
+					double earliest = interaction.dragOriginalStart;
+					for (const auto& e : interaction.dragEntries)
+						earliest = std::min(earliest, e.startBeat);
+					if (earliest + delta < 0.0)
+						delta = -earliest;
+
+					interaction.dragCurrentBeat = interaction.dragOriginalStart + delta;
 
 					// 2. calculate target track (accounts for variable row heights /
 					// collapsed lanes via the shared layout)
@@ -198,12 +254,25 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 							int targetIdx = TrackLayout::RowAtY(rows, relY);
 							if (targetIdx < 0)
 								targetIdx = trackIndex;
+
 							// hovering a lane that cannot take clips (a group, or a track with its
 							// automation lane open) must not retarget the drag: the drop would be
 							// refused on release and the clip would snap back with no explanation.
-							// leave the ghost on the last lane that can actually take it
+							// with several clips in flight the whole block has to fit, so one member
+							// landing on a group lane holds all of them at the last legal row
 							auto& projectTracks = project->GetTracks();
-							if (targetIdx >= 0 && targetIdx < (int)projectTracks.size() && projectTracks[targetIdx]->AcceptsClips())
+							int trackDelta = targetIdx - trackIndex;
+							bool blockFits = true;
+							for (const auto& e : interaction.dragEntries) {
+								int landing = e.trackIdx + trackDelta;
+								if (landing < 0 || landing >= (int)projectTracks.size() ||
+									!projectTracks[landing]->AcceptsClips() ||
+									landing >= (int)rows.size() || !rows[landing].visible) {
+									blockFits = false;
+									break;
+								}
+							}
+							if (blockFits)
 								interaction.dragTargetTrackIdx = targetIdx;
 						}
 					}
@@ -259,64 +328,47 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 			}
 
 			// detect mouse release to commit changes
-			if (interaction.dragState != DragState::None && isDraggingThis && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-				if (interaction.dragState == DragState::Moving) {
-					if (interaction.dragTargetTrackIdx != interaction.dragSourceTrackIdx) {
-						// cross track
-						auto& tracks = project->GetTracks();
-						if (interaction.dragTargetTrackIdx >= 0 && interaction.dragTargetTrackIdx < (int)tracks.size()) {
-							if (tracks[interaction.dragTargetTrackIdx]->AcceptsClips()) {
-								pendingMove.clip = clip;
-								pendingMove.fromTrackIdx = trackIndex;
-								pendingMove.toTrackIdx = interaction.dragTargetTrackIdx;
-								pendingMove.newStartBeat = interaction.dragCurrentBeat;
-								pendingMove.valid = true;
-							}
-						}
-					} else {
-						// same track
-						bool moved = (interaction.dragCurrentBeat != interaction.dragOriginalStart);
-						clip->SetStartBeat(interaction.dragCurrentBeat);
-						t->ResolveOverlaps(clip);
-						if (trackPtr && moved)
-							context.undoManager.Push(std::make_unique<ClipSnapshotAction>(project, trackPtr, interaction.dragClipsBefore, ClipSnapshotAction::Snapshot(trackPtr), "Move clip"));
-					}
-				} else if (interaction.dragState == DragState::ResizingLeft) {
-					bool changed = (interaction.dragCurrentBeat != interaction.dragOriginalStart) ||
-								   (interaction.dragCurrentDuration != interaction.dragOriginalDuration) ||
-								   (interaction.dragCurrentOffset != interaction.dragOriginalOffset);
-					clip->SetStartBeat(interaction.dragCurrentBeat);
-					clip->SetDuration(interaction.dragCurrentDuration);
-					clip->SetOffset(interaction.dragCurrentOffset);
-					t->ResolveOverlaps(clip);
-					if (trackPtr && changed)
-						context.undoManager.Push(std::make_unique<ClipSnapshotAction>(project, trackPtr, interaction.dragClipsBefore, ClipSnapshotAction::Snapshot(trackPtr), "Resize clip"));
-				} else if (interaction.dragState == DragState::ResizingRight) {
-					bool changed = (interaction.dragCurrentDuration != interaction.dragOriginalDuration);
-					clip->SetDuration(interaction.dragCurrentDuration);
-					t->ResolveOverlaps(clip);
-					if (trackPtr && changed)
-						context.undoManager.Push(std::make_unique<ClipSnapshotAction>(project, trackPtr, interaction.dragClipsBefore, ClipSnapshotAction::Snapshot(trackPtr), "Resize clip"));
-				}
+			if (interaction.dragState != DragState::None && isFocused && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+				TimelineClipOps::CommitDrag(context, interaction, pendingMove);
+
+				// the press landed on a clip that was already part of a multi-selection
+				// and never turned into a drag: treat it as the plain click it was and
+				// narrow the selection down to it
+				if (interaction.dragCollapseCandidate && !interaction.dragMoved)
+					context.state.SelectClip(interaction.dragCollapseCandidate);
 
 				// reset
 				interaction.dragState = DragState::None;
 				interaction.dragSourceTrackIdx = -1;
 				interaction.dragTargetTrackIdx = -1;
+				interaction.dragEntries.clear();
+				interaction.dragCollapseCandidate = nullptr;
+				interaction.dragMoved = false;
 			}
 
 			ImGui::PopID();
 
 			// visuals
-			bool isSelected = (context.state.selectedClip == clip);
+			// NOTE: every flag the clip is drawn with is read HERE, after the interaction
+			// above, never before it. a click that changed the selection has already been
+			// applied by this point, so the clip lights up on the frame the mouse went
+			// down instead of the next one - sampling these at the top of the loop is what
+			// made a freshly clicked clip blink
+			bool drawSelected = context.state.IsClipSelected(clip);
+			bool drawFocused = (context.state.selectedClip == clip);
+			// the gesture is anchored on the focused clip, but every selected clip rides
+			// along with it, so all of them dim and show a ghost - once it has actually
+			// travelled. a press that never moves is a click, and must not flash
+			bool drawDragging = (interaction.dragState != DragState::None && interaction.dragMoved && drawSelected);
+
 			// a deactivated clip drops the track color for a neutral grey, so a glance at the
 			// arrangement says which clips are going to sound
 			ImU32 baseColor = clip->IsEnabled() ? t->GetColor() : Theme::Instance().clipDisabled;
 
 			// if dragging, the original clip stays in place but dimmed
-			if (isDraggingThis) {
+			if (drawDragging) {
 				baseColor = Theme::WithAlpha(Theme::Instance().textDim, 60); // ghostly
-			} else if (!isSelected) {
+			} else if (!drawSelected) {
 				ImVec4 c = ImGui::ColorConvertU32ToFloat4(baseColor);
 				c.w = 0.8f;
 				baseColor = ImGui::ColorConvertFloat4ToU32(c);
@@ -330,6 +382,17 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 
 			// render using the clip's actual current data
 			DrawClipContent(drawList, clip, pMin, pMax, winPos, viewWidth, context, baseColor);
+
+			// selection outline, drawn over the content. every member of the selection
+			// gets the bright stroke; the focused one - the clip the piano roll and the
+			// clip view are showing, and the clip a drag measures its deltas from - also
+			// gets the accent, so a block of twenty still says which one is being edited
+			if (drawSelected && !drawDragging) {
+				const Theme& th = Theme::Instance();
+				drawList->AddRect(pMin, pMax, th.selectionStroke, 0.0f, 0, 2.0f);
+				if (drawFocused && context.state.selectedClips.size() > 1)
+					drawList->AddRect(ImVec2(pMin.x + 2, pMin.y + 2), ImVec2(pMax.x - 2, pMax.y - 2), th.accent, 0.0f, 0, 2.0f);
+			}
 		}
 	}
 }

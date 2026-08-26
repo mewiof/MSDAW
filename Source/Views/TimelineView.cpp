@@ -9,7 +9,9 @@
 #include <filesystem>
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 
+#include "TimelineView/TimelineClipOps.h"
 #include "TimelineView/TimelineRuler.h"
 #include "TimelineView/TimelineTrackView.h"
 #include "TimelineView/TimelineAutomationRenderer.h"
@@ -72,6 +74,11 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 	Project* project = mContext.GetProject();
 	Transport* transport = project ? &project->GetTransport() : nullptr;
 
+	// an undo, a redo or a delete elsewhere can take a selected clip off its track.
+	// the selection holds shared_ptrs so nothing dangles, but a clip that is no longer
+	// in the arrangement would still be dragged, duplicated and drawn as selected
+	TimelineClipOps::PruneSelection(mContext);
+
 	// follow-playback scrolling runs after Begin and reads the post-zoom
 	// pixelsPerBeat (the zoom is resolved before Begin, above), so the two never
 	// fight over the scroll on the same frame
@@ -106,76 +113,37 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 								  : 0.0;
 
 		// handle keyboard shortcuts
+		// every one of these acts on the whole clip selection, so the single-clip case
+		// is just the block case with one member
 		if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+			bool hasSelection = !mContext.state.selectedClips.empty();
+
 			if (io.KeyCtrl) {
-				if (ImGui::IsKeyPressed(ImGuiKey_E) && mContext.state.selectedClip) {
-					int trackIdx = mContext.state.selectedTrackIndex;
-					double splitBeat = mContext.state.selectionStart;
-
-					if (trackIdx >= 0 && trackIdx < (int)tracks.size()) {
-						auto clip = mContext.state.selectedClip;
-						double start = clip->GetStartBeat();
-						double end = clip->GetEndBeat();
-
-						if (splitBeat > start + 0.001 && splitBeat < end - 0.001) {
-							auto newClip = CloneClip(clip);
-
-							if (newClip) {
-								double splitPointDelta = splitBeat - start;
-								clip->SetDuration(splitPointDelta);
-								newClip->SetStartBeat(splitBeat);
-								newClip->SetDuration(end - splitBeat);
-								newClip->SetOffset(clip->GetOffset() + splitPointDelta);
-
-								tracks[trackIdx]->AddClip(newClip);
-								mContext.state.selectedClip = newClip;
-							}
-						}
-					}
+				// split at the insert marker, the same beat the marker line is drawn at
+				if (ImGui::IsKeyPressed(ImGuiKey_E) && hasSelection)
+					TimelineClipOps::SplitSelectionAt(mContext, mContext.state.selectionStart);
+				if (ImGui::IsKeyPressed(ImGuiKey_A))
+					TimelineClipOps::SelectAll(mContext);
+				if (ImGui::IsKeyPressed(ImGuiKey_C) && hasSelection)
+					TimelineClipOps::CopySelection(mContext, mInteraction);
+				if (ImGui::IsKeyPressed(ImGuiKey_X) && hasSelection) {
+					TimelineClipOps::CopySelection(mContext, mInteraction);
+					TimelineClipOps::DeleteSelection(mContext);
 				}
-				if (ImGui::IsKeyPressed(ImGuiKey_C) && mContext.state.selectedClip) {
-					mInteraction.clipboard = CloneClip(mContext.state.selectedClip);
-				}
-				if (ImGui::IsKeyPressed(ImGuiKey_V) && mInteraction.clipboard) {
-					int trackIdx = mContext.state.selectedTrackIndex;
-					if (trackIdx >= 0 && trackIdx < (int)tracks.size() && tracks[trackIdx]->AcceptsClips()) {
-						auto newClip = CloneClip(mInteraction.clipboard);
-						if (newClip) {
-							double currentBeat = (double)transport->GetPosition() / transport->GetSampleRate() * (transport->GetBpm() / 60.0);
-							if (mContext.state.timelineGrid > 0.0)
-								currentBeat = round(currentBeat / mContext.state.timelineGrid) * mContext.state.timelineGrid;
-							newClip->SetStartBeat(currentBeat);
-							tracks[trackIdx]->AddClip(newClip);
-							mContext.state.selectedClip = newClip;
-						}
-					}
-				}
-				if (ImGui::IsKeyPressed(ImGuiKey_D) && mContext.state.selectedClip) {
-					int trackIdx = mContext.state.selectedTrackIndex;
-					if (trackIdx >= 0 && trackIdx < (int)tracks.size() && tracks[trackIdx]->AcceptsClips()) {
-						auto newClip = CloneClip(mContext.state.selectedClip);
-						if (newClip) {
-							double endBeat = mContext.state.selectedClip->GetEndBeat();
-							newClip->SetStartBeat(endBeat);
-							tracks[trackIdx]->AddClip(newClip);
-							mContext.state.selectedClip = newClip;
-						}
-					}
-				}
+				// the block lands with its top-left corner at the insert marker on the
+				// selected track, keeping the shape it was copied in
+				if (ImGui::IsKeyPressed(ImGuiKey_V) && !mInteraction.clipboard.empty())
+					TimelineClipOps::PasteAt(mContext, mInteraction, mContext.state.selectionStart, mContext.state.selectedTrackIndex);
+				if (ImGui::IsKeyPressed(ImGuiKey_D) && hasSelection)
+					TimelineClipOps::DuplicateSelection(mContext);
 			}
-			// 0 activates/deactivates the selected clip, as in Ableton
-			if (ImGui::IsKeyPressed(ImGuiKey_0) && !io.KeyCtrl && mContext.state.selectedClip) {
-				int selTrackIdx = mContext.state.selectedTrackIndex;
-				if (selTrackIdx >= 0 && selTrackIdx < (int)tracks.size())
-					ToggleClipEnabled(project, mContext.undoManager, tracks[selTrackIdx], mContext.state.selectedClip);
-			}
-			if (ImGui::IsKeyPressed(ImGuiKey_Delete) && mContext.state.selectedClip) {
-				int selTrackIdx = mContext.state.selectedTrackIndex;
-				if (selTrackIdx >= 0 && selTrackIdx < (int)tracks.size()) {
-					tracks[selTrackIdx]->RemoveClip(mContext.state.selectedClip);
-					mContext.state.selectedClip = nullptr;
-				}
-			}
+			// 0 activates/deactivates the selected clips, as in Ableton
+			if (ImGui::IsKeyPressed(ImGuiKey_0) && !io.KeyCtrl && hasSelection)
+				TimelineClipOps::ToggleSelectionEnabled(mContext);
+			if (ImGui::IsKeyPressed(ImGuiKey_Delete) && hasSelection)
+				TimelineClipOps::DeleteSelection(mContext);
+			if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+				mContext.state.ClearClipSelection();
 		}
 
 		// NOTE: the zoom (pixelsPerBeat, content size and anchored scroll) is fully
@@ -380,28 +348,69 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 
 		TimelineTrackView::RenderTracks(mContext, mInteraction, pendingMove, pendingDelete, winPos, contentWidth - trackListW, timelineWidth, scrollX, trackAreaStartY);
 
+		// a drag whose anchor clip scrolled out of view never reaches the commit inside
+		// the clip loop - that code sits behind the same culling test as the clip body -
+		// so the gesture would stay live and keep drawing ghosts forever. finish it here
+		if (mInteraction.dragState != DragState::None && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+			TimelineClipOps::CommitDrag(mContext, mInteraction, pendingMove);
+			mInteraction.dragState = DragState::None;
+			mInteraction.dragSourceTrackIdx = -1;
+			mInteraction.dragTargetTrackIdx = -1;
+			mInteraction.dragEntries.clear();
+			mInteraction.dragCollapseCandidate = nullptr;
+			mInteraction.dragMoved = false;
+		}
+
 		if (pendingMove.valid) {
-			auto fromTrack = tracks[pendingMove.fromTrackIdx];
-			auto toTrack = tracks[pendingMove.toTrackIdx];
-			auto fromBefore = ClipSnapshotAction::Snapshot(fromTrack);
-			auto toBefore = ClipSnapshotAction::Snapshot(toTrack);
-			fromTrack->RemoveClip(pendingMove.clip);
-			pendingMove.clip->SetStartBeat(pendingMove.newStartBeat);
-			toTrack->AddClip(pendingMove.clip);
-			mContext.state.SelectTrack(pendingMove.toTrackIdx);
-			// record both tracks' clip changes as one undo step
-			mContext.undoManager.BeginTransaction("Move clip");
-			mContext.undoManager.Push(std::make_unique<ClipSnapshotAction>(project, fromTrack, fromBefore, ClipSnapshotAction::Snapshot(fromTrack), "Move clip"));
-			mContext.undoManager.Push(std::make_unique<ClipSnapshotAction>(project, toTrack, toBefore, ClipSnapshotAction::Snapshot(toTrack), "Move clip"));
-			mContext.undoManager.EndTransaction();
+			// the whole block is lifted out of its lanes before any of it is put back:
+			// a clip landing where another moving clip still sits would otherwise be
+			// trimmed against a position that is about to be vacated
+			bool movable = true;
+			for (const auto& e : pendingMove.entries) {
+				if (e.fromTrackIdx < 0 || e.fromTrackIdx >= (int)tracks.size() ||
+					e.toTrackIdx < 0 || e.toTrackIdx >= (int)tracks.size())
+					movable = false;
+			}
+			if (movable) {
+				ClipEditScope scope(project, mContext.undoManager, "Move clip");
+				for (const auto& e : pendingMove.entries) {
+					scope.Touch(tracks[e.fromTrackIdx]);
+					scope.Touch(tracks[e.toTrackIdx]);
+				}
+				{
+					std::lock_guard<std::mutex> lock(project->GetMutex());
+					for (const auto& e : pendingMove.entries)
+						tracks[e.fromTrackIdx]->RemoveClip(e.clip);
+					for (const auto& e : pendingMove.entries) {
+						e.clip->SetStartBeat(e.newStartBeat);
+						tracks[e.toTrackIdx]->AddClip(e.clip);
+					}
+				}
+				// the track list follows the clip the gesture was anchored on
+				int landedTrack = pendingMove.entries.back().toTrackIdx;
+				for (const auto& e : pendingMove.entries) {
+					if (e.clip == mContext.state.selectedClip)
+						landedTrack = e.toTrackIdx;
+				}
+				mContext.state.SelectTrack(landedTrack);
+				scope.Commit();
+			}
 		}
 		if (pendingDelete.valid) {
-			auto delTrack = tracks[pendingDelete.trackIdx];
-			auto before = ClipSnapshotAction::Snapshot(delTrack);
-			delTrack->RemoveClip(pendingDelete.clip);
-			mContext.undoManager.Push(std::make_unique<ClipSnapshotAction>(project, delTrack, before, ClipSnapshotAction::Snapshot(delTrack), "Delete clip"));
-			if (mContext.state.selectedClip == pendingDelete.clip)
-				mContext.state.selectedClip = nullptr;
+			ClipEditScope scope(project, mContext.undoManager, "Delete clip");
+			for (const auto& e : pendingDelete.entries) {
+				if (e.trackIdx >= 0 && e.trackIdx < (int)tracks.size())
+					scope.Touch(tracks[e.trackIdx]);
+			}
+			{
+				std::lock_guard<std::mutex> lock(project->GetMutex());
+				for (const auto& e : pendingDelete.entries) {
+					if (e.trackIdx >= 0 && e.trackIdx < (int)tracks.size())
+						tracks[e.trackIdx]->RemoveClip(e.clip);
+				}
+			}
+			TimelineClipOps::PruneSelection(mContext);
+			scope.Commit();
 		}
 
 		// preview os drag & drop
@@ -457,8 +466,14 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 			ImGui::Separator();
 
 			if (ImGui::Button("Set", ImVec2(120, 0)) || enterPressed) {
-				if (mInteraction.clipToRename)
+				// renaming one member of a selection names the whole block: a duplicated
+				// run of clips gets relabelled in one pass instead of one dialog each
+				if (mInteraction.clipToRename && mContext.state.IsClipSelected(mInteraction.clipToRename)) {
+					for (const auto& sel : mContext.state.selectedClips)
+						sel->SetName(mInteraction.renameBuffer);
+				} else if (mInteraction.clipToRename) {
 					mInteraction.clipToRename->SetName(mInteraction.renameBuffer);
+				}
 				mInteraction.clipToRename = nullptr;
 				ImGui::CloseCurrentPopup();
 			}

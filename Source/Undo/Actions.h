@@ -180,6 +180,10 @@ public:
 		double duration;
 		double offset;
 		bool enabled;
+
+		// memberwise compare so a multi-track edit can tell which tracks it actually
+		// changed and leave the rest out of the history entry
+		bool operator==(const Entry&) const = default;
 	};
 
 	ClipSnapshotAction(Project* project, std::shared_ptr<Track> track,
@@ -240,6 +244,55 @@ inline void ToggleClipEnabled(Project* project, UndoManager& undoManager,
 														  ClipSnapshotAction::Snapshot(track),
 														  clip->IsEnabled() ? "Activate clip" : "Deactivate clip"));
 }
+
+// ---------------------------------------------------------------------------
+// one clip edit spanning several tracks = one history entry. Touch() every track
+// the edit is about to mutate (before mutating it), then Commit(): each touched
+// track contributes a ClipSnapshotAction and the set is collapsed into a single
+// transaction. tracks that came out unchanged are dropped, so a multi-clip drag
+// that only ever touched one lane still reads as a plain "Move clip"
+// ---------------------------------------------------------------------------
+class ClipEditScope {
+public:
+	ClipEditScope(Project* project, UndoManager& undoManager, const char* name)
+		: mProject(project), mUndo(undoManager), mName(name) {}
+
+	// snapshotting a track twice would capture it mid-edit, so repeats are ignored
+	void Touch(const std::shared_ptr<Track>& track) {
+		if (!track || !mProject)
+			return;
+		for (const auto& e : mTracks) {
+			if (e.track == track)
+				return;
+		}
+		mTracks.push_back({track, ClipSnapshotAction::Snapshot(track)});
+	}
+
+	bool Empty() const { return mTracks.empty(); }
+
+	void Commit() {
+		if (!mProject || mTracks.empty())
+			return;
+		mUndo.BeginTransaction(mName);
+		for (auto& e : mTracks) {
+			auto after = ClipSnapshotAction::Snapshot(e.track);
+			if (after != e.before)
+				mUndo.Push(std::make_unique<ClipSnapshotAction>(mProject, e.track, e.before, std::move(after), mName));
+		}
+		mUndo.EndTransaction();
+		mTracks.clear();
+	}
+private:
+	struct TrackEntry {
+		std::shared_ptr<Track> track;
+		std::vector<ClipSnapshotAction::Entry> before;
+	};
+
+	Project* mProject;
+	UndoManager& mUndo;
+	const char* mName;
+	std::vector<TrackEntry> mTracks;
+};
 
 // ---------------------------------------------------------------------------
 // audio-clip warp/pitch edit (warp toggle, mode, segment bpm, transpose, plus

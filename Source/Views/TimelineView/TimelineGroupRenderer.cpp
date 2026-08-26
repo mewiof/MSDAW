@@ -48,7 +48,7 @@ void TimelineGroupRenderer::Render(EditorContext& context, Track* track, int tra
 	ImGui::SetCursorScreenPos(ImVec2(winPos.x + scrollX, yPos));
 	ImGui::SetNextItemAllowOverlap();
 	if (ImGui::InvisibleButton(("##GroupLane" + std::to_string(trackIndex)).c_str(), ImVec2(viewWidth, rowHeight))) {
-		context.state.selectedClip = nullptr;
+		context.state.ClearClipSelection();
 		context.state.SelectTrack(trackIndex);
 	}
 

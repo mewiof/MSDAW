@@ -9,6 +9,7 @@
 #include "Theme.h"
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 
 void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionState& interaction,
 								  PendingClipMove& pendingMove, PendingClipDelete& pendingDelete,
@@ -145,6 +146,11 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 						anyLinked = anyLinked || selMIDI->IsSequenceShared();
 				}
 				if (anyLinked && ImGui::Selectable("Make Unique")) {
+					// swapping the note vector out from under the sequencer, which walks
+					// it on the audio thread for the whole block
+					std::unique_lock<std::mutex> lock;
+					if (project)
+						lock = std::unique_lock<std::mutex>(project->GetMutex());
 					for (const auto& sel : context.state.selectedClips) {
 						if (auto selMIDI = std::dynamic_pointer_cast<MIDIClip>(sel))
 							selMIDI->MakeUnique();

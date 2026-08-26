@@ -7,8 +7,30 @@
 #include <algorithm>
 #include <cmath>
 #include <mutex>
+#include <unordered_map>
 
 namespace TimelineClipOps {
+
+// hand a freshly cloned block its own copy of every note sequence it plays. a clone
+// keeps pointing at the source's notes - that is exactly what makes Duplicate produce
+// a linked ghost - but a clipboard and a paste have to stand on their own, or editing
+// the source afterwards would rewrite what was copied. clips that shared a sequence
+// with each OTHER keep sharing one, so a copied pair of ghosts pastes back as a pair
+static void DetachSequences(const std::vector<std::shared_ptr<Clip>>& clips) {
+	std::unordered_map<const MIDISequence*, std::shared_ptr<MIDISequence>> detached;
+	for (const auto& clip : clips) {
+		auto mIDIClip = std::dynamic_pointer_cast<MIDIClip>(clip);
+		if (!mIDIClip)
+			continue;
+		auto& copy = detached[mIDIClip->GetSequence().get()];
+		if (copy) {
+			mIDIClip->AdoptSequence(copy);
+		} else {
+			mIDIClip->MakeUnique();
+			copy = mIDIClip->GetSequence();
+		}
+	}
+}
 
 // scoped project lock. every mutation below goes through it: the audio thread walks
 // the same clip vectors in Track::Process, and a multi-clip edit rewrites several of
@@ -314,12 +336,15 @@ void CopySelection(EditorContext& context, TimelineInteractionState& interaction
 	}
 
 	interaction.clipboard.clear();
+	std::vector<std::shared_ptr<Clip>> clones;
 	for (const auto& r : refs) {
 		auto clone = CloneClip(r.clip);
 		if (!clone)
 			continue;
+		clones.push_back(clone);
 		interaction.clipboard.push_back({clone, r.clip->GetStartBeat() - minStart, r.trackIndex - minTrack});
 	}
+	DetachSequences(clones);
 }
 
 void PasteAt(EditorContext& context, TimelineInteractionState& interaction, double anchorBeat, int anchorTrack) {
@@ -356,12 +381,17 @@ void PasteAt(EditorContext& context, TimelineInteractionState& interaction, doub
 		return;
 
 	std::vector<std::shared_ptr<Clip>> pasted;
+	for (auto& l : landings)
+		pasted.push_back(l.clip);
+	// each paste is its own block: without this it would stay linked to the clipboard,
+	// which means to every other paste of the same clipboard as well
+	DetachSequences(pasted);
+
 	{
 		auto lock = LockProject(project);
 		for (auto& l : landings) {
 			l.clip->SetStartBeat(l.start);
 			l.track->AddClip(l.clip);
-			pasted.push_back(l.clip);
 		}
 	}
 

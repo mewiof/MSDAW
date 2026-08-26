@@ -25,8 +25,38 @@ namespace {
 	// the widest boost or cut a band can reach, and the point Adaptive Q calls "full"
 	constexpr float kMaxBandGainDb = 15.0f;
 
-	// vertical gap between the rows of the globals column, tighter than the default
-	constexpr int kGlobalsRowSpacing = 2;
+	// vertical gap between the rows of a side column, tighter than the default: the
+	// device has one fixed height and the graph gets whatever the rows do not
+	constexpr float kColumnRowSpacing = 3.0f;
+
+	// the globals column is eleven rows - an icon row and five label-over-control pairs.
+	// they have to fit whatever height the rack has, so the gaps close first and only
+	// then do the controls themselves give way
+	struct EQGlobalsMetrics {
+		float controlHeight;
+		float gap;
+		float minimumHeight; // the shortest this column can be drawn at all
+	};
+
+	EQGlobalsMetrics MeasureGlobals(float height) {
+		const float text = ImGui::GetTextLineHeight();
+		const float frame = ImGui::GetFrameHeight();
+		const int controls = 6; // the icon row plus five named controls
+		const int labels = 5;
+		const int gaps = 10;
+
+		EQGlobalsMetrics metrics;
+		metrics.minimumHeight = text * (float)(controls + labels);
+		metrics.gap = std::clamp((height - frame * (float)controls - text * (float)labels) / (float)gaps,
+								 0.0f, kColumnRowSpacing);
+		metrics.controlHeight = frame;
+		const float natural = frame * (float)controls + text * (float)labels + metrics.gap * (float)gaps;
+		if (natural > height) {
+			metrics.controlHeight = std::max((height - text * (float)labels - metrics.gap * (float)gaps) / (float)controls,
+											 text);
+		}
+		return metrics;
+	}
 
 	const char* kFilterTypeNames[(int)EQFilterType::Count] = {
 		"Low Cut 48 dB",
@@ -1011,8 +1041,8 @@ void EQEightProcessor::DrawGraph(const ImVec2& pos, const ImVec2& size) {
 		const bool hovered = ImGui::IsItemHovered();
 		const bool held = ImGui::IsItemActive();
 
-		// the wheel belongs to the handle while the cursor is on it, or the scroll
-		// wrapper the device rack puts around a tall UI would eat the Q edit
+		// the wheel belongs to the handle while the cursor is on it, so a Q edit is
+		// never eaten by whatever the graph happens to be sitting inside
 		ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
 
 		if (ImGui::IsItemActivated()) {
@@ -1256,132 +1286,208 @@ void EQEightProcessor::DrawBandStrip(float width) {
 	ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + rowHeight + 2.0f + ImGui::GetTextLineHeight()));
 }
 
-void EQEightProcessor::DrawGlobals(float width) {
+// the selected band's frequency, gain and Q, as three dials stacked down the left edge
+// the way the original device has them. the dial is sized from the height the column was
+// given rather than fixed, because the device rack is one short strip and three knobs at
+// the default radius are taller than all of it
+void EQEightProcessor::DrawKnobColumn(float width, float height) {
+	BandParams& params = mBands[mEditSet][mSelectedBand];
+
+	// the dial shrinks to fit a short rack but never grows past the size knobs are drawn
+	// at everywhere else; the space that leaves over is spread between the three blocks,
+	// which is how the original device stands them down the column
+	const float radius = std::min(KnobParameter::RadiusForHeight((height - kColumnRowSpacing * 2.0f) / 3.0f),
+								  KnobParameter::kDefaultRadius);
+	const float blockHeight = KnobParameter::SizedHeight(radius);
+	const float gap = std::max((height - blockHeight * 3.0f) * 0.5f, kColumnRowSpacing);
+	const ImVec2 origin = ImGui::GetCursorScreenPos();
+
+	KnobParameter* rowParams[3] = {params.pFrequency, params.pGain, params.pQ};
+	// the parameter names carry the band and set they belong to ("Freq 1A"), which the
+	// strip below already says and this column has no room for
+	const char* labels[3] = {"Freq", "Gain", "Q"};
+	const char* tooltips[3] = {
+		"Corner or center frequency of this band",
+		"Boost or cut, for the shapes that have one",
+		"How narrow the band is"};
+
+	for (int row = 0; row < 3; ++row) {
+		ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + (float)row * (blockHeight + gap)));
+		rowParams[row]->DrawSized(radius, width, labels[row]);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("%s", tooltips[row]);
+	}
+
+	ImGui::SetCursorScreenPos(origin);
+	ImGui::Dummy(ImVec2(width, height));
+}
+
+// mode, edit, adaptive Q, scale and output gain, each under its own label, over an icon
+// row for audition and the analyzer. eleven rows in a column that is only as tall as the
+// rack, so the gaps between them close before the controls themselves are allowed to
+void EQEightProcessor::DrawGlobals(float width, float height) {
 	const Theme& th = Theme::Instance();
 	ImGuiStyle& style = ImGui::GetStyle();
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	const EQChannelMode mode = GetChannelMode();
 
-	// tighter than the default row spacing, because six controls have to fit beside a
-	// graph that is already the shortest it can usefully be. RenderCustomUI measures
-	// the column with this same number
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, (float)kGlobalsRowSpacing));
+	const EQGlobalsMetrics metrics = MeasureGlobals(height);
+	const float labelHeight = ImGui::GetTextLineHeight();
+	const ImVec2 origin = ImGui::GetCursorScreenPos();
+	float y = origin.y;
+
+	// a label over its control, which is the arrangement the original device uses and
+	// the only one that fits five named controls into a column this narrow
+	auto nextRow = [&](const char* label) {
+		if (label) {
+			drawList->AddText(ImVec2(origin.x, y), th.textMuted, label);
+			y += labelHeight + metrics.gap;
+		}
+		ImGui::SetCursorScreenPos(ImVec2(origin.x, y));
+		const float rowTop = y;
+		y += metrics.controlHeight + metrics.gap;
+		return rowTop;
+	};
 
 	// ---- audition and analyzer ----
-	const float iconSize = ImGui::GetFrameHeight();
-	const bool audition = mAudition.load(std::memory_order_relaxed);
-	ImVec2 iconPos = ImGui::GetCursorScreenPos();
-
-	if (ImGui::InvisibleButton("##Audition", ImVec2(iconSize, iconSize)))
-		mAudition.store(!audition, std::memory_order_relaxed);
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Audition: hear only the band you are editing");
-	drawList->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize, iconPos.y + iconSize),
-							audition ? th.accent : th.bgPanelAlt, style.FrameRounding);
 	{
-		// a headphone: the band over the top, a cup on each side
-		const ImU32 glyph = audition ? th.textOnAccent : th.textMuted;
-		const ImVec2 center(iconPos.x + iconSize * 0.5f, iconPos.y + iconSize * 0.58f);
-		drawList->PathArcTo(center, iconSize * 0.26f, (float)kPi, 2.0f * (float)kPi, 12);
-		drawList->PathStroke(glyph, 0, 1.5f);
-		drawList->AddRectFilled(ImVec2(center.x - iconSize * 0.32f, center.y - iconSize * 0.04f),
-								ImVec2(center.x - iconSize * 0.18f, center.y + iconSize * 0.20f), glyph, 1.5f);
-		drawList->AddRectFilled(ImVec2(center.x + iconSize * 0.18f, center.y - iconSize * 0.04f),
-								ImVec2(center.x + iconSize * 0.32f, center.y + iconSize * 0.20f), glyph, 1.5f);
-	}
+		nextRow(nullptr);
+		const float iconSize = metrics.controlHeight;
+		const bool audition = mAudition.load(std::memory_order_relaxed);
+		ImVec2 iconPos = ImGui::GetCursorScreenPos();
 
-	ImGui::SameLine(0.0f, 3.0f);
-	iconPos = ImGui::GetCursorScreenPos();
-	if (ImGui::InvisibleButton("##Analyzer", ImVec2(iconSize, iconSize)))
-		mShowAnalyzer = !mShowAnalyzer;
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Show the spectrum behind the curve");
-	drawList->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize, iconPos.y + iconSize),
-							mShowAnalyzer ? th.accent : th.bgPanelAlt, style.FrameRounding);
-	{
-		// four bars of a spectrum, tallest in the middle
-		const ImU32 glyph = mShowAnalyzer ? th.textOnAccent : th.textMuted;
-		const float heights[4] = {0.35f, 0.60f, 0.45f, 0.25f};
-		for (int bar = 0; bar < 4; ++bar) {
-			const float x = iconPos.x + iconSize * (0.24f + 0.14f * (float)bar);
-			const float bottom = iconPos.y + iconSize * 0.74f;
-			drawList->AddRectFilled(ImVec2(x, bottom - iconSize * heights[bar]), ImVec2(x + iconSize * 0.08f, bottom), glyph);
+		if (ImGui::InvisibleButton("##Audition", ImVec2(iconSize, iconSize)))
+			mAudition.store(!audition, std::memory_order_relaxed);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Audition: hear only the band you are editing");
+		drawList->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize, iconPos.y + iconSize),
+								audition ? th.accent : th.bgPanelAlt, style.FrameRounding);
+		{
+			// a headphone: the band over the top, a cup on each side
+			const ImU32 glyph = audition ? th.textOnAccent : th.textMuted;
+			const ImVec2 center(iconPos.x + iconSize * 0.5f, iconPos.y + iconSize * 0.58f);
+			drawList->PathArcTo(center, iconSize * 0.26f, (float)kPi, 2.0f * (float)kPi, 12);
+			drawList->PathStroke(glyph, 0, 1.5f);
+			drawList->AddRectFilled(ImVec2(center.x - iconSize * 0.32f, center.y - iconSize * 0.04f),
+									ImVec2(center.x - iconSize * 0.18f, center.y + iconSize * 0.20f), glyph, 1.5f);
+			drawList->AddRectFilled(ImVec2(center.x + iconSize * 0.18f, center.y - iconSize * 0.04f),
+									ImVec2(center.x + iconSize * 0.32f, center.y + iconSize * 0.20f), glyph, 1.5f);
+		}
+
+		iconPos.x += iconSize + 3.0f;
+		ImGui::SetCursorScreenPos(iconPos);
+		if (ImGui::InvisibleButton("##Analyzer", ImVec2(iconSize, iconSize)))
+			mShowAnalyzer = !mShowAnalyzer;
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Show the spectrum behind the curve");
+		drawList->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize, iconPos.y + iconSize),
+								mShowAnalyzer ? th.accent : th.bgPanelAlt, style.FrameRounding);
+		{
+			// four bars of a spectrum, tallest in the middle
+			const ImU32 glyph = mShowAnalyzer ? th.textOnAccent : th.textMuted;
+			const float heights[4] = {0.35f, 0.60f, 0.45f, 0.25f};
+			for (int bar = 0; bar < 4; ++bar) {
+				const float x = iconPos.x + iconSize * (0.24f + 0.14f * (float)bar);
+				const float bottom = iconPos.y + iconSize * 0.74f;
+				drawList->AddRectFilled(ImVec2(x, bottom - iconSize * heights[bar]), ImVec2(x + iconSize * 0.08f, bottom), glyph);
+			}
 		}
 	}
 
 	// ---- mode ----
-	ImGui::TextUnformatted("Mode");
-	ImGui::SetNextItemWidth(width);
-	if (ImGui::BeginCombo("##EQMode", kChannelModeNames[(int)mode], ImGuiComboFlags_NoArrowButton)) {
-		for (int candidate = 0; candidate < (int)EQChannelMode::Count; ++candidate) {
-			if (ImGui::Selectable(kChannelModeNames[candidate], candidate == (int)mode)) {
-				const float oldMode = pMode->value;
-				pMode->value = (float)candidate;
-				pMode->CommitEditImmediate(oldMode);
-				if (candidate == (int)EQChannelMode::Stereo)
-					mEditSet = 0;
+	{
+		nextRow("Mode");
+		ImGui::SetNextItemWidth(width);
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, (metrics.controlHeight - ImGui::GetTextLineHeight()) * 0.5f));
+		if (ImGui::BeginCombo("##EQMode", kChannelModeNames[(int)mode], ImGuiComboFlags_NoArrowButton)) {
+			for (int candidate = 0; candidate < (int)EQChannelMode::Count; ++candidate) {
+				if (ImGui::Selectable(kChannelModeNames[candidate], candidate == (int)mode)) {
+					const float oldMode = pMode->value;
+					pMode->value = (float)candidate;
+					pMode->CommitEditImmediate(oldMode);
+					if (candidate == (int)EQChannelMode::Stereo)
+						mEditSet = 0;
+				}
 			}
+			ImGui::EndCombo();
 		}
-		ImGui::EndCombo();
-	}
-	if (ImGui::IsItemHovered()) {
-		ImGui::SetTooltip("Stereo: one curve on both channels\n"
-						  "L/R: a separate curve per channel\n"
-						  "M/S: a separate curve for the middle and the sides");
+		ImGui::PopStyleVar();
+		if (ImGui::IsItemHovered()) {
+			ImGui::SetTooltip("Stereo: one curve on both channels\n"
+							  "L/R: a separate curve per channel\n"
+							  "M/S: a separate curve for the middle and the sides");
+		}
 	}
 
 	// ---- edit ----
-	ImGui::TextUnformatted("Edit");
-	const float halfWidth = (width - 3.0f) * 0.5f;
-	for (int set = 0; set < kNumSets; ++set) {
-		if (set > 0)
-			ImGui::SameLine(0.0f, 3.0f);
-		ImGui::PushID(set);
-		const bool selected = set == mEditSet;
-		const bool enabled = set == 0 || mode != EQChannelMode::Stereo;
-		ImGui::PushStyleColor(ImGuiCol_Button, selected && enabled ? th.accent : th.bgPanelAlt);
-		ImGui::PushStyleColor(ImGuiCol_Text, selected && enabled ? th.textOnAccent : (enabled ? th.text : th.textDim));
-		if (ImGui::Button(kSetNames[(int)mode][set], ImVec2(halfWidth, 0.0f)) && enabled)
-			mEditSet = set;
-		ImGui::PopStyleColor(2);
-		ImGui::PopID();
+	{
+		nextRow("Edit");
+		const float halfWidth = (width - 3.0f) * 0.5f;
+		for (int set = 0; set < kNumSets; ++set) {
+			if (set > 0)
+				ImGui::SameLine(0.0f, 3.0f);
+			ImGui::PushID(set);
+			const bool selected = set == mEditSet;
+			const bool enabled = set == 0 || mode != EQChannelMode::Stereo;
+			ImGui::PushStyleColor(ImGuiCol_Button, selected && enabled ? th.accent : th.bgPanelAlt);
+			ImGui::PushStyleColor(ImGuiCol_Text, selected && enabled ? th.textOnAccent : (enabled ? th.text : th.textDim));
+			if (ImGui::Button(kSetNames[(int)mode][set], ImVec2(halfWidth, metrics.controlHeight)) && enabled)
+				mEditSet = set;
+			ImGui::PopStyleColor(2);
+			ImGui::PopID();
+		}
+		if (mode == EQChannelMode::Stereo && ImGui::IsItemHovered())
+			ImGui::SetTooltip("Only L/R and M/S have a second curve to edit");
 	}
-	if (mode == EQChannelMode::Stereo && ImGui::IsItemHovered())
-		ImGui::SetTooltip("Only L/R and M/S have a second curve to edit");
 
 	// ---- adaptive q ----
-	ImGui::TextUnformatted("Adapt. Q");
-	const bool adaptive = pAdaptQ->value > 0.5f;
-	ImGui::PushStyleColor(ImGuiCol_Button, adaptive ? th.accent : th.bgPanelAlt);
-	ImGui::PushStyleColor(ImGuiCol_Text, adaptive ? th.textOnAccent : th.text);
-	if (ImGui::Button(adaptive ? "On" : "Off", ImVec2(width, 0.0f))) {
-		const float oldValue = pAdaptQ->value;
-		pAdaptQ->value = adaptive ? 0.0f : 1.0f;
-		pAdaptQ->CommitEditImmediate(oldValue);
+	{
+		nextRow("Adapt. Q");
+		const bool adaptive = pAdaptQ->value > 0.5f;
+		ImGui::PushStyleColor(ImGuiCol_Button, adaptive ? th.accent : th.bgPanelAlt);
+		ImGui::PushStyleColor(ImGuiCol_Text, adaptive ? th.textOnAccent : th.text);
+		if (ImGui::Button(adaptive ? "On" : "Off", ImVec2(width, metrics.controlHeight))) {
+			const float oldValue = pAdaptQ->value;
+			pAdaptQ->value = adaptive ? 0.0f : 1.0f;
+			pAdaptQ->CommitEditImmediate(oldValue);
+		}
+		ImGui::PopStyleColor(2);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Narrows a bell as it is boosted or cut, the way an analog EQ does");
 	}
-	ImGui::PopStyleColor(2);
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Narrows a bell as it is boosted or cut, the way an analog EQ does");
 
 	// ---- scale and output gain ----
-	ImGui::TextUnformatted("Scale");
-	pScale->DrawCompact(width, "%.0f %%", true);
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Rides every shelf and bell gain at once");
+	{
+		nextRow("Scale");
+		pScale->DrawCompact(width, "%.0f %%", true);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Rides every shelf and bell gain at once");
+	}
+	{
+		nextRow("Gain");
+		pOutputGain->DrawCompact(width, "%+.2f dB", false);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Output level, after the whole chain");
+	}
 
-	ImGui::TextUnformatted("Gain");
-	pOutputGain->DrawCompact(width, "%+.2f dB", false);
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Output level, after the whole chain");
-
-	ImGui::PopStyleVar();
+	ImGui::SetCursorScreenPos(origin);
+	ImGui::Dummy(ImVec2(width, height));
 }
 
 bool EQEightProcessor::RenderCustomUI(const ImVec2& size) {
 	ImGuiStyle& style = ImGui::GetStyle();
 
-	// too cramped to lay out honestly - let the rack fall back to the parameter list
-	if (size.x < 300.0f || size.y < 150.0f)
+	// the device rack is one fixed-height strip and nothing in it scrolls, so the layout
+	// is decided the other way round from a resizable window: the columns take the full
+	// height, and the graph gets whatever is left over the band strip
+	const float stripHeight = ImGui::GetFrameHeight() + ImGui::GetTextLineHeight() + 2.0f;
+	const float minGraphHeight = 60.0f;
+
+	// below this the globals column cannot be drawn without overlapping itself, and the
+	// rack falls back to the plain parameter list rather than showing something clipped
+	if (size.x < 300.0f || size.y < MeasureGlobals(size.y).minimumHeight ||
+		size.y < stripHeight + style.ItemSpacing.y + minGraphHeight ||
+		KnobParameter::RadiusForHeight((size.y - kColumnRowSpacing * 2.0f) / 3.0f) <= 0.0f)
 		return false;
 
 	const EQChannelMode mode = GetChannelMode();
@@ -1394,23 +1500,13 @@ bool EQEightProcessor::RenderCustomUI(const ImVec2& size) {
 	mAuditionBand.store(mSelectedBand, std::memory_order_relaxed);
 	mAuditionSet.store(mEditSet, std::memory_order_relaxed);
 
-	// a knob is label + dial + value, and three of them stacked set the floor for how
-	// short the graph beside them is allowed to be
-	const float knobHeight = ImGui::GetTextLineHeight() * 2.0f + style.ItemInnerSpacing.y * 2.0f + 36.0f;
-	const float knobColumnHeight = knobHeight * 3.0f + style.ItemSpacing.y * 2.0f;
+	// each column is as wide as the widest thing it has to hold without eliding
 	const float knobWidth = ImGui::CalcTextSize("-15.0 dB").x + 8.0f;
-	const float globalsWidth = std::max(ImGui::CalcTextSize("Stereo").x + style.FramePadding.x * 4.0f, 64.0f);
-	const float stripHeight = ImGui::GetFrameHeight() + ImGui::GetTextLineHeight() + 2.0f;
-
-	// the globals column is taller still: an icon row over five label-plus-control
-	// pairs. whichever column is tallest decides where the band strip starts
-	const float globalsColumnHeight = ImGui::GetFrameHeight() * 6.0f + ImGui::GetTextLineHeight() * 5.0f +
-									  (float)kGlobalsRowSpacing * 10.0f;
-
+	const float globalsWidth = std::max({ImGui::CalcTextSize("Adapt. Q").x,
+										 ImGui::CalcTextSize(kChannelModeNames[(int)EQChannelMode::Count - 1]).x + style.FramePadding.x * 2.0f,
+										 64.0f});
 	const float graphWidth = std::max(size.x - knobWidth - globalsWidth - style.ItemSpacing.x * 2.0f, 160.0f);
-	const float columnHeight = std::max(knobColumnHeight, globalsColumnHeight);
-	const float graphHeight = std::max(size.y - stripHeight - style.ItemSpacing.y, columnHeight);
-	const float contentHeight = graphHeight + style.ItemSpacing.y + stripHeight;
+	const float graphHeight = size.y - stripHeight - style.ItemSpacing.y;
 
 	// every column is placed explicitly rather than with SameLine: the graph submits
 	// its own items at absolute positions, which leaves nothing sane for SameLine to
@@ -1418,28 +1514,23 @@ bool EQEightProcessor::RenderCustomUI(const ImVec2& size) {
 	// far it runs, and closed with an item at the end - ImGui asserts on a child that
 	// ends on a bare SetCursorScreenPos
 	const ImVec2 origin = ImGui::GetCursorScreenPos();
+	const float graphX = origin.x + knobWidth + style.ItemSpacing.x;
 
-	BandParams& selected = mBands[mEditSet][mSelectedBand];
 	ImGui::SetCursorScreenPos(origin);
-	ImGui::BeginGroup();
-	selected.pFrequency->Draw();
-	selected.pGain->Draw();
-	selected.pQ->Draw();
-	ImGui::EndGroup();
+	DrawKnobColumn(knobWidth, size.y);
 
-	DrawGraph(ImVec2(origin.x + knobWidth + style.ItemSpacing.x, origin.y), ImVec2(graphWidth, graphHeight));
+	DrawGraph(ImVec2(graphX, origin.y), ImVec2(graphWidth, graphHeight));
 
-	ImGui::SetCursorScreenPos(ImVec2(origin.x + knobWidth + graphWidth + style.ItemSpacing.x * 2.0f, origin.y));
-	ImGui::BeginGroup();
-	DrawGlobals(globalsWidth);
-	ImGui::EndGroup();
+	// the strip sits under the graph only, between the two full-height columns
+	ImGui::SetCursorScreenPos(ImVec2(graphX, origin.y + graphHeight + style.ItemSpacing.y));
+	DrawBandStrip(graphWidth);
 
-	ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + graphHeight + style.ItemSpacing.y));
-	DrawBandStrip(size.x);
+	ImGui::SetCursorScreenPos(ImVec2(graphX + graphWidth + style.ItemSpacing.x, origin.y));
+	DrawGlobals(globalsWidth, size.y);
 
 	// leave the cursor under the block, on an item rather than a bare cursor move
 	ImGui::SetCursorScreenPos(origin);
-	ImGui::Dummy(ImVec2(size.x, contentHeight));
+	ImGui::Dummy(size);
 
 	return true;
 }

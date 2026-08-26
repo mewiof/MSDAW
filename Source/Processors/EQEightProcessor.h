@@ -1,5 +1,6 @@
 #pragma once
 #include "AudioProcessor.h"
+#include "Parameters/KnobParameter.h"
 #include <array>
 #include <atomic>
 #include <vector>
@@ -148,9 +149,11 @@ public:
 	int GetActiveSetCount() const { return GetChannelMode() == EQChannelMode::Stereo ? 1 : kNumSets; }
 private:
 	struct BandParams {
-		Parameter* pFrequency = nullptr;
-		Parameter* pGain = nullptr;
-		Parameter* pQ = nullptr;
+		// the three the knob column draws are held as knobs rather than as plain
+		// parameters, because that column sizes their dials to the height it was given
+		KnobParameter* pFrequency = nullptr;
+		KnobParameter* pGain = nullptr;
+		KnobParameter* pQ = nullptr;
 		Parameter* pType = nullptr;
 		Parameter* pActive = nullptr;
 	};
@@ -274,5 +277,10 @@ private:
 
 	void DrawGraph(const ImVec2& pos, const ImVec2& size);
 	void DrawBandStrip(float width);
-	void DrawGlobals(float width);
+
+	// the two full-height side columns. both are handed the height they have to fit in
+	// rather than choosing one: the device rack is a fixed-height strip that never
+	// scrolls, so the dials shrink and the globals rows close up instead of overflowing
+	void DrawKnobColumn(float width, float height);
+	void DrawGlobals(float width, float height);
 };

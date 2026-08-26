@@ -134,6 +134,18 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 		// segment whose tension handle the mouse is over, resolved while the curve is drawn
 		int hoveredTensionIdx = -1;
 
+		// a point's fill says whether it is selected, and the click that decides that has
+		// not been handled by the time the curve is drawn. so the draw pass works out the
+		// geometry only and parks it here; the circles are emitted after the interactions
+		// below, reading this frame's selection. the positions are still the ones the
+		// curve was drawn from, so a dragged point never leads its own curve by a frame
+		struct DeferredPoint {
+			ImVec2 pos;
+			int index;
+			bool hovered;
+		};
+		std::vector<DeferredPoint> deferredPoints;
+
 		// draw curve
 		if (curve->points.empty()) {
 			float norm = (t->mSelectedAutomationParam->value - minVal) / range;
@@ -273,18 +285,12 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 				if (px < winPos.x + scrollX - 10 || px > winPos.x + viewWidth + scrollX + 10)
 					continue;
 
-				ImU32 pointCol = curve->points[pIdx].selected ? th.automationPointSelected : th.automationPoint;
 				float radius = 6.0f;
 				float dx = mousePos.x - px;
 				float dy = mousePos.y - py;
 				bool hovered = (dx * dx + dy * dy < (radius + 2) * (radius + 2));
 
-				drawList->AddCircleFilled(ImVec2(px, py), radius, pointCol);
-				if (hovered || curve->points[pIdx].selected) {
-					drawList->AddCircle(ImVec2(px, py), radius + 2, Theme::WithAlpha(th.automationPointSelected, 200), 0, 2.0f);
-				} else {
-					drawList->AddCircle(ImVec2(px, py), radius, th.divider);
-				}
+				deferredPoints.push_back({ImVec2(px, py), (int)pIdx, hovered});
 			}
 		}
 
@@ -427,6 +433,22 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 			} else {
 				interaction.autoMarqueeActive = false;
 			}
+		}
+
+		// deferred points, painted over the curve and the marquee wash now that this
+		// frame's clicks have been applied - so a point lights up the moment it is
+		// grabbed rather than one frame afterwards
+		for (const auto& dp : deferredPoints) {
+			if (dp.index < 0 || dp.index >= (int)curve->points.size())
+				continue; // the interactions above can add or remove points
+			bool selected = curve->points[dp.index].selected;
+			const float radius = 6.0f;
+
+			drawList->AddCircleFilled(dp.pos, radius, selected ? th.automationPointSelected : th.automationPoint);
+			if (dp.hovered || selected)
+				drawList->AddCircle(dp.pos, radius + 2, Theme::WithAlpha(th.automationPointSelected, 200), 0, 2.0f);
+			else
+				drawList->AddCircle(dp.pos, radius, th.divider);
 		}
 
 		// context menu logic

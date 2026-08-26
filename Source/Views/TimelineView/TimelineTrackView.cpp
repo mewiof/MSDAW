@@ -25,6 +25,16 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	auto rows = TrackLayout::Build(context);
 
+	// the lane fills say which track is selected, and clicking a clip is one of the
+	// things that changes that - but the fill for a lane is emitted before that lane's
+	// clips have taken any input, so reading the selection here would always be a frame
+	// behind. split the draw list, let the loop below build the content into the upper
+	// channel, and paint the fills into the lower one afterwards, once every click this
+	// frame has landed. merged at the end they still sit underneath, and the highlight
+	// now moves on the same frame as the click
+	drawList->ChannelsSplit(2);
+	drawList->ChannelsSetCurrent(1);
+
 	for (size_t i = 0; i < tracks.size(); ++i) {
 		if (!rows[i].visible)
 			continue; // hidden inside a folded group
@@ -34,15 +44,8 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 		ImVec2 trackMin(winPos.x, yPos);
 		ImVec2 trackMax(winPos.x + contentWidth, yPos + rowH);
 
-		// track background. the selected track is lifted here as well as in the track
-		// list - the arrangement is where the eye is while editing, and "which lane am I
-		// pasting into" was only answerable by looking away at the list
-		bool laneSelected = ((int)i == context.state.selectedTrackIndex) || context.state.multiSelectedTracks.count((int)i) > 0;
-		ImU32 laneColor = t->IsGroup() ? th.bgLaneGroup : th.bgLane;
-		if (laneSelected)
-			laneColor = th.bgLaneSelected;
-		drawList->AddRectFilled(trackMin, trackMax, laneColor);
-		drawList->AddRect(trackMin, trackMax, th.border);
+		// NOTE: the track background is not drawn here - it is deferred to the lower
+		// draw-list channel after this loop, so its selection highlight is same-frame
 
 		// grid logic
 		if (context.state.timelineGrid > 0.0) {
@@ -146,6 +149,25 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 
 		ImGui::PopID(); // track id
 	}
+
+	// deferred lane backgrounds. the selected track is lifted here as well as in the
+	// track list - the arrangement is where the eye is while editing, and "which lane
+	// am I pasting into" was only answerable by looking away at the list
+	drawList->ChannelsSetCurrent(0);
+	for (size_t i = 0; i < tracks.size(); ++i) {
+		if (!rows[i].visible)
+			continue;
+		ImVec2 trackMin(winPos.x, startY + rows[i].top);
+		ImVec2 trackMax(winPos.x + contentWidth, startY + rows[i].top + rows[i].height);
+
+		bool laneSelected = ((int)i == context.state.selectedTrackIndex) || context.state.multiSelectedTracks.count((int)i) > 0;
+		ImU32 laneColor = tracks[i]->IsGroup() ? th.bgLaneGroup : th.bgLane;
+		if (laneSelected)
+			laneColor = th.bgLaneSelected;
+		drawList->AddRectFilled(trackMin, trackMax, laneColor);
+		drawList->AddRect(trackMin, trackMax, th.border);
+	}
+	drawList->ChannelsMerge();
 
 	// ================================================================
 	// CLIP MARQUEE

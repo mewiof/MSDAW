@@ -77,6 +77,12 @@ private:
 	// mMutex; a null parent means the root level
 	void InsertNewTrack(int index, std::shared_ptr<Track> parent);
 
+	// rebuild the sharing between linked (non-unique) MIDI clips once every track is
+	// in memory: each clip parsed its own copy of the notes, so clips that were saved
+	// with the same SEQ id are handed one sequence again. same two-pass shape as the
+	// PARENT_IDX hierarchy fixup right beside it
+	void RelinkMIDIClips();
+
 	Transport mTransport;
 	std::vector<std::shared_ptr<Track>> mTracks;
 	ProjectViewState mViewState;

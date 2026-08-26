@@ -179,3 +179,147 @@ TEST_F(ProjectSerializationTest, AClipSavedWithoutAnActivationFlagLoadsActive) {
 	ASSERT_EQ(loaded.GetTracks()[0]->GetClips().size(), 1u);
 	EXPECT_TRUE(loaded.GetTracks()[0]->GetClips()[0]->IsEnabled());
 }
+
+// ================================================================
+// LINKED (NON-UNIQUE) MIDI CLIPS
+// ================================================================
+
+namespace {
+
+	std::shared_ptr<MIDIClip> LoadedMIDIClip(Project& project, size_t trackIndex, size_t clipIndex) {
+		return std::dynamic_pointer_cast<MIDIClip>(project.GetTracks()[trackIndex]->GetClips()[clipIndex]);
+	}
+
+} // namespace
+
+// two clips playing one sequence have to come back playing one sequence, or every
+// linked clip in a project silently becomes unique the first time it is reopened
+TEST_F(ProjectSerializationTest, LinkedClipsStayLinkedAcrossASaveAndLoad) {
+	Project saved;
+	saved.Initialize();
+	saved.CreateTrack();
+
+	auto original = std::make_shared<MIDIClip>();
+	original->AddNote({60, 100, 0.0, 1.0});
+	auto ghost = std::make_shared<MIDIClip>(*original); // the clone Duplicate makes
+	ghost->SetStartBeat(4.0);
+	ASSERT_TRUE(original->IsLinkedTo(*ghost));
+
+	saved.GetTracks()[0]->AddClip(original);
+	saved.GetTracks()[0]->AddClip(ghost);
+	saved.Save(mPath.string());
+
+	Project loaded;
+	loaded.Initialize();
+	loaded.Load(mPath.string());
+
+	ASSERT_EQ(loaded.GetTracks().size(), 1u);
+	ASSERT_EQ(loaded.GetTracks()[0]->GetClips().size(), 2u);
+	auto first = LoadedMIDIClip(loaded, 0, 0);
+	auto second = LoadedMIDIClip(loaded, 0, 1);
+	ASSERT_TRUE(first && second);
+	EXPECT_TRUE(first->IsLinkedTo(*second));
+	EXPECT_TRUE(first->IsSequenceShared());
+
+	// and it is a real link, not two vectors that happen to match
+	first->GetNotesEx()[0].noteNumber = 67;
+	ASSERT_EQ(second->GetNotes().size(), 1u);
+	EXPECT_EQ(second->GetNotes()[0].noteNumber, 67);
+}
+
+// the link spans tracks: a ghost dragged onto another lane is still the same material
+TEST_F(ProjectSerializationTest, LinkedClipsStayLinkedAcrossTracks) {
+	Project saved;
+	saved.Initialize();
+	saved.CreateTrack();
+	saved.CreateTrack();
+
+	auto original = std::make_shared<MIDIClip>();
+	original->AddNote({48, 90, 0.0, 2.0});
+	auto ghost = std::make_shared<MIDIClip>(*original);
+	saved.GetTracks()[0]->AddClip(original);
+	saved.GetTracks()[1]->AddClip(ghost);
+	saved.Save(mPath.string());
+
+	Project loaded;
+	loaded.Initialize();
+	loaded.Load(mPath.string());
+
+	ASSERT_EQ(loaded.GetTracks().size(), 2u);
+	auto first = LoadedMIDIClip(loaded, 0, 0);
+	auto second = LoadedMIDIClip(loaded, 1, 0);
+	ASSERT_TRUE(first && second);
+	EXPECT_TRUE(first->IsLinkedTo(*second));
+}
+
+// the other half of the contract: a clip that was made unique must not come back
+// sharing notes with the clip it was detached from
+TEST_F(ProjectSerializationTest, AClipMadeUniqueReloadsUnique) {
+	Project saved;
+	saved.Initialize();
+	saved.CreateTrack();
+
+	auto original = std::make_shared<MIDIClip>();
+	original->AddNote({60, 100, 0.0, 1.0});
+	auto detached = std::make_shared<MIDIClip>(*original);
+	detached->SetStartBeat(4.0);
+	detached->MakeUnique();
+	ASSERT_FALSE(original->IsLinkedTo(*detached));
+
+	saved.GetTracks()[0]->AddClip(original);
+	saved.GetTracks()[0]->AddClip(detached);
+	saved.Save(mPath.string());
+
+	Project loaded;
+	loaded.Initialize();
+	loaded.Load(mPath.string());
+
+	auto first = LoadedMIDIClip(loaded, 0, 0);
+	auto second = LoadedMIDIClip(loaded, 0, 1);
+	ASSERT_TRUE(first && second);
+	EXPECT_FALSE(first->IsLinkedTo(*second));
+	EXPECT_FALSE(first->IsSequenceShared());
+	EXPECT_FALSE(second->IsSequenceShared());
+}
+
+// projects written before SEQ existed have no ids at all; every clip in one has to
+// load as its own material rather than collapsing onto a shared sequence
+TEST_F(ProjectSerializationTest, ClipsSavedWithoutASequenceIdLoadUnique) {
+	Project saved;
+	saved.Initialize();
+	saved.CreateTrack();
+
+	auto original = std::make_shared<MIDIClip>();
+	original->AddNote({60, 100, 0.0, 1.0});
+	auto ghost = std::make_shared<MIDIClip>(*original);
+	ghost->SetStartBeat(4.0);
+	saved.GetTracks()[0]->AddClip(original);
+	saved.GetTracks()[0]->AddClip(ghost);
+	saved.Save(mPath.string());
+
+	// strip the SEQ lines back out, leaving the file as an older version wrote it
+	std::vector<std::string> lines;
+	{
+		std::ifstream in(mPath);
+		std::string line;
+		while (std::getline(in, line)) {
+			if (line.rfind("SEQ", 0) != 0)
+				lines.push_back(line);
+		}
+	}
+	{
+		std::ofstream out(mPath, std::ios::trunc);
+		for (const auto& line : lines)
+			out << line << "\n";
+	}
+
+	Project loaded;
+	loaded.Initialize();
+	loaded.Load(mPath.string());
+
+	ASSERT_EQ(loaded.GetTracks()[0]->GetClips().size(), 2u);
+	auto first = LoadedMIDIClip(loaded, 0, 0);
+	auto second = LoadedMIDIClip(loaded, 0, 1);
+	ASSERT_TRUE(first && second);
+	EXPECT_FALSE(first->IsLinkedTo(*second));
+}

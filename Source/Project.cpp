@@ -9,11 +9,14 @@
 #include <sstream>
 #include <vector>
 #include <functional>
+#include <unordered_map>
 
 // version history
 // 1: initial format
 // 2: per-clip ENABLED flag; a clip saved without one loads as active
-const int kCurrentProjectVersion = 2;
+// 3: per-clip SEQ id on MIDI clips, so linked (non-unique) clips reload still linked.
+//    a clip saved without one comes back unique, which is how it already behaved
+const int kCurrentProjectVersion = 3;
 
 Project::Project() {
 	// device UIs reach the track list through the hub (an AudioProcessor has no
@@ -819,6 +822,33 @@ void Project::Save(const std::string& path) {
 	out << "PROJECT_END\n";
 }
 
+void Project::RelinkMIDIClips() {
+	// the first clip carrying a given saved id keeps the sequence it parsed and every
+	// later clip with that id adopts it, so the notes exist once and all of them edit
+	// the same vector again. an id of 0 is a clip from before SEQ was written, or one
+	// that was genuinely unique; either way it is left alone
+	std::unordered_map<uint32_t, std::shared_ptr<MIDISequence>> byLoadedId;
+
+	auto relinkTrack = [&](const std::shared_ptr<Track>& track) {
+		if (!track)
+			return;
+		for (auto& clip : track->GetClips()) {
+			auto mIDIClip = std::dynamic_pointer_cast<MIDIClip>(clip);
+			if (!mIDIClip || mIDIClip->GetLoadedSequenceId() == 0)
+				continue;
+			auto& slot = byLoadedId[mIDIClip->GetLoadedSequenceId()];
+			if (slot)
+				mIDIClip->AdoptSequence(slot);
+			else
+				slot = mIDIClip->GetSequence();
+		}
+	};
+
+	for (auto& t : mTracks)
+		relinkTrack(t);
+	relinkTrack(mMasterTrack);
+}
+
 void Project::Load(const std::string& path) {
 	std::lock_guard<std::mutex> lock(mMutex);
 	std::ifstream in(path);
@@ -909,6 +939,8 @@ void Project::Load(const std::string& path) {
 	}
 	if (mMasterTrack)
 		mMasterTrack->RebindAutomation();
+
+	RelinkMIDIClips();
 
 	double sR = mTransport.GetSampleRate() > 0 ? mTransport.GetSampleRate() : 48000.0;
 	double secsPerBeat = 60.0 / mTransport.GetBpm();

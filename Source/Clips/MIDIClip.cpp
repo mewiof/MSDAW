@@ -5,6 +5,13 @@
 #include <algorithm>
 #include <map>
 
+uint32_t NextMIDISequenceId() {
+	// ids only have to be unique inside one session: a load groups clips by the id
+	// they were saved with, then everything is re-saved from the runtime ids below
+	static uint32_t sNextId = 1;
+	return sNextId++;
+}
+
 MIDIClip::MIDIClip() {
 	mName = "MIDI Clip";
 	// allocate a fresh sequence
@@ -187,16 +194,21 @@ bool MIDIClip::LoadFromFile(const std::string& path) {
 }
 
 void MIDIClip::MakeUnique() {
-	if (mSequence) {
-		// deep copy the sequence
-		auto newSeq = std::make_shared<MIDISequence>(*mSequence);
-		mSequence = newSeq;
-		mName += " (Unique)";
-	}
+	if (!mSequence)
+		return;
+
+	// deep copy the sequence. the copy inherits the source's id, so it has to be
+	// handed a fresh one or a save would write the two out as still linked
+	auto newSeq = std::make_shared<MIDISequence>(*mSequence);
+	newSeq->id = NextMIDISequenceId();
+	mSequence = newSeq;
 }
 
 void MIDIClip::Save(std::ostream& out) {
 	Clip::Save(out); // saves offset
+	// what makes a linked clip linked: every clip playing these notes writes the same
+	// id, and the load pass hands all of them one sequence again
+	out << "SEQ " << GetSequenceId() << "\n";
 	for (const auto& n : mSequence->notes) {
 		out << "NOTE " << n.noteNumber << " " << n.velocity << " " << n.startBeat << " " << n.durationBeats << "\n";
 	}
@@ -227,6 +239,10 @@ void MIDIClip::Load(std::istream& in) {
 			mOffset = std::stod(line.substr(7));
 		} else if (line.rfind("ENABLED ", 0) == 0) {
 			mEnabled = (std::stoi(line.substr(8)) != 0);
+		} else if (line.rfind("SEQ ", 0) == 0) {
+			// projects saved before linked clips were persisted have no SEQ line;
+			// those clips stay unique, which is what they looked like anyway
+			mLoadedSequenceId = (uint32_t)std::stoul(line.substr(4));
 		}
 
 		// parse MIDI fields

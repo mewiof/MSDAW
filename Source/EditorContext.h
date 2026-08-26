@@ -16,6 +16,7 @@ struct EditorLayout {
 	float transportHeight = 40.0f;	  // single control row - taller left a dead strip under the buttons
 	float bottomPanelHeight = 280.0f; // tall enough to give device UIs (e.g. Auto Sidechain's knob row) room to breathe
 	float libraryWidth = 200.0f;
+	float libraryCollapsedWidth = 26.0f; // folded-away library: just the rail that brings it back
 	float trackListWidth = 240.0f;
 	float trackRowHeight = 80.0f;
 	float trackCollapsedHeight = 22.0f; // height of a minimized (collapsed) track row
@@ -25,6 +26,7 @@ struct EditorLayout {
 		transportHeight *= scale;
 		bottomPanelHeight *= scale;
 		libraryWidth *= scale;
+		libraryCollapsedWidth *= scale;
 		trackListWidth *= scale;
 		trackRowHeight *= scale;
 		trackCollapsedHeight *= scale;

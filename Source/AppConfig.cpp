@@ -38,6 +38,14 @@ void AppConfig::Load() {
 			int v = 1;
 			ss >> v;
 			pluginEditorsNative = (v != 0);
+		} else if (key == "library_collapsed") {
+			int v = 0;
+			ss >> v;
+			libraryCollapsed = (v != 0);
+		} else if (key == "bottom_panel_collapsed") {
+			int v = 0;
+			ss >> v;
+			bottomPanelCollapsed = (v != 0);
 		}
 	}
 }
@@ -52,4 +60,6 @@ void AppConfig::Save() const {
 		return;
 
 	out << "plugin_editors_native " << (pluginEditorsNative ? 1 : 0) << "\n";
+	out << "library_collapsed " << (libraryCollapsed ? 1 : 0) << "\n";
+	out << "bottom_panel_collapsed " << (bottomPanelCollapsed ? 1 : 0) << "\n";
 }

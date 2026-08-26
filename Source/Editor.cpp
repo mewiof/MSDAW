@@ -868,9 +868,20 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 	ImVec2 workPos = ImVec2(fullWorkPos.x, fullWorkPos.y);
 	ImVec2 workSize = ImVec2(fullWorkSize.x, fullWorkSize.y);
 
+	AppConfig& config = AppConfig::Instance();
+
 	float transportH = mContext.layout.transportHeight;
-	float bottomH = mContext.layout.bottomPanelHeight;
-	float libraryW = mContext.layout.libraryWidth;
+	float tabHeight = 28.0f * mContext.state.mainScale;
+	// a folded panel keeps only the strip that unfolds it again, and hands everything
+	// else back to the arrangement.
+	// NOTE: the fold state is sampled ONCE here and every panel below is laid out from
+	// this copy, including the test that skips the bottom panel's contents. the handles
+	// that flip it are drawn part-way down the frame, and reading the live value after
+	// that point resized half the layout a frame before the other half - which is what
+	// left the library's scrollbar trailing the fold
+	const bool bottomCollapsed = config.bottomPanelCollapsed;
+	float bottomH = bottomCollapsed ? tabHeight : mContext.layout.bottomPanelHeight;
+	float libraryW = config.libraryCollapsed ? mContext.layout.libraryCollapsedWidth : mContext.layout.libraryWidth;
 	float trackListW = mContext.layout.trackListWidth;
 	float middleHeight = workSize.y - transportH - bottomH;
 
@@ -879,12 +890,11 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 	mTimelineView->Render(ImVec2(workPos.x + libraryW, workPos.y + transportH), workSize.x - libraryW, middleHeight, mTrackListView.get(), trackListW);
 
 	// bottom tab panel
-	float tabHeight = 28.0f * mContext.state.mainScale;
-
 	ImGui::SetNextWindowPos(ImVec2(workPos.x, workPos.y + workSize.y - bottomH));
 	ImGui::SetNextWindowSize(ImVec2(workSize.x, tabHeight));
 	ImGui::Begin("BottomTabs", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBringToFrontOnFocus);
 
+	int previousTab = mActiveBottomTab;
 	if (ImGui::BeginTabBar("MainTabs")) {
 		if (ImGui::BeginTabItem("Device View")) {
 			mActiveBottomTab = 0;
@@ -896,15 +906,38 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 		}
 		ImGui::EndTabBar();
 	}
+
+	// collapse handle at the right end of the tab strip, placed absolutely rather than
+	// with SameLine: EndTabBar moves the cursor without closing a line, so there is no
+	// previous line for SameLine to put this back onto. ArrowButton draws its triangle
+	// rather than taking it from the font, whose atlas holds no arrow glyph
+	const ImGuiStyle& style = ImGui::GetStyle();
+	float arrowW = ImGui::GetFrameHeight();
+	ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth() - arrowW - style.WindowPadding.x, style.WindowPadding.y));
+	if (ImGui::ArrowButton("##BottomCollapse", bottomCollapsed ? ImGuiDir_Up : ImGuiDir_Down)) {
+		config.bottomPanelCollapsed = !bottomCollapsed;
+		config.Save();
+	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip(bottomCollapsed ? "Show the panel below" : "Hide the panel below");
+
+	// picking the other tab while the panel is folded away means the user wants to see
+	// it, not to switch between two things they cannot look at
+	if (bottomCollapsed && mActiveBottomTab != previousTab) {
+		config.bottomPanelCollapsed = false;
+		config.Save();
+	}
 	ImGui::End();
 
 	float contentY = workPos.y + workSize.y - bottomH + tabHeight;
 	float contentH = bottomH - tabHeight;
 
-	if (mActiveBottomTab == 0) {
-		mDeviceRackView->Render(ImVec2(workPos.x, contentY), workSize.x, contentH);
-	} else {
-		mClipView->Render(ImVec2(workPos.x, contentY), workSize.x, contentH);
+	if (!bottomCollapsed) {
+		if (mActiveBottomTab == 0) {
+			mDeviceRackView->Render(ImVec2(workPos.x, contentY), workSize.x, contentH);
+		} else {
+			mClipView->Render(ImVec2(workPos.x, contentY), workSize.x, contentH);
+		}
 	}
 
 	mPianoRollView->Render();

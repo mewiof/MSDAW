@@ -1,16 +1,61 @@
 #include "PrecompHeader.h"
 #include "LibraryView.h"
+#include "AppConfig.h"
 #include "Theme.h"
 #include <algorithm>
 
 void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	const Theme& th = Theme::Instance();
+	AppConfig& config = AppConfig::Instance();
+
 	ImGui::SetNextWindowPos(pos);
 	ImGui::SetNextWindowSize(ImVec2(width, height));
+
+	// ---- folded away: the panel is a rail that brings it back ----
+	// Editor has already sized the window down to the rail; the whole strip is the
+	// hit target, since a column this narrow has no room for a labelled button
+	if (config.libraryCollapsed) {
+		// the default window padding is wider than the rail itself: center the arrow in
+		// what room there is instead of letting it hang off the edge
+		const float arrowSize = ImGui::GetFrameHeight();
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
+							ImVec2(std::max((width - arrowSize) * 0.5f, 0.0f), ImGui::GetStyle().WindowPadding.y));
+		ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+		ImGui::PopStyleVar();
+
+		bool expand = ImGui::ArrowButton("##ExpandLibrary", ImGuiDir_Right);
+		bool hovered = ImGui::IsItemHovered();
+
+		float restHeight = ImGui::GetContentRegionAvail().y;
+		if (restHeight > 1.0f) {
+			expand = ImGui::InvisibleButton("##ExpandLibraryRail", ImVec2(arrowSize, restHeight)) || expand;
+			hovered = hovered || ImGui::IsItemHovered();
+		}
+		if (hovered)
+			ImGui::SetTooltip("Show the library");
+		if (expand) {
+			config.libraryCollapsed = false;
+			config.Save();
+		}
+
+		ImGui::End();
+		return;
+	}
+
 	ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 
-	// internal effects
+	// internal effects. the collapse handle rides the first section header rather than
+	// taking a row of its own - the library is already the narrowest column on screen
+	if (ImGui::ArrowButton("##CollapseLibrary", ImGuiDir_Left)) {
+		config.libraryCollapsed = true;
+		config.Save();
+	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Hide the library");
+	ImGui::SameLine();
+
 	ImGui::PushStyleColor(ImGuiCol_Text, th.textMuted);
+	ImGui::AlignTextToFramePadding();
 	ImGui::Text("INTERNAL");
 	ImGui::Separator();
 	ImGui::PopStyleColor();

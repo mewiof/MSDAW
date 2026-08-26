@@ -15,6 +15,11 @@ public:
 	// EditorScalingMode on AudioProcessor)
 	bool pluginEditorsNative = true;
 
+	// panels the user has folded away. app-wide rather than per project: a screen with
+	// no room for the library has no room for it in the next project either
+	bool libraryCollapsed = false;
+	bool bottomPanelCollapsed = false;
+
 	void Load();
 	void Save() const;
 private:

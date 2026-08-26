@@ -157,6 +157,12 @@ struct EditorState {
 	bool showSettingsWindow = false;
 	bool showHistoryWindow = false;
 
+	// the arrangement's clip shortcuts sit on bare letters, and the computer MIDI
+	// keyboard plays notes off those same letters. set by the arrangement each frame
+	// and read by the keyboard on the next one: while it is true the keyboard leaves
+	// the arrangement's letters alone, so deactivating a clip does not also play a note
+	bool arrangementOwnsLetterKeys = false;
+
 	// MIDI keyboard state
 	bool isComputerMIDIKeyboardEnabled = true;
 	int mIDIOctave = 3;		// base octave

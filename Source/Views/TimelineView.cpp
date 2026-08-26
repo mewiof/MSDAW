@@ -115,8 +115,15 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 		// handle keyboard shortcuts
 		// every one of these acts on the whole clip selection, so the single-clip case
 		// is just the block case with one member
-		if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-			bool hasSelection = !mContext.state.selectedClips.empty();
+		bool arrangementFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+		bool anyClipSelected = !mContext.state.selectedClips.empty();
+		// D deactivates a clip and is also a note on the computer MIDI keyboard. the
+		// arrangement takes the key only while it has something to act on, so the
+		// keyboard keeps playing everywhere else
+		mContext.state.arrangementOwnsLetterKeys = arrangementFocused && anyClipSelected;
+
+		if (arrangementFocused) {
+			bool hasSelection = anyClipSelected;
 
 			if (io.KeyCtrl) {
 				// split at the insert marker, the same beat the marker line is drawn at
@@ -137,9 +144,16 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 				if (ImGui::IsKeyPressed(ImGuiKey_D) && hasSelection)
 					TimelineClipOps::DuplicateSelection(mContext);
 			}
-			// 0 activates/deactivates the selected clips, as in Ableton
-			if (ImGui::IsKeyPressed(ImGuiKey_0) && !io.KeyCtrl && hasSelection)
+			// D activates/deactivates the selected clips
+			if (ImGui::IsKeyPressed(ImGuiKey_D) && !io.KeyCtrl && hasSelection)
 				TimelineClipOps::ToggleSelectionEnabled(mContext);
+			// F2 renames the focused clip, through the same popup the menu entry opens
+			if (ImGui::IsKeyPressed(ImGuiKey_F2) && mContext.state.selectedClip) {
+				mInteraction.clipToRename = mContext.state.selectedClip;
+				strncpy(mInteraction.renameBuffer, mContext.state.selectedClip->GetName().c_str(), sizeof(mInteraction.renameBuffer));
+				mInteraction.renameBuffer[sizeof(mInteraction.renameBuffer) - 1] = 0;
+				mInteraction.triggerRenamePopup = true;
+			}
 			if (ImGui::IsKeyPressed(ImGuiKey_Delete) && hasSelection)
 				TimelineClipOps::DeleteSelection(mContext);
 			if (ImGui::IsKeyPressed(ImGuiKey_Escape))

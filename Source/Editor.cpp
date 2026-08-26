@@ -619,6 +619,10 @@ void Editor::ProcessComputerKeyboardMIDI() {
 			continue;
 
 		bool isDown = (GetAsyncKeyState(mapping.vk) & 0x8000) != 0;
+		// a letter the arrangement has taken reads as released rather than being skipped
+		// outright, so a note already sounding when the selection appeared still stops
+		if (mapping.vk == 'D' && mContext.state.arrangementOwnsLetterKeys)
+			isDown = false;
 		bool wasDown = mContext.state.activeMIDINotes.count(mIDINote) > 0;
 
 		if (isDown && !wasDown) {
@@ -670,11 +674,15 @@ void Editor::ProcessComputerKeyboardMIDI() {
 		if (ImGui::GetIO().KeyCtrl)
 			continue;
 
-		if (ImGui::IsKeyPressed(mapping.key, false)) {
+		// a letter the arrangement has taken reads as released rather than being skipped
+		// outright, so a note already sounding when the selection appeared still stops
+		bool owned = (mapping.key == ImGuiKey_D && mContext.state.arrangementOwnsLetterKeys);
+
+		if (!owned && ImGui::IsKeyPressed(mapping.key, false)) {
 			mContext.engine.SendMIDIEvent(0x90, mIDINote, mContext.state.mIDIVelocity);
 			mContext.state.activeMIDINotes.insert(mIDINote);
 		}
-		if (ImGui::IsKeyReleased(mapping.key)) {
+		if ((owned || ImGui::IsKeyReleased(mapping.key)) && mContext.state.activeMIDINotes.count(mIDINote)) {
 			mContext.engine.SendMIDIEvent(0x80, mIDINote, 0);
 			mContext.state.activeMIDINotes.erase(mIDINote);
 		}

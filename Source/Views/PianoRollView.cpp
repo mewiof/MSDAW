@@ -5,6 +5,7 @@
 #include "Project.h"
 #include "Undo/Actions.h"
 #include "Theme.h"
+#include "Views/TimelineView/TimelineUtils.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -257,7 +258,12 @@ void PianoRollView::Render() {
 		ImGui::SameLine();
 		ImGui::PushID(rc.clip.get());
 		ImVec2 labelSize = ImGui::CalcTextSize(rc.clip->GetName().c_str());
-		ImGui::InvisibleButton("##chip", ImVec2(labelSize.x + chipPadX * 2.0f, labelSize.y + 2.0f * scale));
+		// a linked clip widens its chip by the chain badge: the notes on this grid are
+		// also played somewhere else, and every edit below lands there too
+		float badgeSpace = rc.clip->IsSequenceShared()
+							   ? TimelineUtils::LinkBadgeWidth(labelSize.y * 0.72f) + 4.0f * scale
+							   : 0.0f;
+		ImGui::InvisibleButton("##chip", ImVec2(labelSize.x + badgeSpace + chipPadX * 2.0f, labelSize.y + 2.0f * scale));
 		if (ImGui::IsItemActivated() && !rc.focused) {
 			mContext.state.selectedClip = rc.clip;
 			mSelectedIndices.clear(); // note indices belong to the clip they came from
@@ -282,6 +288,13 @@ void PianoRollView::Render() {
 			chipDrawList->AddRectFilled(chip.min, chip.max, fill, 3.0f * scale);
 			chipDrawList->AddText(ImVec2(chip.min.x + chipPadX, chip.min.y + 1.0f * scale),
 								  chipFocused ? th.clipText : th.textMuted, chip.clip->GetName().c_str());
+			if (chip.clip->IsSequenceShared()) {
+				const float badgeHeight = (chip.max.y - chip.min.y) * 0.62f;
+				TimelineUtils::DrawLinkBadge(chipDrawList,
+											 ImVec2(chip.max.x - chipPadX - TimelineUtils::LinkBadgeWidth(badgeHeight),
+													chip.min.y + (chip.max.y - chip.min.y - badgeHeight) * 0.5f),
+											 badgeHeight, th.clipLinked);
+			}
 		}
 	}
 

@@ -89,6 +89,7 @@ Theme::Theme() {
 	clipTextDim = IM_COL32(160, 160, 165, 255);
 	clipBorder = IM_COL32(255, 255, 255, 80);
 	clipDisabled = IM_COL32(74, 76, 82, 210);
+	clipLinked = IM_COL32(120, 205, 235, 235);
 	waveform = IM_COL32(230, 230, 235, 200);
 	waveBgMono = IM_COL32(0, 0, 0, 200);
 	waveBgMid = IM_COL32(30, 70, 30, 180);

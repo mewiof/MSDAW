@@ -138,4 +138,21 @@ namespace TimelineUtils {
 		}
 	}
 
+	float LinkBadgeWidth(float height) {
+		// two rings of `height`, pushed into each other far enough to interlock
+		return height * 1.45f;
+	}
+
+	void DrawLinkBadge(ImDrawList* drawList, const ImVec2& topLeft, float height, ImU32 color) {
+		// two overlapping rings read as a chain link at any size the arrangement can
+		// give us, and unlike a glyph they need no font coverage
+		const float radius = height * 0.5f;
+		const float width = LinkBadgeWidth(height);
+		const float centerY = topLeft.y + radius;
+		const float thickness = std::max(1.0f, height * 0.16f);
+
+		drawList->AddCircle(ImVec2(topLeft.x + radius, centerY), radius * 0.82f, color, 0, thickness);
+		drawList->AddCircle(ImVec2(topLeft.x + width - radius, centerY), radius * 0.82f, color, 0, thickness);
+	}
+
 } // namespace TimelineUtils

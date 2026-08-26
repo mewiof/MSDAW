@@ -15,4 +15,12 @@ namespace TimelineUtils {
 						const ImVec2& rectMax,
 						ImU32 color,
 						bool forceMono = false);
+
+	// the chain badge that marks a clip whose notes another clip shares. two linked
+	// rings, drawn from a single anchor so the arrangement and the piano roll's clip
+	// chips say "linked" with the same mark
+	void DrawLinkBadge(ImDrawList* drawList, const ImVec2& topLeft, float height, ImU32 color);
+
+	// how wide DrawLinkBadge comes out at that height, so a caller can right-align it
+	float LinkBadgeWidth(float height);
 } //namespace TimelineUtils

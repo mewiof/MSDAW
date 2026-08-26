@@ -106,6 +106,7 @@ public:
 	ImU32 clipTextDim; // name on a deactivated clip
 	ImU32 clipBorder;
 	ImU32 clipDisabled; // body of a deactivated clip, in place of the track color
+	ImU32 clipLinked;	// chain badge + border of a clip whose notes another clip shares
 	ImU32 waveform;	  // default waveform stroke fallback
 	ImU32 waveBgMono; // dark backing behind a mono waveform
 	ImU32 waveBgMid;  // subtle green backing (mid/side view)

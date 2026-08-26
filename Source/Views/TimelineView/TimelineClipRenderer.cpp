@@ -136,13 +136,18 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 				}
 				if (ImGui::Selectable(clip->IsEnabled() ? "Deactivate" : "Activate"))
 					TimelineClipOps::ToggleSelectionEnabled(context);
-				auto mIDIClip = std::dynamic_pointer_cast<MIDIClip>(clip);
-				if (mIDIClip) {
-					if (ImGui::Selectable("Make Unique")) {
-						for (const auto& sel : context.state.selectedClips) {
-							if (auto selMIDI = std::dynamic_pointer_cast<MIDIClip>(sel))
-								selMIDI->MakeUnique();
-						}
+
+				// only worth offering when it would actually detach something: a clip
+				// nothing else shares notes with is already unique
+				bool anyLinked = false;
+				for (const auto& sel : context.state.selectedClips) {
+					if (auto selMIDI = std::dynamic_pointer_cast<MIDIClip>(sel))
+						anyLinked = anyLinked || selMIDI->IsSequenceShared();
+				}
+				if (anyLinked && ImGui::Selectable("Make Unique")) {
+					for (const auto& sel : context.state.selectedClips) {
+						if (auto selMIDI = std::dynamic_pointer_cast<MIDIClip>(sel))
+							selMIDI->MakeUnique();
 					}
 				}
 				ImGui::Separator();
@@ -415,8 +420,15 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	// clearly not part of what is playing. a ghost preview passes its own colors
 	bool enabled = clip->IsEnabled();
 
+	auto audioClip = std::dynamic_pointer_cast<AudioClip>(clip);
+	auto mIDIClip = std::dynamic_pointer_cast<MIDIClip>(clip);
+
+	// a clip whose notes another clip also plays gets its own border color and a chain
+	// badge, because an edit made in the piano roll silently lands on every one of them
+	const bool linked = mIDIClip && mIDIClip->IsSequenceShared();
+
 	drawList->AddRectFilled(pMin, pMax, baseColor, 0.0f);
-	drawList->AddRect(pMin, pMax, th.clipBorder, 0.0f);
+	drawList->AddRect(pMin, pMax, linked ? th.clipLinked : th.clipBorder, 0.0f);
 	drawList->PushClipRect(pMin, pMax, true);
 
 	// safe culling rect
@@ -425,9 +437,6 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 
 	double effectiveOffset = (overrideOffset >= 0.0) ? overrideOffset : clip->GetOffset();
 	double effectiveDuration = (overrideDuration >= 0.0) ? overrideDuration : clip->GetDuration();
-
-	auto audioClip = std::dynamic_pointer_cast<AudioClip>(clip);
-	auto mIDIClip = std::dynamic_pointer_cast<MIDIClip>(clip);
 
 	if (audioClip) {
 		const auto& samples = audioClip->GetSamples();
@@ -512,6 +521,18 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 		}
 	}
 
+	// the chain badge rides the top-right corner, out of the way of the name on the
+	// left and of the "MIDI" tag at the bottom
+	float badgeWidth = 0.0f;
+	if (linked) {
+		const float badgeHeight = std::min(ImGui::GetTextLineHeight() * 0.72f, (pMax.y - pMin.y) - 6.0f);
+		if (badgeHeight > 3.0f) {
+			badgeWidth = TimelineUtils::LinkBadgeWidth(badgeHeight);
+			TimelineUtils::DrawLinkBadge(drawList, ImVec2(pMax.x - badgeWidth - 3.0f, pMin.y + 3.0f), badgeHeight,
+										 enabled ? th.clipLinked : Theme::WithAlpha(th.clipLinked, 110));
+		}
+	}
+
 	// calculate text position
 	const char* clipName = clip->GetName().c_str();
 	ImVec2 textSize = ImGui::CalcTextSize(clipName);
@@ -520,8 +541,8 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	// start at the clip's visible left edge
 	float textX = clipRectMin.x + textPadding;
 
-	// prevent text from sliding off the right side
-	float maxTextX = pMax.x - textSize.x - textPadding;
+	// prevent text from sliding off the right side, and out from under the badge
+	float maxTextX = pMax.x - textSize.x - textPadding - (badgeWidth > 0.0f ? badgeWidth + 3.0f : 0.0f);
 	if (textX > maxTextX)
 		textX = maxTextX;
 

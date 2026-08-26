@@ -54,7 +54,52 @@ void PianoRollView::StopPreview() {
 	}
 }
 
-void PianoRollView::CenterOnClip(MIDIClip* clip, float gridW, float gridH) {
+std::vector<PianoRollView::RollClip> PianoRollView::CollectClips(double& origin) {
+	std::vector<RollClip> out;
+	Project* project = mContext.GetProject();
+	if (!project)
+		return out;
+
+	// resolved by walking the tracks rather than the selection vector, because a clip
+	// needs its owning track's color and because a clip that has left the arrangement
+	// (an undo, a delete) must not keep drawing here
+	for (const auto& t : project->GetTracks()) {
+		for (const auto& c : t->GetClips()) {
+			if (!mContext.state.IsClipSelected(c))
+				continue;
+			if (auto mIDIClip = std::dynamic_pointer_cast<MIDIClip>(c))
+				out.push_back({mIDIClip, t->GetColor(), mIDIClip->GetStartBeat(), false});
+		}
+	}
+	if (out.empty())
+		return out;
+
+	std::sort(out.begin(), out.end(), [](const RollClip& a, const RollClip& b) {
+		return a.viewOffset < b.viewOffset;
+	});
+
+	// the view's beat 0 is the earliest selected clip's start, so the grid and the
+	// ruler can stay in arrangement bars whichever clip currently has the focus
+	origin = out.front().viewOffset;
+	for (auto& rc : out)
+		rc.viewOffset -= origin;
+
+	// the arrangement selection may focus an audio clip (or a MIDI clip that has since
+	// gone); the roll then edits the earliest MIDI clip on show rather than nothing
+	auto focus = std::dynamic_pointer_cast<MIDIClip>(mContext.state.selectedClip);
+	bool focusFound = false;
+	for (auto& rc : out) {
+		if (focus && rc.clip == focus) {
+			rc.focused = true;
+			focusFound = true;
+		}
+	}
+	if (!focusFound)
+		out.front().focused = true;
+	return out;
+}
+
+void PianoRollView::CenterOnClip(MIDIClip* clip, double viewOffset, float gridW, float gridH) {
 	const float NOTE_HEIGHT = mNoteHeight * mContext.state.mainScale;
 	const float PPB = mPixelsPerBeat * mContext.state.mainScale;
 
@@ -78,8 +123,9 @@ void PianoRollView::CenterOnClip(MIDIClip* clip, float gridW, float gridH) {
 	float targetY = (127.0f - midPitch) * NOTE_HEIGHT - gridH * 0.5f;
 	targetY = std::clamp(targetY, 0.0f, std::max(0.0f, contentH - gridH));
 
-	// horizontal: bring the first note a little in from the left edge
-	float targetX = any ? (float)(firstBeat * PPB) - gridW * 0.2f : 0.0f;
+	// horizontal: bring the first note a little in from the left edge. the clip may
+	// sit anywhere along a multi-clip view, so its own offset comes along
+	float targetX = (float)((viewOffset + (any ? firstBeat : 0.0)) * PPB) - gridW * 0.2f;
 	if (targetX < 0.0f)
 		targetX = 0.0f;
 
@@ -88,7 +134,7 @@ void PianoRollView::CenterOnClip(MIDIClip* clip, float gridW, float gridH) {
 	mPendingCenter = true;
 }
 
-void PianoRollView::BeginGesture(MIDIClip* clip, const char* name) {
+void PianoRollView::BeginGesture(const std::shared_ptr<MIDIClip>& clip, const char* name) {
 	if (!clip || mGestureActive)
 		return;
 	mGestureBefore = clip->GetNotes();
@@ -96,36 +142,59 @@ void PianoRollView::BeginGesture(MIDIClip* clip, const char* name) {
 	mGestureActive = true;
 }
 
-void PianoRollView::EndGesture(MIDIClip* clip) {
+void PianoRollView::EndGesture(const std::shared_ptr<MIDIClip>& clip) {
 	if (!mGestureActive)
 		return;
 	mGestureActive = false;
-	if (!clip)
-		return;
 
-	auto clipShared = std::dynamic_pointer_cast<MIDIClip>(mContext.state.selectedClip);
 	Project* project = mContext.GetProject();
-	if (!clipShared || clipShared.get() != clip || !project)
+	if (!clip || !project)
 		return;
 
 	const auto& after = clip->GetNotes();
 	if (after != mGestureBefore) {
 		auto before = std::move(mGestureBefore);
-		mContext.undoManager.Push(std::make_unique<NoteEditAction>(project, clipShared, std::move(before), after, mGestureName));
+		mContext.undoManager.Push(std::make_unique<NoteEditAction>(project, clip, std::move(before), after, mGestureName));
 	}
 	mGestureBefore.clear();
 }
 
 void PianoRollView::Render() {
-	auto midiClipShared = std::dynamic_pointer_cast<MIDIClip>(mContext.state.selectedClip);
-	if (!midiClipShared) {
+	// multi-clip editing: every MIDI clip in the arrangement selection is drawn on one
+	// shared grid at the beat it occupies in the arrangement. the focused clip is the
+	// only one that takes edits - clicking another one hands it the focus
+	double viewOrigin = 0.0;
+	std::vector<RollClip> rollClips = CollectClips(viewOrigin);
+	if (rollClips.empty()) {
 		// the piano roll is closed for this frame: make sure a held preview note
 		// does not get stuck sounding forever
 		StopPreview();
 		return;
 	}
 
-	MIDIClip* mIDIClip = midiClipShared.get();
+	// which clip on show holds the focus, where its own beat 0 lands in the view, and
+	// the arrangement beat it sits at. clip-local note times convert to view space with
+	// the first and to song time with the second; the two differ by the view origin.
+	// re-runnable, because a toolbar chip can move the focus part-way down this function
+	// and everything after it has to be drawn from the same frame's answer
+	const RollClip* focusEntry = nullptr;
+	std::shared_ptr<MIDIClip> midiClipShared;
+	MIDIClip* mIDIClip = nullptr;
+	double focusOffset = 0.0;
+	double focusStart = 0.0;
+	auto resolveFocus = [&]() {
+		focusEntry = &rollClips.front();
+		for (const auto& rc : rollClips) {
+			if (rc.focused)
+				focusEntry = &rc;
+		}
+		midiClipShared = focusEntry->clip;
+		mIDIClip = midiClipShared.get();
+		focusOffset = focusEntry->viewOffset;
+		focusStart = mIDIClip->GetStartBeat();
+	};
+	resolveFocus();
+
 	Project* project = mContext.GetProject();
 	Transport* transport = project ? &project->GetTransport() : nullptr;
 	ImGuiIO& io = ImGui::GetIO();
@@ -166,7 +235,55 @@ void PianoRollView::Render() {
 	const float MARQUEE_THRESHOLD = 3.0f * scale;
 
 	// ---- toolbar ----
-	ImGui::Text("Editing Clip: %s", mIDIClip->GetName().c_str());
+	// one chip per clip on show, tinted with its track color: it names what is on the
+	// grid and is the way to hand the focus to another clip without leaving the roll.
+	// a plain button would paint itself before reporting its click, so the chip you
+	// pressed would stay dim for a frame - hence the bare hitboxes here and the paint
+	// pass below, which reads the focus this frame's press already moved
+	struct ChipRect {
+		ImVec2 min;
+		ImVec2 max;
+		std::shared_ptr<MIDIClip> clip;
+		ImU32 color;
+		bool hovered;
+	};
+	std::vector<ChipRect> chipRects;
+	bool focusSwitched = false;
+	float chipPadX = ImGui::GetStyle().FramePadding.x;
+
+	ImGui::AlignTextToFramePadding();
+	ImGui::Text("Editing");
+	for (const auto& rc : rollClips) {
+		ImGui::SameLine();
+		ImGui::PushID(rc.clip.get());
+		ImVec2 labelSize = ImGui::CalcTextSize(rc.clip->GetName().c_str());
+		ImGui::InvisibleButton("##chip", ImVec2(labelSize.x + chipPadX * 2.0f, labelSize.y + 2.0f * scale));
+		if (ImGui::IsItemActivated() && !rc.focused) {
+			mContext.state.selectedClip = rc.clip;
+			mSelectedIndices.clear(); // note indices belong to the clip they came from
+			focusSwitched = true;
+		}
+		chipRects.push_back({ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), rc.clip, rc.color, ImGui::IsItemHovered()});
+		ImGui::PopID();
+	}
+
+	// the whole roll below is built from the focus resolved at the top of this function,
+	// so a chip press has to be folded back in before any of it is measured or drawn
+	if (focusSwitched) {
+		rollClips = CollectClips(viewOrigin);
+		resolveFocus();
+	}
+
+	{
+		ImDrawList* chipDrawList = ImGui::GetWindowDrawList();
+		for (const auto& chip : chipRects) {
+			bool chipFocused = (mContext.state.selectedClip == chip.clip);
+			ImU32 fill = chipFocused ? chip.color : Theme::WithAlpha(chip.color, chip.hovered ? 160 : 90);
+			chipDrawList->AddRectFilled(chip.min, chip.max, fill, 3.0f * scale);
+			chipDrawList->AddText(ImVec2(chip.min.x + chipPadX, chip.min.y + 1.0f * scale),
+								  chipFocused ? th.clipText : th.textMuted, chip.clip->GetName().c_str());
+		}
+	}
 
 	ImGui::SameLine();
 	ImGui::Dummy(ImVec2(10 * scale, 0));
@@ -211,17 +328,19 @@ void PianoRollView::Render() {
 	ImGui::SameLine();
 	ImGui::Dummy(ImVec2(10 * scale, 0));
 	ImGui::SameLine();
-	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(th.textMuted), "(Ctrl+A select | Del remove | Arrows move | Shift+Up/Down octave | Ctrl+Wheel zoom)");
+	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(th.textMuted), "(Ctrl+A select | Del remove | Arrows move | Shift+Up/Down octave | Ctrl+Wheel zoom | click a clip to edit it)");
 
 	ImGui::Separator();
 
 	// ---- content sizing ----
-	double maxDuration = std::max(mIDIClip->GetDuration(), 4.0);
-	for (const auto& n : mIDIClip->GetNotesEx()) {
-		if (n.startBeat + n.durationBeats > maxDuration)
-			maxDuration = n.startBeat + n.durationBeats;
+	// the grid spans every clip on show, not just the focused one
+	double maxViewBeat = 4.0;
+	for (const auto& rc : rollClips) {
+		maxViewBeat = std::max(maxViewBeat, rc.viewOffset + rc.clip->GetDuration());
+		for (const auto& n : rc.clip->GetNotes())
+			maxViewBeat = std::max(maxViewBeat, rc.viewOffset + n.startBeat + n.durationBeats);
 	}
-	double totalBeats = maxDuration + 1.0;
+	double totalBeats = maxViewBeat + 1.0;
 
 	// ---- pane geometry ----
 	ImVec2 origin = ImGui::GetCursorScreenPos();
@@ -231,11 +350,13 @@ void PianoRollView::Render() {
 	float gridW = std::max(50.0f, availW - KEY_WIDTH);
 	float gridH = std::max(50.0f, availH - RULER_H - (mVelocityLaneOpen ? VELO_H : 0.0f));
 
-	// auto-center when the selected clip changes identity
+	// auto-center when the focused clip changes identity, or when the view's beat 0
+	// moves under it because another clip joined or left the selection
 	auto curClip = std::static_pointer_cast<Clip>(midiClipShared);
-	if (mLastCenteredClip.expired() || mLastCenteredClip.lock() != curClip) {
-		CenterOnClip(mIDIClip, gridW, gridH);
+	if (mLastCenteredClip.expired() || mLastCenteredClip.lock() != curClip || mLastCenterOrigin != viewOrigin) {
+		CenterOnClip(mIDIClip, focusOffset, gridW, gridH);
 		mLastCenteredClip = curClip;
+		mLastCenterOrigin = viewOrigin;
 	}
 
 	// ---- Ctrl+Wheel zoom, resolved BEFORE the grid child so the child's content
@@ -319,9 +440,20 @@ void PianoRollView::Render() {
 		mGridHoveredLast = gridHovered; // feeds next frame's pre-child zoom gate
 
 		ImVec2 mousePos = io.MousePos;
-		double mouseBeat = (double)(mousePos.x - canvas.x) / PPB;
-		if (mouseBeat < 0)
-			mouseBeat = 0;
+		double mouseViewBeat = (double)(mousePos.x - canvas.x) / PPB;
+		if (mouseViewBeat < 0)
+			mouseViewBeat = 0;
+		// note times are stored relative to their own clip, so everything the mouse
+		// says has to be brought back out of view space and into the focused clip's
+		double mouseBeat = mouseViewBeat - focusOffset;
+
+		// notes snap on the ARRANGEMENT grid - the one the vertical lines are drawn on.
+		// snapping clip-locally would put the notes of a clip that does not start on a
+		// grid line onto a grid of its own, invisibly offset from the lines under them
+		auto snapClipBeat = [&](double clipBeat) {
+			return std::round((clipBeat + focusStart) / snapGrid) * snapGrid - focusStart;
+		};
+
 		int mouseRow = (int)std::floor((mousePos.y - canvas.y) / NOTE_HEIGHT);
 		int mouseNoteNum = 127 - mouseRow;
 
@@ -358,34 +490,63 @@ void PianoRollView::Render() {
 			dl->AddLine(ImVec2(canvas.x, y + NOTE_HEIGHT), ImVec2(canvas.x + contentW, y + NOTE_HEIGHT), th.divider);
 		}
 
-		// b. vertical beat / bar lines
-		int bStart = std::max(0, (int)std::floor(startBeatVis));
-		int bEnd = (int)std::ceil(endBeatVis);
+		// b. vertical beat / bar lines, laid out on ARRANGEMENT beats rather than on
+		// view beats: the view's x=0 is wherever the earliest clip on show happens to
+		// start, and bar 1 has to keep meaning bar 1 of the song
+		double arrStartVis = viewOrigin + startBeatVis;
+		double arrEndVis = viewOrigin + endBeatVis;
+		int bStart = std::max(0, (int)std::floor(arrStartVis));
+		int bEnd = (int)std::ceil(arrEndVis);
 		for (int b = bStart; b <= bEnd; ++b) {
-			float x = canvas.x + (float)b * PPB;
+			float x = canvas.x + (float)((b - viewOrigin) * PPB);
 			bool isBar = (b % 4 == 0);
 			dl->AddLine(ImVec2(x, canvas.y), ImVec2(x, canvas.y + contentH), isBar ? th.gridBar : th.gridBeat);
 		}
 		// subdivisions
 		if (snapGrid * PPB >= 10.0f && snapGrid < 1.0) {
-			int iStart = std::max(0, (int)std::floor(startBeatVis / snapGrid));
-			int iEnd = (int)std::ceil(endBeatVis / snapGrid);
+			int iStart = std::max(0, (int)std::floor(arrStartVis / snapGrid));
+			int iEnd = (int)std::ceil(arrEndVis / snapGrid);
 			for (int i = iStart; i <= iEnd; ++i) {
 				double b = i * snapGrid;
 				if (std::abs(std::fmod(b + 0.001, 1.0)) > 0.002) {
-					float x = canvas.x + (float)(b * PPB);
+					float x = canvas.x + (float)((b - viewOrigin) * PPB);
 					dl->AddLine(ImVec2(x, canvas.y), ImVec2(x, canvas.y + contentH), th.gridSub);
 				}
 			}
 		}
 
-		// b2. clip-length shade: anything past the clip's end (x=0 is the clip start,
-		// same space as the playhead below) is gated off at playback, so wash it darker
-		// to show it lies outside the playable region. the crisp boundary line is drawn
-		// on top of the notes further down so a note crossing it clearly shows the cut
-		float clipEndX = canvas.x + (float)(mIDIClip->GetDuration() * PPB);
-		if (clipEndX < canvas.x + contentW)
-			dl->AddRectFilled(ImVec2(clipEndX, canvas.y), ImVec2(canvas.x + contentW, canvas.y + contentH), Theme::WithAlpha(th.bgDeepest, 90));
+		// b2. clip bands. anything outside every clip on show is gated off at playback,
+		// so wash it darker to show it lies outside the playable region; the gaps
+		// between clips get the same treatment as the tail past the last one. the crisp
+		// boundary lines are drawn on top of the notes further down so a note crossing
+		// one clearly shows the cut
+		{
+			double covered = 0.0;
+			for (const auto& rc : rollClips) {
+				double clipStart = rc.viewOffset;
+				if (clipStart > covered)
+					dl->AddRectFilled(ImVec2(canvas.x + (float)(covered * PPB), canvas.y),
+									  ImVec2(canvas.x + (float)(clipStart * PPB), canvas.y + contentH),
+									  Theme::WithAlpha(th.bgDeepest, 90));
+				covered = std::max(covered, clipStart + rc.clip->GetDuration());
+			}
+			float tailX = canvas.x + (float)(covered * PPB);
+			if (tailX < canvas.x + contentW)
+				dl->AddRectFilled(ImVec2(tailX, canvas.y), ImVec2(canvas.x + contentW, canvas.y + contentH), Theme::WithAlpha(th.bgDeepest, 90));
+		}
+
+		// a clip that does not hold the focus is tinted in its own track color, so a run
+		// of clips from several tracks reads as separate parts instead of one long
+		// sequence. the focused one stays untinted: it is the material being edited
+		for (const auto& rc : rollClips) {
+			if (rc.focused)
+				continue;
+			float bandX0 = canvas.x + (float)(rc.viewOffset * PPB);
+			float bandX1 = canvas.x + (float)((rc.viewOffset + rc.clip->GetDuration()) * PPB);
+			if (bandX1 < canvas.x + mScrollX || bandX0 > canvas.x + mScrollX + gridW)
+				continue;
+			dl->AddRectFilled(ImVec2(bandX0, canvas.y), ImVec2(bandX1, canvas.y + contentH), Theme::WithAlpha(rc.color, 26));
+		}
 
 		// ---- minimap rect (computed before interaction so it can steal input) ----
 		float sbw = ImGui::GetStyle().ScrollbarSize;
@@ -408,12 +569,32 @@ void PianoRollView::Render() {
 
 		// ---- note interaction (skipped while the minimap has the mouse) ----
 		if (gridHovered && !overMinimap) {
+			// a click anywhere over another clip's band hands it the focus, the way
+			// Ableton switches which clip of a multi-clip edit is the editable one.
+			// checked before the note hit test so the notes drawn there are click
+			// targets for the switch rather than for an edit that could not apply
+			// where bands overlap - clips on different tracks covering the same bars -
+			// the focused clip keeps priority, or its own notes would sit unreachable
+			// under someone else's band. the toolbar chips are the way into those
+			bool overFocusBand = (mouseViewBeat >= focusOffset && mouseViewBeat <= focusOffset + mIDIClip->GetDuration());
+			std::shared_ptr<MIDIClip> focusTarget;
+			for (const auto& rc : rollClips) {
+				if (rc.focused || overFocusBand)
+					continue;
+				double bandStart = rc.viewOffset;
+				double bandEnd = bandStart + rc.clip->GetDuration();
+				if (mouseViewBeat >= bandStart && mouseViewBeat <= bandEnd)
+					focusTarget = rc.clip;
+			}
+			if (focusTarget)
+				ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+
 			// hit test (front to back for z-order)
 			int hitIndex = -1;
 			bool hitResizeRight = false;
-			for (int i = (int)notes.size() - 1; i >= 0; --i) {
+			for (int i = (int)notes.size() - 1; i >= 0 && !focusTarget; --i) {
 				const auto& note = notes[i];
-				float nx = canvas.x + (float)(note.startBeat * PPB);
+				float nx = canvas.x + (float)((focusOffset + note.startBeat) * PPB);
 				float ny = canvas.y + ((127 - note.noteNumber) * NOTE_HEIGHT);
 				float nw = (float)(note.durationBeats * PPB);
 				if (mousePos.x >= nx && mousePos.x <= nx + nw && mousePos.y >= ny && mousePos.y <= ny + NOTE_HEIGHT) {
@@ -427,7 +608,11 @@ void PianoRollView::Render() {
 			if (hitIndex != -1)
 				ImGui::SetMouseCursor(hitResizeRight ? ImGuiMouseCursor_ResizeEW : ImGuiMouseCursor_Hand);
 
-			if (isMouseClicked) {
+			if (isMouseClicked && focusTarget) {
+				mContext.state.selectedClip = focusTarget;
+				// note indices belong to the clip they were taken from
+				mSelectedIndices.clear();
+			} else if (isMouseClicked) {
 				if (hitIndex != -1) {
 					if (io.KeyCtrl) {
 						SelectNote(hitIndex, true);
@@ -441,7 +626,7 @@ void PianoRollView::Render() {
 
 					// begin a move / resize drag (one undo entry per drag)
 					mInteraction = hitResizeRight ? InteractionMode::ResizingNotes : InteractionMode::MovingNotes;
-					BeginGesture(mIDIClip, hitResizeRight ? "Resize notes" : "Move notes");
+					BeginGesture(midiClipShared, hitResizeRight ? "Resize notes" : "Move notes");
 					mDragInitialStates.clear();
 					for (int idx : mSelectedIndices) {
 						if (idx >= 0 && idx < (int)notes.size()) {
@@ -457,7 +642,7 @@ void PianoRollView::Render() {
 					std::vector<MIDINote> before = notes;
 					MIDINote newNote;
 					newNote.noteNumber = std::clamp(mouseNoteNum, 0, 127);
-					newNote.startBeat = std::round(mouseBeat / snapGrid) * snapGrid;
+					newNote.startBeat = snapClipBeat(mouseBeat);
 					if (newNote.startBeat < 0)
 						newNote.startBeat = 0;
 					newNote.durationBeats = snapGrid;
@@ -490,7 +675,7 @@ void PianoRollView::Render() {
 				mSelectedIndices.clear();
 			for (int i = 0; i < (int)notes.size(); ++i) {
 				const auto& note = notes[i];
-				float nx = canvas.x + (float)(note.startBeat * PPB);
+				float nx = canvas.x + (float)((focusOffset + note.startBeat) * PPB);
 				float ny = canvas.y + ((127 - note.noteNumber) * NOTE_HEIGHT);
 				float nw = (float)(note.durationBeats * PPB);
 				if (RectOverlap(sMin, sMax, ImVec2(nx, ny), ImVec2(nx + nw, ny + NOTE_HEIGHT))) {
@@ -508,8 +693,7 @@ void PianoRollView::Render() {
 				if (idx < 0 || idx >= (int)notes.size())
 					continue;
 				auto& note = notes[idx];
-				double newStart = pair.second.originalStart + deltaBeats;
-				newStart = std::round(newStart / snapGrid) * snapGrid;
+				double newStart = snapClipBeat(pair.second.originalStart + deltaBeats);
 				if (newStart < 0)
 					newStart = 0;
 				note.startBeat = newStart;
@@ -532,10 +716,29 @@ void PianoRollView::Render() {
 			}
 		}
 
-		// c. notes
+		// c. notes of the clips that do not hold the focus. they are context, not
+		// editable material, so they carry their own track color rather than the amber
+		// note palette - which is exactly what says "this run belongs to another clip"
+		for (const auto& rc : rollClips) {
+			if (rc.focused)
+				continue;
+			for (const auto& note : rc.clip->GetNotes()) {
+				float x = canvas.x + (float)((rc.viewOffset + note.startBeat) * PPB);
+				float w = (float)(note.durationBeats * PPB);
+				float y = canvas.y + ((127 - note.noteNumber) * NOTE_HEIGHT);
+				if (y + NOTE_HEIGHT < canvas.y + mScrollY || y > canvas.y + mScrollY + gridH)
+					continue;
+				if (x + w < canvas.x + mScrollX || x > canvas.x + mScrollX + gridW)
+					continue;
+				dl->AddRectFilled(ImVec2(x, y + 1), ImVec2(x + w, y + NOTE_HEIGHT - 1), Theme::WithAlpha(rc.color, 150), 4.0f);
+				dl->AddRect(ImVec2(x, y + 1), ImVec2(x + w, y + NOTE_HEIGHT - 1), Theme::WithAlpha(rc.color, 220), 4.0f);
+			}
+		}
+
+		// c2. notes of the focused clip - the only ones that take edits
 		for (size_t i = 0; i < notes.size(); ++i) {
 			const auto& note = notes[i];
-			float x = canvas.x + (float)(note.startBeat * PPB);
+			float x = canvas.x + (float)((focusOffset + note.startBeat) * PPB);
 			float w = (float)(note.durationBeats * PPB);
 			float y = canvas.y + ((127 - note.noteNumber) * NOTE_HEIGHT);
 			// cull off-screen notes vertically / horizontally
@@ -554,11 +757,18 @@ void PianoRollView::Render() {
 			dl->AddRect(ImVec2(x, y + 1), ImVec2(x + w, y + NOTE_HEIGHT - 1), borderColor, 4.0f);
 		}
 
-		// clip-end boundary: a crisp line at the clip's playable length, drawn over the
-		// notes so a note that runs past it visibly shows where playback will cut it off
-		// (matching the note-off clamp in Track::Process)
-		if (clipEndX >= canvas.x + mScrollX && clipEndX <= canvas.x + mScrollX + gridW)
-			dl->AddLine(ImVec2(clipEndX, canvas.y), ImVec2(clipEndX, canvas.y + contentH), Theme::WithAlpha(th.borderStrong, 235), std::max(1.0f, 2.0f * scale));
+		// clip boundaries: a crisp line at each clip's start and playable end, drawn over
+		// the notes so a note that runs past one visibly shows where playback will cut it
+		// off (matching the note-off clamp in Track::Process), and so the seam between
+		// two adjacent clips stays readable
+		for (const auto& rc : rollClips) {
+			float edges[2] = {canvas.x + (float)(rc.viewOffset * PPB),
+							  canvas.x + (float)((rc.viewOffset + rc.clip->GetDuration()) * PPB)};
+			for (float edgeX : edges) {
+				if (edgeX >= canvas.x + mScrollX && edgeX <= canvas.x + mScrollX + gridW)
+					dl->AddLine(ImVec2(edgeX, canvas.y), ImVec2(edgeX, canvas.y + contentH), Theme::WithAlpha(th.borderStrong, 235), std::max(1.0f, 2.0f * scale));
+			}
+		}
 
 		// d. marquee (only once dragged past a threshold, to avoid click flicker)
 		if (mInteraction == InteractionMode::Selecting) {
@@ -573,7 +783,7 @@ void PianoRollView::Render() {
 		// e. playhead
 		if (transport) {
 			double currentBeat = (double)transport->GetPosition() / transport->GetSampleRate() * (transport->GetBpm() / 60.0);
-			double relBeat = currentBeat - mIDIClip->GetStartBeat();
+			double relBeat = currentBeat - viewOrigin;
 			if (relBeat >= 0) {
 				float phX = canvas.x + (float)(relBeat * PPB);
 				dl->AddLine(ImVec2(phX, canvas.y), ImVec2(phX, canvas.y + contentH), Theme::WithAlpha(th.playhead, 200), 2.0f);
@@ -584,13 +794,16 @@ void PianoRollView::Render() {
 		if (mMinimapEnabled) {
 			dl->AddRectFilled(mmMin, mmMax, th.bgOverlay, 3.0f);
 			dl->AddRect(mmMin, mmMax, Theme::WithAlpha(th.textDim, 220), 3.0f);
-			for (const auto& n : notes) {
-				float fx = (float)(n.startBeat / totalBeats);
-				float fw = (float)std::max(1.0, (n.durationBeats / totalBeats) * mmW);
-				float fy = (float)((127 - n.noteNumber) / 128.0);
-				float nx = mmMin.x + fx * mmW;
-				float ny = mmMin.y + fy * mmH;
-				dl->AddRectFilled(ImVec2(nx, ny), ImVec2(std::min(nx + fw, mmMax.x), ny + std::max(1.0f, mmH / 128.0f)), Theme::WithAlpha(th.noteFill, 220));
+			for (const auto& rc : rollClips) {
+				for (const auto& n : rc.clip->GetNotes()) {
+					float fx = (float)((rc.viewOffset + n.startBeat) / totalBeats);
+					float fw = (float)std::max(1.0, (n.durationBeats / totalBeats) * mmW);
+					float fy = (float)((127 - n.noteNumber) / 128.0);
+					float nx = mmMin.x + fx * mmW;
+					float ny = mmMin.y + fy * mmH;
+					ImU32 dotColor = rc.focused ? Theme::WithAlpha(th.noteFill, 220) : Theme::WithAlpha(rc.color, 200);
+					dl->AddRectFilled(ImVec2(nx, ny), ImVec2(std::min(nx + fw, mmMax.x), ny + std::max(1.0f, mmH / 128.0f)), dotColor);
+				}
 			}
 			// viewport indicator
 			float vx0 = mmMin.x + (mScrollX / contentW) * mmW;
@@ -626,12 +839,14 @@ void PianoRollView::Render() {
 		dl->AddRectFilled(rp, ImVec2(rp.x + gridW, rp.y + RULER_H), th.bgPanel);
 		dl->AddLine(ImVec2(rp.x, rp.y + RULER_H - 1), ImVec2(rp.x + gridW, rp.y + RULER_H - 1), th.borderStrong);
 
+		// bar numbers come from ARRANGEMENT beats, so the ruler reads the same as the
+		// arrangement's own ruler whichever clip is focused
 		double startBeatVis = mScrollX / PPB;
 		double endBeatVis = (mScrollX + gridW) / PPB;
-		int bStart = std::max(0, (int)std::floor(startBeatVis));
-		int bEnd = (int)std::ceil(endBeatVis);
+		int bStart = std::max(0, (int)std::floor(viewOrigin + startBeatVis));
+		int bEnd = (int)std::ceil(viewOrigin + endBeatVis);
 		for (int b = bStart; b <= bEnd; ++b) {
-			float x = rp.x + (float)b * PPB - mScrollX;
+			float x = rp.x + (float)((b - viewOrigin) * PPB) - mScrollX;
 			bool isBar = (b % 4 == 0);
 			if (isBar) {
 				dl->AddLine(ImVec2(x, rp.y + 6), ImVec2(x, rp.y + RULER_H), th.textMuted);
@@ -643,21 +858,46 @@ void PianoRollView::Render() {
 			}
 		}
 
-		// clip-end marker: mirror the grid's boundary in the ruler so the playable
-		// length stays visible even when the boundary itself is scrolled off, and
-		// shade the ruler past it to match the grid wash
-		float clipEndRX = rp.x + (float)(mIDIClip->GetDuration() * PPB) - mScrollX;
-		if (clipEndRX < rp.x + gridW) {
-			float shadeX0 = std::max(rp.x, clipEndRX);
-			dl->AddRectFilled(ImVec2(shadeX0, rp.y), ImVec2(rp.x + gridW, rp.y + RULER_H), Theme::WithAlpha(th.bgDeepest, 90));
+		// wash the ruler over every stretch no clip covers, matching the grid, so the
+		// playable regions stay legible even when their boundaries scroll off
+		{
+			double covered = 0.0;
+			auto shade = [&](double from, double to) {
+				float x0 = std::max(rp.x, rp.x + (float)(from * PPB) - mScrollX);
+				float x1 = std::min(rp.x + gridW, rp.x + (float)(to * PPB) - mScrollX);
+				if (x1 > x0)
+					dl->AddRectFilled(ImVec2(x0, rp.y), ImVec2(x1, rp.y + RULER_H), Theme::WithAlpha(th.bgDeepest, 90));
+			};
+			for (const auto& rc : rollClips) {
+				if (rc.viewOffset > covered)
+					shade(covered, rc.viewOffset);
+				covered = std::max(covered, rc.viewOffset + rc.clip->GetDuration());
+			}
+			shade(covered, (double)totalBeats);
 		}
-		if (clipEndRX >= rp.x && clipEndRX <= rp.x + gridW)
-			dl->AddLine(ImVec2(clipEndRX, rp.y), ImVec2(clipEndRX, rp.y + RULER_H), Theme::WithAlpha(th.borderStrong, 235), std::max(1.0f, 2.0f * scale));
+
+		// a name strip along the bottom of the ruler, one per clip in its track color:
+		// with several clips on the grid this is what says where each one begins, ends
+		// and which of them is the editable one
+		float stripH = std::max(3.0f, 4.0f * scale);
+		for (const auto& rc : rollClips) {
+			float x0 = rp.x + (float)(rc.viewOffset * PPB) - mScrollX;
+			float x1 = rp.x + (float)((rc.viewOffset + rc.clip->GetDuration()) * PPB) - mScrollX;
+			if (x1 < rp.x || x0 > rp.x + gridW)
+				continue;
+			dl->AddRectFilled(ImVec2(std::max(x0, rp.x), rp.y + RULER_H - stripH),
+							  ImVec2(std::min(x1, rp.x + gridW), rp.y + RULER_H),
+							  rc.focused ? rc.color : Theme::WithAlpha(rc.color, 120));
+			if (x0 >= rp.x && x0 <= rp.x + gridW)
+				dl->AddLine(ImVec2(x0, rp.y), ImVec2(x0, rp.y + RULER_H), Theme::WithAlpha(th.borderStrong, 235), std::max(1.0f, 2.0f * scale));
+			if (x1 >= rp.x && x1 <= rp.x + gridW)
+				dl->AddLine(ImVec2(x1, rp.y), ImVec2(x1, rp.y + RULER_H), Theme::WithAlpha(th.borderStrong, 235), std::max(1.0f, 2.0f * scale));
+		}
 
 		// playhead marker
 		if (transport) {
 			double currentBeat = (double)transport->GetPosition() / transport->GetSampleRate() * (transport->GetBpm() / 60.0);
-			double relBeat = currentBeat - mIDIClip->GetStartBeat();
+			double relBeat = currentBeat - viewOrigin;
 			if (relBeat >= 0) {
 				float x = rp.x + (float)(relBeat * PPB) - mScrollX;
 				dl->AddTriangleFilled(ImVec2(x - 4, rp.y), ImVec2(x + 4, rp.y), ImVec2(x, rp.y + 8), th.playhead);
@@ -669,8 +909,7 @@ void PianoRollView::Render() {
 			double relBeat = (double)(io.MousePos.x - rp.x + mScrollX) / PPB;
 			if (relBeat < 0)
 				relBeat = 0;
-			relBeat = std::round(relBeat / snapGrid) * snapGrid;
-			double absoluteBeat = mIDIClip->GetStartBeat() + relBeat;
+			double absoluteBeat = std::round((viewOrigin + relBeat) / snapGrid) * snapGrid;
 			int64_t sample = (int64_t)(absoluteBeat * (60.0 / transport->GetBpm()) * transport->GetSampleRate());
 			transport->SetPosition(sample);
 			// also set the global start position: TogglePlayStop rewinds here on
@@ -688,10 +927,12 @@ void PianoRollView::Render() {
 	std::set<int> playingNotes;
 	if (transport && transport->IsPlaying()) {
 		double currentBeat = (double)transport->GetPosition() / transport->GetSampleRate() * (transport->GetBpm() / 60.0);
-		double relBeat = currentBeat - mIDIClip->GetStartBeat();
-		for (const auto& n : notes) {
-			if (relBeat >= n.startBeat && relBeat < n.startBeat + n.durationBeats)
-				playingNotes.insert(n.noteNumber);
+		for (const auto& rc : rollClips) {
+			double relBeat = currentBeat - rc.clip->GetStartBeat();
+			for (const auto& n : rc.clip->GetNotes()) {
+				if (relBeat >= n.startBeat && relBeat < n.startBeat + n.durationBeats)
+					playingNotes.insert(n.noteNumber);
+			}
 		}
 	}
 
@@ -782,7 +1023,7 @@ void PianoRollView::Render() {
 				int hit = -1;
 				float bestDist = 6.0f * scale;
 				for (int i = 0; i < (int)notes.size(); ++i) {
-					float dx = std::abs((gutterX + (float)(notes[i].startBeat * PPB) - mScrollX) - mp.x);
+					float dx = std::abs((gutterX + (float)((focusOffset + notes[i].startBeat) * PPB) - mScrollX) - mp.x);
 					if (dx < bestDist) {
 						bestDist = dx;
 						hit = i;
@@ -792,7 +1033,7 @@ void PianoRollView::Render() {
 					if (!IsNoteSelected(hit))
 						SelectNote(hit, false);
 					mInteraction = InteractionMode::EditingVelocity;
-					BeginGesture(mIDIClip, "Edit velocity");
+					BeginGesture(midiClipShared, "Edit velocity");
 				}
 			}
 
@@ -806,11 +1047,27 @@ void PianoRollView::Render() {
 				}
 			}
 
+			// stems for the clips that do not hold the focus, in their track color: they
+			// place the focused clip's dynamics against what surrounds it without
+			// pretending to be draggable
+			for (const auto& rc : rollClips) {
+				if (rc.focused)
+					continue;
+				for (const auto& note : rc.clip->GetNotes()) {
+					float x = gutterX + (float)((rc.viewOffset + note.startBeat) * PPB) - mScrollX;
+					if (x < gutterX - 4.0f * scale || x > vp.x + availW)
+						continue;
+					float velY = laneBot - (note.velocity / 127.0f) * (laneBot - laneTop);
+					dl->AddLine(ImVec2(x, laneBot), ImVec2(x, velY), Theme::WithAlpha(rc.color, 120), std::max(1.0f, 1.5f * scale));
+					dl->AddCircleFilled(ImVec2(x, velY), 2.5f * scale, Theme::WithAlpha(rc.color, 200));
+				}
+			}
+
 			// draw a thin stem + dot per note (like Ableton) so dense / overlapping
 			// notes stay legible instead of fat bars covering each other
 			for (size_t i = 0; i < notes.size(); ++i) {
 				const auto& note = notes[i];
-				float x = gutterX + (float)(note.startBeat * PPB) - mScrollX;
+				float x = gutterX + (float)((focusOffset + note.startBeat) * PPB) - mScrollX;
 				if (x < gutterX - 4.0f * scale || x > vp.x + availW)
 					continue;
 				float velY = laneBot - (note.velocity / 127.0f) * (laneBot - laneTop);
@@ -896,7 +1153,7 @@ void PianoRollView::Render() {
 	// finalize the gesture undo and reset interaction state
 	if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 		if (mGestureActive)
-			EndGesture(mIDIClip);
+			EndGesture(midiClipShared);
 		mInteraction = InteractionMode::None;
 		mDragInitialStates.clear();
 	}

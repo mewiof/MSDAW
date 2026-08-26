@@ -16,6 +16,17 @@ struct NoteDragState {
 
 class PianoRollView {
 public:
+	// one clip on show in the roll. multi-clip editing lays every MIDI clip of the
+	// arrangement selection onto a single shared beat grid, each at the position it
+	// holds in the arrangement; only the focused one takes edits, the rest are drawn
+	// in their track color as context and can be clicked to take the focus
+	struct RollClip {
+		std::shared_ptr<MIDIClip> clip;
+		ImU32 color = 0;		 // owning track's color
+		double viewOffset = 0.0; // clip start measured from the view's beat 0
+		bool focused = false;
+	};
+
 	PianoRollView(EditorContext& context)
 		: mContext(context) {
 		// per-clip snap grid edited through the same custom parameter widget as the
@@ -70,9 +81,12 @@ private:
 	// early to know this frame's hover - so we reuse last frame's result
 	bool mGridHoveredLast = false;
 
-	// auto-center: when the selected clip changes we recenter the view on its
-	// notes. compared by weak_ptr identity so we never deref a stale clip
+	// auto-center: when the focused clip changes we recenter the view on its
+	// notes. compared by weak_ptr identity so we never deref a stale clip. the origin
+	// is tracked alongside it because adding a clip to the selection can move the
+	// view's beat 0 without the focus changing at all
 	std::weak_ptr<Clip> mLastCenteredClip;
+	double mLastCenterOrigin = 0.0;
 	bool mPendingCenter = false;
 	float mCenterTargetX = 0.0f;
 	float mCenterTargetY = 0.0f;
@@ -97,7 +111,10 @@ private:
 	bool IsNoteSelected(int index);
 	void SelectNote(int index, bool addToSelection);
 	void StopPreview();
-	void CenterOnClip(MIDIClip* clip, float gridW, float gridH);
-	void BeginGesture(MIDIClip* clip, const char* name);
-	void EndGesture(MIDIClip* clip);
+	// the arrangement selection resolved into drawable clips, sorted by start beat.
+	// origin comes back as the arrangement beat the view's x=0 corresponds to
+	std::vector<RollClip> CollectClips(double& origin);
+	void CenterOnClip(MIDIClip* clip, double viewOffset, float gridW, float gridH);
+	void BeginGesture(const std::shared_ptr<MIDIClip>& clip, const char* name);
+	void EndGesture(const std::shared_ptr<MIDIClip>& clip);
 };

@@ -498,10 +498,12 @@ bool AutoSidechainProcessor::RenderCustomUI(const ImVec2& size) {
 		ImGui::SetTooltip("Monitor the filtered detector signal instead of this track");
 
 	// ---- graph ----
-	// a knob row is label + knob + value; reserve it and give the rest to the graph
+	// a knob row is label + knob + value; reserve it and give ALL the rest to the graph.
+	// the device rack is a fixed-height strip, so anything the graph does not take is
+	// dead space rather than something another device could use
 	const float knobRowHeight = ImGui::GetTextLineHeight() * 2.0f + style.ItemInnerSpacing.y * 3.0f + 36.0f;
 	float graphHeight = size.y - rowHeight - knobRowHeight - style.ItemSpacing.y * 2.0f;
-	graphHeight = std::clamp(graphHeight, 54.0f, 160.0f);
+	graphHeight = std::max(graphHeight, 40.0f);
 
 	const ImVec2 graphPos = ImGui::GetCursorScreenPos();
 	const float graphWidth = size.x;

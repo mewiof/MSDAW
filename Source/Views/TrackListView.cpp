@@ -51,6 +51,46 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		return clicked;
 	};
 
+	// the M/S pair, drawn the same way on a full row and on a minimized one: a
+	// collapsed track still has to be silenceable without expanding it again
+	auto DrawMuteSolo = [&](const std::shared_ptr<Track>& track) {
+		bool mute = track->GetMute();
+		if (mute) {
+			ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
+			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
+		}
+		if (ImGui::SmallButton("M"))
+			track->SetMute(!mute);
+		if (mute)
+			ImGui::PopStyleColor(2);
+
+		ImGui::SameLine();
+
+		bool solo = track->GetSolo();
+		if (solo)
+			ImGui::PushStyleColor(ImGuiCol_Button, th.success);
+		if (ImGui::SmallButton("S")) {
+			// ctrl adds this track to whatever is already soloed; a plain click is
+			// exclusive, and clicking the one soloed track clears the solo entirely
+			if (ImGui::GetIO().KeyCtrl) {
+				track->SetSolo(!solo);
+			} else {
+				bool wasSolo = solo;
+				for (auto& t : project->GetTracks())
+					t->SetSolo(false);
+				if (!wasSolo)
+					track->SetSolo(true);
+			}
+		}
+		if (solo)
+			ImGui::PopStyleColor();
+	};
+
+	// how wide that pair comes out, so a minimized row can reserve the space before
+	// deciding where its name has to stop
+	const float muteSoloWidth = ImGui::CalcTextSize("M").x + ImGui::CalcTextSize("S").x +
+								ImGui::GetStyle().FramePadding.x * 4.0f + ImGui::GetStyle().ItemSpacing.x;
+
 	auto LinToNorm = [](float val) -> float {
 		if (val <= 0.0001f)
 			return 0.0f;
@@ -124,7 +164,8 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		ImGui::SetCursorScreenPos(ImVec2(fixedPos.x + indent, curY));
 		ImGui::SetNextItemAllowOverlap();
 
-		float selW = width - indent - (minimized ? 12 * s : 45 * s);
+		float selW = width - indent - (minimized ? (muteSoloWidth + meterW + 14 * s) : 45 * s);
+		selW = std::max(selW, 12 * s);
 		if (ImGui::InvisibleButton("TrackSelect", ImVec2(selW, rowH))) {
 			if (ImGui::GetIO().KeyCtrl) {
 				if (mContext.state.multiSelectedTracks.count((int)i)) {
@@ -269,10 +310,15 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			if (DrawCaret("##Caret", caretX, rowCenterY, caretW, txtH, !track->mIsCollapsed))
 				track->mIsCollapsed = !track->mIsCollapsed;
 
+			float buttonsX = meterX - 6 * s - muteSoloWidth;
+
 			float nameX = caretX + caretW + 2 * s;
-			ImGui::PushClipRect(ImVec2(nameX, curY), ImVec2(meterX - 4 * s, curY + rowH), true);
+			ImGui::PushClipRect(ImVec2(nameX, curY), ImVec2(buttonsX - 4 * s, curY + rowH), true);
 			drawList->AddText(ImVec2(nameX, rowCenterY), th.text, track->GetName().c_str());
 			ImGui::PopClipRect();
+
+			ImGui::SetCursorScreenPos(ImVec2(buttonsX, rowCenterY));
+			DrawMuteSolo(track);
 
 			// slim level meter on the right edge
 			float meterTop = curY + 3 * s;
@@ -345,39 +391,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 
 		ImGui::SetCursorScreenPos(ImVec2(contentX, yButtons));
 
-		bool mute = track->GetMute();
-		if (mute) {
-			ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
-			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
-		}
-		if (ImGui::SmallButton("M"))
-			track->SetMute(!mute);
-		if (mute)
-			ImGui::PopStyleColor(2);
-
-		ImGui::SameLine();
-
-		bool solo = track->GetSolo();
-		if (solo)
-			ImGui::PushStyleColor(ImGuiCol_Button, th.success);
-		if (ImGui::SmallButton("S")) {
-			bool keyMod = ImGui::GetIO().KeyCtrl;
-
-			if (keyMod)
-				track->SetSolo(!solo);
-			else {
-				if (solo)
-					for (auto& t : project->GetTracks())
-						t->SetSolo(false);
-				else {
-					for (auto& t : project->GetTracks())
-						t->SetSolo(false);
-					track->SetSolo(true);
-				}
-			}
-		}
-		if (solo)
-			ImGui::PopStyleColor();
+		DrawMuteSolo(track);
 
 		ImGui::SameLine();
 

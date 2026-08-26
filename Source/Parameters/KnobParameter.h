@@ -18,7 +18,28 @@ public:
 	KnobParameter(const std::string& name, float value, float minValue, float maxValue, ImGuiKnobVariant variant = ImGuiKnobVariant_Linear)
 		: ContinuousParameter(name, value, minValue, maxValue), variant(variant) {}
 
+	// the dial every knob in the app is drawn at. a device that sizes its own knobs
+	// treats this as the ceiling rather than a starting point: a knob that grew to fill
+	// its column would be the only oversized control on screen
+	static constexpr float kDefaultRadius = 18.0f;
+
 	bool Draw() override;
+
+	// the same dial at an explicit size, for a layout that has to fit a fixed height:
+	// the device rack is one short strip, and three stacked knobs at the default radius
+	// are taller than all of it. width <= 0 sizes the block to its own contents
+	//
+	// label overrides what is printed over the dial, for a device whose parameter names
+	// carry more than the column has room for (a band's "Freq 1A" reads as "Freq" once
+	// the strip below already says which band is selected). the parameter keeps its own
+	// name: that is what automation is bound and serialized by
+	bool DrawSized(float radius, float width = 0.0f, const char* label = nullptr);
+
+	// how tall DrawSized comes out at that radius - a name over the dial over its value
+	static float SizedHeight(float radius);
+
+	// the radius that fits a block of `height`, or 0 when no usable dial fits at all
+	static float RadiusForHeight(float height);
 protected:
 	// a Hertz knob travels logarithmically and prints kHz / dB / ms rather than a bare
 	// number. both the dial and the compact box go through these, so the same parameter

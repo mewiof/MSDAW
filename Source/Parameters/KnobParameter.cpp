@@ -70,7 +70,21 @@ void KnobParameter::FormatValue(char* buffer, size_t bufferSize, const char* val
 		FormatKnobValue(buffer, bufferSize, value, variant);
 }
 
+float KnobParameter::SizedHeight(float radius) {
+	return ImGui::GetTextLineHeight() * 2.0f + ImGui::GetStyle().ItemInnerSpacing.y * 2.0f + radius * 2.0f;
+}
+
+float KnobParameter::RadiusForHeight(float height) {
+	const float radius = (height - ImGui::GetTextLineHeight() * 2.0f - ImGui::GetStyle().ItemInnerSpacing.y * 2.0f) * 0.5f;
+	// under this the dial is a smudge and the block would read better as a value box
+	return radius >= 7.0f ? radius : 0.0f;
+}
+
 bool KnobParameter::Draw() {
+	return DrawSized(kDefaultRadius);
+}
+
+bool KnobParameter::DrawSized(float radius, float width, const char* label) {
 	bool changed = false;
 	ImGui::PushID(this);
 
@@ -78,17 +92,17 @@ bool KnobParameter::Draw() {
 	CheckTypingStart(currentID);
 
 	ImGuiStyle& style = ImGui::GetStyle();
-	const float radius = 18.0f;
 	const float lineHeight = ImGui::GetTextLineHeight();
 
 	char valBuffer[64];
 	FormatValue(valBuffer, sizeof(valBuffer), nullptr);
 
-	ImVec2 labelSize = ImGui::CalcTextSize(name.c_str());
+	const char* labelText = label ? label : name.c_str();
+	ImVec2 labelSize = ImGui::CalcTextSize(labelText);
 	ImVec2 valSize = ImGui::CalcTextSize(valBuffer);
 
-	float totalWidth = std::max({radius * 2.0f, labelSize.x, valSize.x});
-	float totalHeight = (lineHeight * 2) + (style.ItemInnerSpacing.y * 2) + (radius * 2);
+	float totalWidth = width > 0.0f ? width : std::max({radius * 2.0f, labelSize.x, valSize.x});
+	float totalHeight = SizedHeight(radius);
 
 	if (IsTyping(currentID)) {
 		changed |= DrawTypingInput(currentID, totalWidth, (totalHeight - lineHeight) * 0.5f);
@@ -153,8 +167,9 @@ bool KnobParameter::Draw() {
 		if (IsSelected())
 			drawList->AddRect(pos, ImVec2(pos.x + totalWidth, pos.y + totalHeight), Theme::Instance().accent, ImGui::GetStyle().FrameRounding);
 
+		const float ringThickness = std::max(2.0f, radius * 0.17f);
 		drawList->PathArcTo(center, radius * 0.85f, ANGLE_MIN, ANGLE_MAX, 32);
-		drawList->PathStroke(colBackgroud, 0, 3.0f);
+		drawList->PathStroke(colBackgroud, 0, ringThickness);
 
 		if (variant == ImGuiKnobVariant_DecibelBipolar) {
 			float tZero = (0.0f - minValue) / (maxValue - minValue);
@@ -164,11 +179,11 @@ bool KnobParameter::Draw() {
 				float a1 = std::min(angle, angleZero);
 				float a2 = std::max(angle, angleZero);
 				drawList->PathArcTo(center, radius * 0.85f, a1, a2, 32);
-				drawList->PathStroke(colArc, 0, 3.0f);
+				drawList->PathStroke(colArc, 0, ringThickness);
 			}
 		} else if (t > 0.001f) {
 			drawList->PathArcTo(center, radius * 0.85f, ANGLE_MIN, angle, 32);
-			drawList->PathStroke(colArc, 0, 3.0f);
+			drawList->PathStroke(colArc, 0, ringThickness);
 		}
 
 		ImVec2 tickVector = ImVec2(cosf(angle), sinf(angle));
@@ -177,10 +192,10 @@ bool KnobParameter::Draw() {
 		drawList->AddLine(
 			ImVec2(center.x + tickVector.x, center.y + tickVector.y),
 			ImVec2(center.x + tickVector.x * tickLen, center.y + tickVector.y * tickLen),
-			colBackgroud, 3.0f);
+			colBackgroud, ringThickness);
 
 		ImVec2 labelPos = ImVec2(pos.x + (totalWidth - labelSize.x) * 0.5f, pos.y);
-		drawList->AddText(labelPos, colText, name.c_str());
+		drawList->AddText(labelPos, colText, labelText);
 
 		ImVec2 valPos = ImVec2(pos.x + (totalWidth - valSize.x) * 0.5f, pos.y + lineHeight + style.ItemInnerSpacing.y + (radius * 2) + style.ItemInnerSpacing.y);
 		ImU32 valTextCol = (isActive || isHovered) ? colArc : colText;

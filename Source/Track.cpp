@@ -95,6 +95,9 @@ void Track::Reset() {
 	for (auto& proc : mProcessors) {
 		proc->Reset();
 	}
+	// a panic releases everything the instruments were holding, so the sequencer no
+	// longer believes anything of its own is sounding
+	mSoundingNotes.reset();
 	mPeakL.store(0.0f);
 	mPeakR.store(0.0f);
 }
@@ -108,6 +111,7 @@ void Track::AllNotesOff() {
 		if (proc->IsInstrument())
 			proc->AllNotesOff();
 	}
+	mSoundingNotes.reset();
 }
 void Track::ClearAccumulator() {
 	std::fill(mInputAccumulator.begin(), mInputAccumulator.end(), 0.0f);
@@ -181,6 +185,10 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 		int64_t trackStartSample = context.currentSample;
 		int64_t trackEndSample = trackStartSample + numFrames;
 
+		// note numbers the clip data says are still down once this block has been
+		// rendered. reconciled against mSoundingNotes after the loop
+		std::bitset<128> shouldSound;
+
 		for (const auto& clipBase : mClips) {
 			// a deactivated clip is inert: no notes, no audio. it still occupies its span
 			// on the timeline, so overlap resolution and dragging are unaffected
@@ -201,6 +209,10 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 			if (mIDIClip) {
 				const auto& notes = mIDIClip->GetNotes();
 				for (const auto& note : notes) {
+					// clip data can carry an out-of-range pitch (a malformed MIDI import),
+					// and the ledger below is indexed by it
+					int noteNumber = std::clamp(note.noteNumber, 0, 127);
+
 					// apply offset to note position
 					double adjustedStart = note.startBeat - offsetBeats;
 					if (adjustedStart < 0)
@@ -234,12 +246,18 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 					if (fireOn) {
 						MIDIMessage msg;
 						msg.status = 0x90;
-						msg.data1 = (uint8_t)note.noteNumber;
+						msg.data1 = (uint8_t)noteNumber;
 						msg.data2 = (uint8_t)note.velocity;
 						int64_t onFrame = noteOnAbs - trackStartSample;
 						msg.frameIndex = (int)(onFrame > 0 ? onFrame : 0); // clamp a chased onset to the block start
 						mIDIMessages.push_back(msg);
+						mSoundingNotes.set(noteNumber);
 					}
+
+					// a note straddling the end of this block is still down when the block
+					// is handed over, and is what keeps the reconcile below from releasing it
+					if (noteOnAbs < trackEndSample && noteOffAbs > trackEndSample)
+						shouldSound.set(noteNumber);
 
 					// a note-off clamped to the clip end can land on clipEndSample == trackEndSample
 					// (the block's exclusive upper edge), which the plain [start, end) test would drop
@@ -251,13 +269,16 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 					if (offInBlock) {
 						MIDIMessage msg;
 						msg.status = 0x80;
-						msg.data1 = (uint8_t)note.noteNumber;
+						msg.data1 = (uint8_t)noteNumber;
 						msg.data2 = 0;
 						int64_t offFrame = noteOffAbs - trackStartSample;
 						if (offFrame > numFrames - 1)
 							offFrame = numFrames - 1; // a boundary-aligned cut belongs to this block's last sample
 						msg.frameIndex = (int)offFrame;
 						mIDIMessages.push_back(msg);
+						// clearing the bit here is what stops the reconcile below from
+						// emitting a second, block-start note-off for the same release
+						mSoundingNotes.reset(noteNumber);
 					}
 				}
 			}
@@ -329,9 +350,29 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 				}
 			}
 		}
+
+		// reconcile what is actually sounding against what the clip data now says. a
+		// note-on whose matching note-off can no longer be computed - the note was dragged
+		// to another pitch or deleted, its clip was deactivated, moved or shortened, the
+		// tempo changed under it, an undo replaced the sequence, the playhead jumped away -
+		// would otherwise sound forever, because every release is derived from the data
+		// rather than from what was played. releasing it here costs one block of overhang
+		for (size_t noteNumber = 0; noteNumber < mSoundingNotes.size(); ++noteNumber) {
+			if (!mSoundingNotes.test(noteNumber) || shouldSound.test(noteNumber))
+				continue;
+			MIDIMessage msg;
+			msg.status = 0x80;
+			msg.data1 = (uint8_t)noteNumber;
+			msg.data2 = 0;
+			msg.frameIndex = 0;
+			mIDIMessages.push_back(msg);
+		}
+		mSoundingNotes = shouldSound;
 	}
 
-	std::sort(mIDIMessages.begin(), mIDIMessages.end(), [](const MIDIMessage& a, const MIDIMessage& b) {
+	// stable, so two events landing on the same frame keep the order they were queued in
+	// - a release always precedes a re-trigger queued after it
+	std::stable_sort(mIDIMessages.begin(), mIDIMessages.end(), [](const MIDIMessage& a, const MIDIMessage& b) {
 		return a.frameIndex < b.frameIndex;
 	});
 

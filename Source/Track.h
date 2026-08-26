@@ -1,4 +1,5 @@
 #pragma once
+#include <bitset>
 #include <vector>
 #include <memory>
 #include <algorithm>
@@ -174,6 +175,16 @@ private:
 	bool mIsGroup = false;
 	std::weak_ptr<Track> mParent;
 	std::vector<float> mInputAccumulator; // buffer for group inputs
+
+	// note numbers this track's sequencer has sounded and not yet released.
+	// the sequencer is otherwise stateless: every block it recomputes each note's on and
+	// off sample from the clip data and fires whatever lands in the window. so anything
+	// that changes that data between the two - dragging a note to another pitch, deleting
+	// it, deactivating or moving its clip, a tempo change, an undo, the playhead leaving
+	// the clip - orphans the note-on, and the instrument holds that key forever. this is
+	// the record of what actually sounded, and Process reconciles the clip data against it
+	// every block so an orphan is released on the very next one
+	std::bitset<128> mSoundingNotes;
 
 	// automation data
 	std::vector<AutomationCurve> mAutomationCurves;

@@ -336,11 +336,11 @@ void Project::SetBpmInternal(double bpm) {
 		mTransport.SetLoopRange(newLoopStart, newLoopEnd);
 	}
 
-	// 4. validate audio clip tempo
+	// 4. re-read every audio clip's length on the grid at the new tempo
 	for (auto& track : mTracks) {
 		for (auto& clip : track->GetClips()) {
 			if (auto ac = std::dynamic_pointer_cast<AudioClip>(clip)) {
-				ac->ValidateDuration(bpm);
+				ac->RetimeForBpmChange(oldBpm, bpm);
 			}
 		}
 	}

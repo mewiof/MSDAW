@@ -2,6 +2,11 @@
 #include <string>
 #include <iostream>
 
+// the shortest clip the timeline can still draw and grab. an audio clip's length is
+// derived from the file, the tempo and the transpose, so it can be squeezed towards zero,
+// and a clip of no length at all is one the user can neither see nor select to delete
+inline constexpr double kMinClipDurationBeats = 1.0 / 64.0;
+
 class Clip {
 public:
 	virtual ~Clip() = default;

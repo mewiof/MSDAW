@@ -77,6 +77,11 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 
 		float clipStartX = winPos.x + (float)(drawStart * context.state.pixelsPerBeat);
 		float clipWidth = (float)(drawDur * context.state.pixelsPerBeat);
+		// a clip must never come out narrower than a pixel: zoomed far enough out it rounds
+		// to nothing, and a project saved before clip lengths were re-read on a tempo change
+		// can hold one that is genuinely zero beats long. either way ImGui asserts on a
+		// zero-size item, and a clip too small to click is one the user cannot delete
+		clipWidth = std::max(clipWidth, 1.0f);
 		float clipEndX = clipStartX + clipWidth;
 
 		if (clipEndX > winPos.x && clipStartX < winPos.x + viewWidth + scrollX) {

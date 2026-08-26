@@ -202,6 +202,12 @@ double AudioClip::GetMaxDurationInBeats(double projectBpm) const {
 	}
 }
 void AudioClip::ValidateDuration(double projectBpm) {
+	// with no samples behind it there is nothing to clamp against: a clip whose file has
+	// moved (or has not been read yet) reports zero beats of content, and clamping to that
+	// would wipe the arrangement's clip lengths on the first tempo or transpose edit
+	if (mTotalFileFrames == 0 || mSampleRate <= 0.0)
+		return;
+
 	// 1. calculate how many beats the total file represents at this bpm/pitch/warp setting
 	double maxTotalBeats = GetMaxDurationInBeats(projectBpm);
 
@@ -209,13 +215,35 @@ void AudioClip::ValidateDuration(double projectBpm) {
 	// (total file beats) - (start offset beats) = max visible beats
 	double maxVisible = maxTotalBeats - mOffset;
 
-	if (maxVisible < 0.0)
-		maxVisible = 0.0;
+	// 3. clamp, but never down to nothing. the offset can end up at or past the file's new
+	// end (a hard transpose up, a tempo drop), and a zero-length clip is one the timeline
+	// can neither draw nor grab - leave a sliver the user can still reach and delete
+	if (maxVisible < kMinClipDurationBeats)
+		maxVisible = kMinClipDurationBeats;
 
-	// 3. clamp
 	if (mDuration > maxVisible) {
 		mDuration = maxVisible;
 	}
+}
+
+void AudioClip::RetimeForBpmChange(double oldBpm, double newBpm) {
+	if (oldBpm <= 0.0 || newBpm <= 0.0)
+		return;
+
+	// a warped clip is time-stretched onto the grid (ComputePlaybackRate scales it by
+	// project/segment bpm), so the same audio always covers the same beats and the tempo
+	// has nothing to say about its length. an unwarped one plays at the file's own speed,
+	// which makes its beat length a tempo reading of a fixed stretch of seconds: both the
+	// window's length and how far into the file it starts have to move with the tempo.
+	// merely clamping would truncate the clip on every tempo drop and never give the audio
+	// back on the way up
+	if (!mWarpingEnabled) {
+		double scale = newBpm / oldBpm;
+		mDuration *= scale;
+		mOffset *= scale;
+	}
+
+	ValidateDuration(newBpm);
 }
 
 double AudioClip::ComputePlaybackRate(double deviceSampleRate, double projectBpm) const {

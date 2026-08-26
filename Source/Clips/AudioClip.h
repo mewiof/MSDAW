@@ -84,6 +84,9 @@ public:
 	// clamps duration to file end based on project bpm
 	void ValidateDuration(double projectBpm);
 
+	// re-reads the clip's length on the grid after a project tempo change
+	void RetimeForBpmChange(double oldBpm, double newBpm);
+
 	// source frames advanced per output sample: base resample (file->device) times
 	// the warp stretch (project/segment bpm, only when warped) times the pitch factor
 	// the single place varispeed playback speed is decided (Re-Pitch and unwarped), so the

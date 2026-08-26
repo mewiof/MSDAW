@@ -529,6 +529,15 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 	// on the block where we just started or jumped, tell the sequencer to chase those onsets
 	bool playheadJumped = startedPlaying || seeked;
 
+	// where this block ends, tracked from our own advance arithmetic rather than read
+	// back off the transport at the end. the UI seeks by writing the transport's atomic
+	// position without taking the project lock (by design - Transport is all atomics), so
+	// a seek landing anywhere inside this block would otherwise be read back here as the
+	// expected end. the next block would then see no discontinuity at all: the seek is
+	// swallowed, no Reset runs, and anything sounding across it hangs. that race is a
+	// whole block wide, which is why seeking mid-note only sometimes left a note stuck
+	int64_t blockEndSample = blockStartSample + numFrames;
+
 	if (mMasterTrack) {
 		if (auto bpmParam = mMasterTrack->GetBpmParameter()) {
 			double newBpm = bpmParam->value;
@@ -572,7 +581,7 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 			context.playheadJumped = playheadJumped;
 			ProcessAudioGraph(outputBuffer, numFrames, numChannels, context, liveMIDIEvents, anySolo);
 			mTransport.Advance(numFrames);
-			mLastBlockEndSample = mTransport.GetPosition();
+			mLastBlockEndSample = blockEndSample;
 			return;
 		}
 
@@ -615,6 +624,7 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 			ProcessAudioGraph(outPtr, chunk, numChannels, context, (framesProcessed == 0 ? liveMIDIEvents : std::vector<MIDIMessage>{}), anySolo);
 
 			mTransport.Advance(chunk);
+			blockEndSample = pos + chunk; // a wrap moves the end with it
 			framesProcessed += chunk;
 		}
 
@@ -630,7 +640,7 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 		mTransport.Advance(numFrames);
 	}
 
-	mLastBlockEndSample = mTransport.GetPosition();
+	mLastBlockEndSample = blockEndSample;
 }
 
 struct WavHeader {

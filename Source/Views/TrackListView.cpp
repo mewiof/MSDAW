@@ -493,7 +493,10 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		ImGui::SetNextItemAllowOverlap();
 
 		if (ImGui::InvisibleButton("MasterSelect", ImVec2(width - 40 * mContext.state.mainScale, masterHeight))) {
-			mContext.state.selectedTrackIndex = -1;
+			// SelectTrack, not a bare index write: the multi-selection set is drawn as
+			// part of the same highlight, and leaving it stale kept the previously
+			// selected lane lit in the arrangement after picking master
+			mContext.state.SelectTrack(-1);
 		}
 
 		if (ImGui::BeginDragDropTarget()) {

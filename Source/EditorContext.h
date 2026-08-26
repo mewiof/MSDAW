@@ -14,7 +14,12 @@
 
 struct EditorLayout {
 	float transportHeight = 40.0f;	  // single control row - taller left a dead strip under the buttons
-	float bottomPanelHeight = 280.0f; // tall enough to give device UIs (e.g. Auto Sidechain's knob row) room to breathe
+	// the device strip is a fixed height and nothing in it scrolls, so this number is
+	// what every built-in device lays itself out inside. it is set by the tallest of
+	// them: EQ Eight's globals column is eleven rows, and under this they start eating
+	// the graph. proportionally it matches the original device once our larger UI font
+	// is accounted for
+	float bottomPanelHeight = 340.0f;
 	float libraryWidth = 200.0f;
 	float libraryCollapsedWidth = 26.0f; // folded-away library: just the rail that brings it back
 	float trackListWidth = 240.0f;

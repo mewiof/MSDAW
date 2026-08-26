@@ -880,7 +880,13 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 	// that point resized half the layout a frame before the other half - which is what
 	// left the library's scrollbar trailing the fold
 	const bool bottomCollapsed = config.bottomPanelCollapsed;
-	float bottomH = bottomCollapsed ? tabHeight : mContext.layout.bottomPanelHeight;
+	// on a window too short for both, the panel gives up height before the arrangement
+	// does - a device that no longer fits falls back to its parameter list, while an
+	// arrangement of no height is just gone
+	const float minArrangementHeight = 140.0f * mContext.state.mainScale;
+	float bottomH = bottomCollapsed
+						? tabHeight
+						: std::clamp(workSize.y - transportH - minArrangementHeight, tabHeight, mContext.layout.bottomPanelHeight);
 	float libraryW = config.libraryCollapsed ? mContext.layout.libraryCollapsedWidth : mContext.layout.libraryWidth;
 	float trackListW = mContext.layout.trackListWidth;
 	float middleHeight = workSize.y - transportH - bottomH;

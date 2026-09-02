@@ -42,6 +42,7 @@ namespace {
 				snprintf(buffer, bufferSize, "%.2f ms", value);
 			break;
 		case ImGuiKnobVariant_Linear:
+		case ImGuiKnobVariant_LinearBipolar:
 		default:
 			snprintf(buffer, bufferSize, "%.2f", value);
 			break;
@@ -171,7 +172,7 @@ bool KnobParameter::DrawSized(float radius, float width, const char* label) {
 		drawList->PathArcTo(center, radius * 0.85f, ANGLE_MIN, ANGLE_MAX, 32);
 		drawList->PathStroke(colBackgroud, 0, ringThickness);
 
-		if (variant == ImGuiKnobVariant_DecibelBipolar) {
+		if (variant == ImGuiKnobVariant_DecibelBipolar || variant == ImGuiKnobVariant_LinearBipolar) {
 			float tZero = (0.0f - minValue) / (maxValue - minValue);
 			float angleZero = ANGLE_MIN + (ANGLE_MAX - ANGLE_MIN) * tZero;
 

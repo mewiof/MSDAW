@@ -4,6 +4,7 @@
 #include "Clips/MIDIClip.h"
 #include "Project.h"
 #include "Undo/Actions.h"
+#include <cmath>
 #include <string>
 #include <algorithm>
 #include <memory>
@@ -13,7 +14,47 @@
 // CLIP FIELD
 // ================================================================
 
-bool AudioClipParameter::DrawField(float width) {
+namespace {
+
+	// a stepped field publishes whole steps only: a semitone drag that leaves the clip at
+	// -0.4 st while the box rounds it to "-0" means what the user reads and what the clip
+	// plays are two different numbers. round() also hands back a negative zero anywhere in
+	// the lower half of the zero step, which "%.0f" prints as "-0" - the grid has one zero
+	// and it is the positive one
+	float SnapToStep(float value, float step) {
+		if (step <= 0.0f)
+			return value;
+		float snapped = std::round(value / step) * step;
+		if (snapped == 0.0f)
+			snapped = 0.0f;
+		return snapped;
+	}
+
+} // namespace
+
+float AudioClipParameter::NormalizedFromValue() const {
+	if (mStep <= 0.0f)
+		return KnobParameter::NormalizedFromValue();
+
+	const float range = maxValue - minValue;
+	return range != 0.0f ? (mRawValue - minValue) / range : 0.0f;
+}
+
+void AudioClipParameter::SetValueFromNormalized(float t) {
+	KnobParameter::SetValueFromNormalized(t);
+	if (mStep > 0.0f) {
+		mRawValue = value;
+		value = SnapToStep(value, mStep);
+	}
+}
+
+void AudioClipParameter::FormatValue(char* buffer, size_t bufferSize, const char* valueFmt) const {
+	// the field's own format wins over whatever the widget asked for: a dial passes null
+	// to let a knob variant choose, and none of the variants reads in semitones or cents
+	ContinuousParameter::FormatValue(buffer, bufferSize, mValueFmt ? mValueFmt : valueFmt);
+}
+
+bool AudioClipParameter::DrawTracked(float width, float knobRadius) {
 	if (!mEdit.clip) {
 		mGestureActive = false;
 		return false;
@@ -25,9 +66,15 @@ bool AudioClipParameter::DrawField(float width) {
 	// shows, with no sync to keep and nothing to drift
 	const AudioClipWarpState frameBefore = mEdit.clip->CaptureWarpState();
 	value = (float)((mEdit.clip.get()->*mRead)());
+	// the drag accumulator only has to outlive the frames of one drag; outside a gesture
+	// it tracks the clip, so the next drag starts from wherever the value actually is
+	if (!IsInEditGesture())
+		mRawValue = value;
 
 	mCommitPending = false;
-	const bool changed = DrawCompact(width > 0.0f ? width : ImGui::GetContentRegionAvail().x, mValueFmt);
+	const bool changed = knobRadius > 0.0f
+							 ? DrawSized(knobRadius, width)
+							 : DrawCompact(width > 0.0f ? width : ImGui::GetContentRegionAvail().x, mValueFmt);
 
 	// a drag that began this frame has not moved the clip yet, so the state read above
 	// is the one the whole gesture undoes back to
@@ -36,8 +83,12 @@ bool AudioClipParameter::DrawField(float width) {
 		mGestureBefore = frameBefore;
 	}
 
-	if (changed)
+	if (changed) {
+		// a typed value and a double-click reset land straight on `value`, never going
+		// through the snap a drag already passed through
+		value = SnapToStep(value, mStep);
 		WriteToClip();
+	}
 
 	// pushed from here rather than from CommitEdit because this is the only point that
 	// sees the clip AFTER the edit has landed on it
@@ -58,11 +109,13 @@ bool AudioClipParameter::DrawField(float width) {
 void AudioClipParameter::WriteToClip() {
 	AudioClip* clip = mEdit.clip.get();
 	auto apply = [&]() {
+		// the warp fields decide how many beats of the file the clip covers, so the edit
+		// is not finished until the clip's window has been re-read from the new reach.
+		// doing it unconditionally keeps that in one place and costs the fields that do
+		// not move it an exact scale of one
+		double maxBefore = clip->GetMaxDurationInBeats(mEdit.projectBpm);
 		(clip->*mWrite)((double)value);
-		// the warp fields decide how many beats of the file the clip covers, and the
-		// visible duration is clamped to that. validating unconditionally keeps the
-		// write in one place and costs nothing for the fields that do not move it
-		clip->ValidateDuration(mEdit.projectBpm);
+		clip->RetimeForWarpChange(maxBefore, mEdit.projectBpm);
 	};
 
 	// the audio thread reads all of this while it renders the clip
@@ -76,7 +129,7 @@ void AudioClipParameter::WriteToClip() {
 
 void AudioClipParameter::CommitEdit(float, float) {
 	// deliberately does not chain to the base: the undo entry is an AudioClipWarpAction
-	// pushed by DrawField, and a clip field has no automation lane to be the Show Auto
+	// pushed by DrawTracked, and a clip field has no automation lane to be the Show Auto
 	// button's "last touched parameter" for
 	mCommitPending = true;
 }
@@ -100,10 +153,13 @@ ClipView::ClipView(EditorContext& context)
 				   &AudioClip::GetFluctuation, &AudioClip::SetFluctuation, "%.2f", "Set fluctuation"),
 	  mFormants(mEdit, "Formants", 1.0f, 0.0f, 1.0f,
 				&AudioClip::GetFormants, &AudioClip::SetFormants, "%.2f", "Set formants"),
+	  // the two pitch fields step in whole units, which is both what they read in and the
+	  // only way "%.0f" can print what the clip is actually playing
 	  mTransposeSemitones(mEdit, "Semitones", 0.0f, -48.0f, 48.0f,
-						  &AudioClip::GetTransposeSemitones, &AudioClip::SetTransposeSemitones, "%.0f st", "Transpose clip"),
+						  &AudioClip::GetTransposeSemitones, &AudioClip::SetTransposeSemitones, "%.0f st", "Transpose clip",
+						  1.0f, ImGuiKnobVariant_LinearBipolar),
 	  mTransposeCents(mEdit, "Detune", 0.0f, -100.0f, 100.0f,
-					  &AudioClip::GetTransposeCents, &AudioClip::SetTransposeCents, "%.0f ct", "Transpose clip") {}
+					  &AudioClip::GetTransposeCents, &AudioClip::SetTransposeCents, "%.0f ct", "Transpose clip", 1.0f) {}
 
 void ClipView::Render(const ImVec2& pos, float width, float height) {
 	ImVec2 defaultPadding = ImGui::GetStyle().WindowPadding;
@@ -167,13 +223,22 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 		const double projectBpm = mEdit.projectBpm;
 
 		// the toggles and buttons are not parameters, so they take the lock and push
-		// their own before -> after step by hand
+		// their own before -> after step by hand. the geometry re-read rides along for the
+		// same reason it does in AudioClipParameter::WriteToClip: an edit that changes how
+		// much of the file fits in a beat is not finished until the clip's window has been
+		// re-read from it, and having one place decide that is what keeps a pitch drag and
+		// the /2 button resizing the clip the same way
 		auto locked = [&](auto&& fn) {
+			auto apply = [&]() {
+				double maxBefore = ac->GetMaxDurationInBeats(projectBpm);
+				fn();
+				ac->RetimeForWarpChange(maxBefore, projectBpm);
+			};
 			if (project) {
 				std::lock_guard<std::mutex> lock(project->GetMutex());
-				fn();
+				apply();
 			} else {
-				fn();
+				apply();
 			}
 		};
 		auto pushUndo = [&](const AudioClipWarpState& before, const char* name) {
@@ -212,7 +277,6 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 					// is no speed/pitch jump at that instant
 					if (warping)
 						ac->SetSegmentBpm(projectBpm);
-					ac->ValidateDuration(projectBpm);
 				});
 				pushUndo(before, warping ? "Enable warp" : "Disable warp");
 			}
@@ -240,7 +304,6 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 					AudioClipWarpState before = ac->CaptureWarpState();
 					locked([&]() {
 						ac->SetSegmentBpm(ac->GetSegmentBpm() * 0.5);
-						ac->ValidateDuration(projectBpm);
 					});
 					pushUndo(before, "Halve clip BPM");
 				}
@@ -249,7 +312,6 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 					AudioClipWarpState before = ac->CaptureWarpState();
 					locked([&]() {
 						ac->SetSegmentBpm(ac->GetSegmentBpm() * 2.0);
-						ac->ValidateDuration(projectBpm);
 					});
 					pushUndo(before, "Double clip BPM");
 				}
@@ -292,7 +354,12 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 				ImGui::TextDisabled("Disabled in Re-Pitch");
 			ImGui::BeginDisabled(repitch);
 
-			field(mTransposeSemitones, "Transpose in whole semitones");
+			// the transpose is the control an arrangement is actually tuned from, so it
+			// gets the dial and the boxes are left to the trim under it. sized to the
+			// same block the label/value rows below occupy, so the two line up
+			mTransposeSemitones.DrawKnob(KnobParameter::kDefaultRadius * mContext.state.mainScale, labelWidth + fieldWidth);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Transpose in whole semitones");
 			field(mTransposeCents, "Fine tuning, a hundredth of a semitone each");
 
 			// add a helper reset button
@@ -301,7 +368,6 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 				locked([&]() {
 					ac->SetTransposeSemitones(0.0);
 					ac->SetTransposeCents(0.0);
-					ac->ValidateDuration(projectBpm);
 				});
 				pushUndo(before, "Reset pitch");
 			}

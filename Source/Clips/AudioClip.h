@@ -87,6 +87,12 @@ public:
 	// re-reads the clip's length on the grid after a project tempo change
 	void RetimeForBpmChange(double oldBpm, double newBpm);
 
+	// re-reads the clip's window on the grid after a warp or pitch edit, given the
+	// GetMaxDurationInBeats() read just before that edit. pitch on an unwarped (or
+	// Re-Pitch) clip is tape speed, so the slice of audio the clip was cut to now takes
+	// a different number of beats to play and both ends of the window move with it
+	void RetimeForWarpChange(double oldMaxBeats, double projectBpm);
+
 	// source frames advanced per output sample: base resample (file->device) times
 	// the warp stretch (project/segment bpm, only when warped) times the pitch factor
 	// the single place varispeed playback speed is decided (Re-Pitch and unwarped), so the

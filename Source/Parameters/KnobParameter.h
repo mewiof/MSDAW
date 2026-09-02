@@ -4,6 +4,7 @@
 
 enum ImGuiKnobVariant {
 	ImGuiKnobVariant_Linear,		// 0 to 100, -10 to +10, etc
+	ImGuiKnobVariant_LinearBipolar, // linear, plain number, fills from center
 	ImGuiKnobVariant_Percent,		// 0% to 100%
 	ImGuiKnobVariant_Hertz,			// logarithmic (20Hz ... 20kHz)
 	ImGuiKnobVariant_Decibel,		 // linear, formatted as dB, fills from left

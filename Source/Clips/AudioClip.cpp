@@ -246,6 +246,24 @@ void AudioClip::RetimeForBpmChange(double oldBpm, double newBpm) {
 	ValidateDuration(newBpm);
 }
 
+void AudioClip::RetimeForWarpChange(double oldMaxBeats, double projectBpm) {
+	// a warp or pitch edit changes how fast the file is read, so the slice the clip was cut
+	// to now takes a different number of beats to play. both ends of that window move with
+	// it: scaling the offset is what keeps the clip starting on the same moment of audio,
+	// and scaling the duration is what stretches or shrinks it on the grid instead of
+	// clamping the tail off on the way up and never handing it back on the way down.
+	// a granular warp mode holds the file to the grid, so its reach does not move and the
+	// scale falls out as exactly one
+	double newMaxBeats = GetMaxDurationInBeats(projectBpm);
+	if (oldMaxBeats > 0.0 && newMaxBeats > 0.0) {
+		double scale = newMaxBeats / oldMaxBeats;
+		mDuration *= scale;
+		mOffset *= scale;
+	}
+
+	ValidateDuration(projectBpm);
+}
+
 double AudioClip::ComputePlaybackRate(double deviceSampleRate, double projectBpm) const {
 	double clipSR = (mSampleRate > 0.0) ? mSampleRate : 44100.0;
 	double device = (deviceSampleRate > 0.0) ? deviceSampleRate : 48000.0;

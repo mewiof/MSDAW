@@ -143,6 +143,11 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 				if (ImGui::MenuItem(clip->IsEnabled() ? "Deactivate" : "Activate", "D"))
 					TimelineClipOps::ToggleSelectionEnabled(context);
 
+				// only offered when something in the selection is audio: there is nothing
+				// a note list plays backwards
+				if (TimelineClipOps::SelectionHasAudio(context) && ImGui::MenuItem("Reverse"))
+					TimelineClipOps::ReverseSelection(context);
+
 				// only worth offering when it would actually detach something: a clip
 				// nothing else shares notes with is already unique
 				bool anyLinked = false;

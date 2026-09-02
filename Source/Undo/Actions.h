@@ -324,6 +324,38 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// reversing an audio clip. the flip is materialized into the clip's samples, so
+// the operation is its own inverse and both directions simply run it again.
+// what is NOT symmetric is the window mirrored onto the flipped file: the clip's
+// reach can have moved since (a tempo change, a transpose undone after this
+// step), so the offset is snapshotted on both sides and pinned outright rather
+// than re-derived. Undo/Redo lock because the audio thread reads the buffer
+// ---------------------------------------------------------------------------
+class ReverseClipAction : public UndoableAction {
+public:
+	ReverseClipAction(Project* project, std::shared_ptr<AudioClip> clip,
+					  double beforeOffset, double afterOffset)
+		: mProject(project), mClip(std::move(clip)), mBeforeOffset(beforeOffset), mAfterOffset(afterOffset) {}
+
+	void Undo() override { Apply(mBeforeOffset); }
+	void Redo() override { Apply(mAfterOffset); }
+	const char* Name() const override { return "Reverse clip"; }
+private:
+	void Apply(double offset) {
+		if (!mProject || !mClip)
+			return;
+		std::lock_guard<std::mutex> lock(mProject->GetMutex());
+		mClip->Reverse(mProject->GetTransport().GetBpm());
+		mClip->SetOffset(offset);
+	}
+
+	Project* mProject;
+	std::shared_ptr<AudioClip> mClip;
+	double mBeforeOffset;
+	double mAfterOffset;
+};
+
+// ---------------------------------------------------------------------------
 // automation curve edit (add / drag / delete points). Replaces the curve's
 // point list wholesale
 // ---------------------------------------------------------------------------

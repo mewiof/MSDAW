@@ -79,6 +79,18 @@ public:
 	// except Re-Pitch (which is intentionally tape-style resampling and bypasses the engine)
 	bool UsesGranularEngine() const { return mWarpingEnabled && mWarpMode != WarpMode::RePitch; }
 
+	// plays the clip backwards: the sample buffer is flipped end to end and the clip's
+	// window is mirrored onto the flipped file, so what comes out is exactly the audio the
+	// clip played before, reversed - a clip cut to bar three does not jump to bar one.
+	// materializing the flip into the buffer rather than reading it backwards is what
+	// keeps the linear path, the granular engine and the waveform preview all reading the
+	// samples the one way they already do; there is no second read direction to get wrong.
+	// its own inverse, which is what an undo of it runs
+	// NOTE: O(samples), and callers hold the project lock, so a very long file costs the
+	// audio thread the same kind of stall an export already does
+	void Reverse(double projectBpm);
+	bool IsReversed() const { return mReversed; }
+
 	// helper to calculate max duration in beats
 	double GetMaxDurationInBeats(double projectBpm) const;
 	// clamps duration to file end based on project bpm
@@ -115,6 +127,11 @@ public:
 	void Save(std::ostream& out) override;
 	void Load(std::istream& in) override;
 private:
+	// flips the sample buffer end to end, frame-wise so the channels stay in order.
+	// deliberately touches neither the window nor the flag: a load has already parsed a
+	// mirrored offset and re-mirroring it would send the clip to the other end of the file
+	void FlipSamples();
+
 	std::vector<float> mSamples; // interleaved data
 	int mChannels = 2;
 	double mSampleRate = 48000.0;
@@ -127,6 +144,11 @@ private:
 	double mSegmentBpm = 120.0;
 	double mTransposeSemitones = 0.0;
 	double mTransposeCents = 0.0;
+
+	// whether mSamples currently holds the file backwards. the buffer is the truth; this
+	// is what save/load needs to put it back that way, and what the UI reads to show the
+	// toggle lit
+	bool mReversed = false;
 
 	// per-mode granular controls
 	double mGrainSizeMs = 80.0;		 // Tones/Texture/Complex grain length

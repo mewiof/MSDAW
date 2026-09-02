@@ -278,6 +278,46 @@ void ToggleSelectionEnabled(EditorContext& context) {
 	scope.Commit();
 }
 
+bool SelectionHasAudio(EditorContext& context) {
+	for (const auto& clip : context.state.selectedClips)
+		if (std::dynamic_pointer_cast<AudioClip>(clip))
+			return true;
+	return false;
+}
+
+void ReverseSelection(EditorContext& context) {
+	Project* project = context.GetProject();
+	auto refs = ResolveSelection(context);
+	if (!project || refs.empty())
+		return;
+
+	// the offset each clip started from, kept alongside it: the mirror the reverse
+	// applies is derived from the clip's reach, and the undo step pins the offset back
+	// rather than trusting that reach to still be the same when it runs
+	std::vector<std::pair<std::shared_ptr<AudioClip>, double>> reversed;
+	{
+		auto lock = LockProject(project);
+		const double projectBpm = project->GetTransport().GetBpm();
+		for (const auto& r : refs) {
+			auto ac = std::dynamic_pointer_cast<AudioClip>(r.clip);
+			if (!ac)
+				continue; // a note list has no back to play from
+			reversed.emplace_back(ac, ac->GetOffset());
+			ac->Reverse(projectBpm);
+		}
+	}
+
+	if (reversed.empty())
+		return;
+
+	// not a ClipEditScope: what changed is the sample buffer, which a clip snapshot does
+	// not carry. one transaction so a block of clips still undoes in a single step
+	context.undoManager.BeginTransaction("Reverse clip");
+	for (const auto& [clip, beforeOffset] : reversed)
+		context.undoManager.Push(std::make_unique<ReverseClipAction>(project, clip, beforeOffset, clip->GetOffset()));
+	context.undoManager.EndTransaction();
+}
+
 void SplitSelectionAt(EditorContext& context, double beat) {
 	Project* project = context.GetProject();
 	auto refs = ResolveSelection(context);

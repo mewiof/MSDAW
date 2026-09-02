@@ -281,6 +281,30 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 				pushUndo(before, warping ? "Enable warp" : "Disable warp");
 			}
 
+			// beside Warp rather than under it: both say what the clip does to the file
+			// it points at, and putting it here keeps it in the same place whether or not
+			// the warp controls below have unfolded
+			ImGui::SameLine();
+			bool reversed = ac->IsReversed();
+			if (ImGui::Checkbox("Reverse", &reversed)) {
+				// its own undo step, not an AudioClipWarpAction: what changed is the
+				// sample buffer, which no warp snapshot carries. deliberately not routed
+				// through `locked` either - that one re-reads the clip's geometry from a
+				// reach a reverse does not move, and Reverse places the window itself
+				const double beforeOffset = ac->GetOffset();
+				{
+					// the audio thread reads the buffer for the whole of every block
+					std::unique_lock<std::mutex> lock;
+					if (project)
+						lock = std::unique_lock<std::mutex>(project->GetMutex());
+					ac->Reverse(projectBpm);
+				}
+				if (project)
+					mContext.undoManager.Push(std::make_unique<ReverseClipAction>(project, ac, beforeOffset, ac->GetOffset()));
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Play the clip backwards");
+
 			if (warping) {
 				const char* warpModes[] = {"Beats", "Tones", "Texture", "Re-Pitch", "Complex", "Complex Pro"};
 				int currentMode = (int)ac->GetWarpMode();

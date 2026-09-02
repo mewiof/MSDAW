@@ -264,6 +264,33 @@ void AudioClip::RetimeForWarpChange(double oldMaxBeats, double projectBpm) {
 	ValidateDuration(projectBpm);
 }
 
+void AudioClip::FlipSamples() {
+	if (mChannels <= 0)
+		return;
+	const size_t frames = mSamples.size() / (size_t)mChannels;
+	if (frames < 2)
+		return;
+
+	for (size_t i = 0, j = frames - 1; i < j; ++i, --j) {
+		for (int c = 0; c < mChannels; ++c)
+			std::swap(mSamples[i * mChannels + c], mSamples[j * mChannels + c]);
+	}
+}
+
+void AudioClip::Reverse(double projectBpm) {
+	FlipSamples();
+
+	// the window has to travel to the other end of the file with the audio it was cut
+	// around, or a clip pointing at bar three would come back playing bar one backwards.
+	// the reach is read in the clip's own beat units, the same ones the offset is in, so
+	// warp and pitch are already accounted for
+	double maxBeats = GetMaxDurationInBeats(projectBpm);
+	if (maxBeats > 0.0)
+		mOffset = std::max(0.0, maxBeats - mOffset - mDuration);
+
+	mReversed = !mReversed;
+}
+
 double AudioClip::ComputePlaybackRate(double deviceSampleRate, double projectBpm) const {
 	double clipSR = (mSampleRate > 0.0) ? mSampleRate : 44100.0;
 	double device = (deviceSampleRate > 0.0) ? deviceSampleRate : 48000.0;
@@ -356,6 +383,7 @@ void AudioClip::Save(std::ostream& out) {
 	out << "FLUX " << mFluctuation << "\n";
 	out << "TRANSIENT_ENV " << mTransientEnvelope << "\n";
 	out << "FORMANTS " << mFormants << "\n";
+	out << "REVERSED " << (mReversed ? 1 : 0) << "\n";
 }
 
 void AudioClip::Load(std::istream& in) {
@@ -412,6 +440,15 @@ void AudioClip::Load(std::istream& in) {
 			mTransientEnvelope = std::stod(line.substr(14));
 		} else if (line.rfind("FORMANTS ", 0) == 0) {
 			mFormants = std::stod(line.substr(9));
+		} else if (line.rfind("REVERSED ", 0) == 0) {
+			mReversed = (std::stoi(line.substr(9)) != 0);
 		}
 	}
+
+	// LoadFromFile read the file forwards, so a reversed clip has to be flipped back
+	// here. done after the loop rather than on the REVERSED line, because that line and
+	// the PATH that reloads the samples can be parsed in either order. only the buffer:
+	// the offset just parsed is already the mirrored one
+	if (mReversed)
+		FlipSamples();
 }

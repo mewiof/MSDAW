@@ -72,6 +72,15 @@ void ToggleSelectionEnabled(EditorContext& context);
 // splits every selected clip that straddles the beat; both halves stay selected
 void SplitSelectionAt(EditorContext& context, double beat);
 
+// plays every selected audio clip backwards, mirroring each one's window so it keeps
+// the audio it was cut around. MIDI clips in the selection are left alone - there is
+// nothing here that reversing a note list would mean
+void ReverseSelection(EditorContext& context);
+
+// true when the selection holds at least one audio clip, i.e. when Reverse has
+// something to act on and is worth offering
+bool SelectionHasAudio(EditorContext& context);
+
 void CopySelection(EditorContext& context, TimelineInteractionState& interaction);
 
 // paste the clipboard block with its top-left corner at (anchorBeat, anchorTrack).

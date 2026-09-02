@@ -16,7 +16,9 @@
 // 2: per-clip ENABLED flag; a clip saved without one loads as active
 // 3: per-clip SEQ id on MIDI clips, so linked (non-unique) clips reload still linked.
 //    a clip saved without one comes back unique, which is how it already behaved
-const int kCurrentProjectVersion = 3;
+// 4: per-clip REVERSED flag on audio clips. the file on disk is always the forward one,
+//    so a clip saved without the flag loads forwards, which is how it already played
+const int kCurrentProjectVersion = 4;
 
 Project::Project() {
 	// device UIs reach the track list through the hub (an AudioProcessor has no

@@ -78,7 +78,7 @@ void Editor::NewProject() {
 	if (Project* p = GetProject()) {
 		p->Initialize();
 		mContext.undoManager.Clear(); // new object graph — old actions are meaningless
-		mCurrentProjectPath.clear();
+		mContext.state.projectPath.clear();
 		mContext.state.selectionStart = 0.0;
 		mContext.state.selectionEnd = 0.0;
 		mContext.state.pixelsPerBeat = 60.0f;
@@ -93,7 +93,7 @@ void Editor::NewProject() {
 }
 
 void Editor::SaveProject() {
-	if (mCurrentProjectPath.empty()) {
+	if (mContext.state.projectPath.empty()) {
 		SaveProjectAs();
 	} else {
 		if (Project* p = GetProject()) {
@@ -106,7 +106,7 @@ void Editor::SaveProject() {
 			vs.timelineGridNumerator = mContext.state.timelineGridNumerator;
 			vs.timelineGridDenominator = mContext.state.timelineGridDenominator;
 			p->SetViewState(vs);
-			p->Save(mCurrentProjectPath);
+			p->Save(mContext.state.projectPath);
 		}
 	}
 }
@@ -130,7 +130,7 @@ void Editor::SaveProjectAs() {
 	ofn.lpstrDefExt = "msdaw";
 
 	if (GetSaveFileNameA(&ofn) == TRUE) {
-		mCurrentProjectPath = szFile;
+		mContext.state.projectPath = szFile;
 		if (Project* p = GetProject()) {
 			ProjectViewState vs;
 			vs.pixelsPerBeat = mContext.state.pixelsPerBeat;
@@ -141,7 +141,7 @@ void Editor::SaveProjectAs() {
 			vs.timelineGridNumerator = mContext.state.timelineGridNumerator;
 			vs.timelineGridDenominator = mContext.state.timelineGridDenominator;
 			p->SetViewState(vs);
-			p->Save(mCurrentProjectPath);
+			p->Save(mContext.state.projectPath);
 		}
 	}
 #endif
@@ -165,9 +165,9 @@ void Editor::OpenProject() {
 	ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
 
 	if (GetOpenFileNameA(&ofn) == TRUE) {
-		mCurrentProjectPath = szFile;
+		mContext.state.projectPath = szFile;
 		if (Project* p = GetProject()) {
-			p->Load(mCurrentProjectPath);
+			p->Load(mContext.state.projectPath);
 			mContext.undoManager.Clear(); // freshly loaded graph — discard old history
 
 			const auto& vs = p->GetViewState();

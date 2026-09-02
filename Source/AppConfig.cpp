@@ -11,7 +11,7 @@ AppConfig& AppConfig::Instance() {
 	return instance;
 }
 
-std::string AppConfig::ConfigPath() const {
+std::string AppConfig::DataDirectory() {
 #ifdef _WIN32
 	const char* appData = std::getenv("APPDATA");
 	std::filesystem::path base = appData ? std::filesystem::path(appData) : std::filesystem::current_path();
@@ -21,7 +21,11 @@ std::string AppConfig::ConfigPath() const {
 	std::filesystem::path base = home ? std::filesystem::path(home) : std::filesystem::current_path();
 	base /= ".config/MSDAW";
 #endif
-	return (base / "config.txt").string();
+	return base.string();
+}
+
+std::string AppConfig::ConfigPath() const {
+	return (std::filesystem::path(DataDirectory()) / "config.txt").string();
 }
 
 void AppConfig::Load() {

@@ -63,6 +63,24 @@ public:
 	// wav export
 	bool RenderAudio(const std::string& path, double startBeat, double endBeat, double sampleRate = 48000.0);
 
+	// bounces track `index` - its clips through its devices and its fader, and for a group
+	// everything nested under it - to a wav in `directory`, then drops that on a fresh
+	// track created directly after it (after the whole group, for a group). the source
+	// track is left exactly as it was: this adds a rendered copy, it does not replace one
+	//
+	// `endBeat` <= `startBeat` means "whatever the track holds", measured over its subtree
+	// plus a tail for devices still ringing; pass a range to bounce a time selection
+	//
+	// the render deliberately ignores solo anywhere in the project and the source track's
+	// own mute, because asking to render a track is asking for its audio, not for the
+	// silence the current mix happens to give it. mutes further down inside a group are
+	// respected - those are part of how the group is arranged
+	//
+	// returns the new track, or null when there was nothing to render (bad index, an
+	// empty subtree, a file that would not open); nothing is added in that case
+	std::shared_ptr<Track> RenderTrackToNewTrack(int index, const std::string& directory,
+												double startBeat = 0.0, double endBeat = 0.0);
+
 	std::mutex& GetMutex() { return mMutex; }
 
 	// serialization
@@ -75,7 +93,26 @@ public:
 private:
 	// the one place a track is born, shared by both CreateTrack paths. callers hold
 	// mMutex; a null parent means the root level
-	void InsertNewTrack(int index, std::shared_ptr<Track> parent);
+	std::shared_ptr<Track> InsertNewTrack(int index, std::shared_ptr<Track> parent);
+
+	// the sibling-after-the-whole-subtree placement CreateTrackAfter is named for.
+	// callers hold mMutex
+	std::shared_ptr<Track> CreateTrackAfterInternal(int index);
+
+	// true when `track` is `root` or lives anywhere below it
+	static bool IsInSubtree(const std::shared_ptr<Track>& track, const std::shared_ptr<Track>& root);
+
+	// the last beat any clip under `root` reaches, 0 when there are none. a null root
+	// measures the whole project, so a full export and a single-track bounce ask the
+	// same question of the same code. callers hold mMutex
+	double SubtreeEndBeat(const std::shared_ptr<Track>& root) const;
+
+	// the offline pass both bounces take. `track` null renders the whole graph through
+	// the master, exactly as an export does; non-null renders that track's subtree alone
+	// and leaves the master out, because the bounce is going back into the same project
+	// and would otherwise be mastered twice. callers hold mMutex
+	bool RenderToWav(const std::string& path, const std::shared_ptr<Track>& track,
+					 double startBeat, double endBeat, double sampleRate);
 
 	// rebuild the sharing between linked (non-unique) MIDI clips once every track is
 	// in memory: each clip parsed its own copy of the notes, so clips that were saved

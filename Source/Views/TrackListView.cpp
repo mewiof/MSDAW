@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "TrackListView.h"
+#include "AppConfig.h"
 #include "Project.h"
 #include "ProcessorFactory.h"
 #include "Processors/VSTProcessor.h"
@@ -8,6 +9,7 @@
 #include "Theme.h"
 #include "TimelineView/TrackLayout.h"
 #include <algorithm>
+#include <filesystem>
 #include <vector>
 #include <cmath>
 #include <cstring>
@@ -103,7 +105,8 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 	enum Action { None,
 				  Delete,
 				  Ungroup,
-				  AddAfter };
+				  AddAfter,
+				  RenderToNew };
 	Action action = None;
 
 	ImVec2 clipMin(fixedPos.x, stickyY + headerHeight);
@@ -263,6 +266,15 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 				trackToProcess = (int)i;
 				action = AddAfter;
 			}
+			// the label says which of the two ranges the bounce will use, because from a
+			// context menu there is nothing else to tell the user a selection is in play
+			const bool hasTimeSelection = mContext.state.selectionEnd > mContext.state.selectionStart;
+			if (ImGui::MenuItem(hasTimeSelection ? "Render Selection to New Track" : "Render to New Track")) {
+				trackToProcess = (int)i;
+				action = RenderToNew;
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Bounce this track through its devices onto a new track below it");
 			ImGui::Separator();
 			if (ImGui::MenuItem("Rename")) {
 				mRenamingIndex = (int)i;
@@ -491,6 +503,20 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		} else if (action == AddAfter) {
 			TrackTopologyAction::Record(mContext.undoManager, project, "Add track", [&] {
 				project->CreateTrackAfter(trackToProcess);
+			});
+		} else if (action == RenderToNew) {
+			// the wav belongs with the project that points at it. a project that has
+			// never been saved has no folder of its own, so those land in the app's
+			// until it does
+			std::filesystem::path renderDirectory = mContext.state.projectPath.empty()
+														? std::filesystem::path(AppConfig::DataDirectory()) / "Rendered"
+														: std::filesystem::path(mContext.state.projectPath).parent_path() / "Rendered";
+
+			// one topology step covers the whole thing: the clip rides on the new track
+			// object, so restoring the track list restores the bounce with it
+			TrackTopologyAction::Record(mContext.undoManager, project, "Render track", [&] {
+				project->RenderTrackToNewTrack(trackToProcess, renderDirectory.string(),
+											   mContext.state.selectionStart, mContext.state.selectionEnd);
 			});
 		}
 	}

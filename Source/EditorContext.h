@@ -180,6 +180,11 @@ struct EditorState {
 	// active keyboard notes
 	std::set<int> activeMIDINotes;
 
+	// where the project lives on disk, empty until it has first been saved. the editor
+	// writes it on every new/open/save; the views read it to put files they generate
+	// (a bounced track's wav) beside the project rather than off in an app folder
+	std::string projectPath;
+
 	// os drag and drop
 	std::string droppedPath;
 	float dropX = 0.0f;

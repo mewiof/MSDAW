@@ -83,7 +83,8 @@ private:
 	std::unique_ptr<PianoRollView> mPianoRollView;
 
 	// state
-	std::string mCurrentProjectPath;
+	// NOTE: the project's path on disk lives on EditorState, not here - the track list
+	// needs it to put a bounced track's wav beside the project
 	int mActiveBottomTab = 0; // 0 - devices, 1 - clips
 
 	// live cpu/ram sampling for the menu-bar resource meter

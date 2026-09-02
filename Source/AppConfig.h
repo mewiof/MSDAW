@@ -22,6 +22,11 @@ public:
 
 	void Load();
 	void Save() const;
+
+	// the app's own folder (%APPDATA%/MSDAW, ~/.config/MSDAW), created on demand by
+	// whoever writes into it. the fallback home for files the app generates when the
+	// project they belong to has never been saved anywhere
+	static std::string DataDirectory();
 private:
 	AppConfig() = default;
 	std::string ConfigPath() const;

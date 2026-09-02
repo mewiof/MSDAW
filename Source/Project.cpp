@@ -4,6 +4,7 @@
 #include "Clips/MIDIClip.h"
 #include "Clips/AudioClip.h"
 #include <algorithm>
+#include <filesystem>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -18,7 +19,10 @@
 //    a clip saved without one comes back unique, which is how it already behaved
 // 4: per-clip REVERSED flag on audio clips. the file on disk is always the forward one,
 //    so a clip saved without the flag loads forwards, which is how it already played
-const int kCurrentProjectVersion = 4;
+// 5: the Rack device, which nests chains of further devices under a PROCESSOR block:
+//    RACK_* lines, a CHAIN_BEGIN block per chain, and MMAP lines naming a macro's
+//    target by its path inside the rack. older projects have no racks and are unchanged
+const int kCurrentProjectVersion = 5;
 
 Project::Project() {
 	// device UIs reach the track list through the hub (an AudioProcessor has no
@@ -47,36 +51,38 @@ void Project::CreateTrack() {
 
 void Project::CreateTrackAfter(int index) {
 	std::lock_guard<std::mutex> lock(mMutex);
+	CreateTrackAfterInternal(index);
+}
 
-	if (index < 0 || index >= (int)mTracks.size()) {
-		InsertNewTrack((int)mTracks.size(), nullptr);
-		return;
-	}
+std::shared_ptr<Track> Project::CreateTrackAfterInternal(int index) {
+	if (index < 0 || index >= (int)mTracks.size())
+		return InsertNewTrack((int)mTracks.size(), nullptr);
 
 	// mTracks is flat and a group's children follow their header, so stepping over
 	// every descendant is what puts the new track after the group instead of inside it
 	const std::shared_ptr<Track> anchor = mTracks[index];
 	int insertAt = index + 1;
 	while (insertAt < (int)mTracks.size()) {
-		bool nested = false;
-		for (auto parent = mTracks[insertAt]->GetParent(); parent; parent = parent->GetParent()) {
-			if (parent == anchor) {
-				nested = true;
-				break;
-			}
-		}
-		if (!nested)
+		if (!IsInSubtree(mTracks[insertAt], anchor))
 			break;
 		++insertAt;
 	}
 
 	// a sibling, so a track added below one that lives in a group joins that group
-	InsertNewTrack(insertAt, anchor->GetParent());
+	return InsertNewTrack(insertAt, anchor->GetParent());
+}
+
+bool Project::IsInSubtree(const std::shared_ptr<Track>& track, const std::shared_ptr<Track>& root) {
+	for (auto t = track; t; t = t->GetParent()) {
+		if (t == root)
+			return true;
+	}
+	return false;
 }
 
 // NOTE: callers hold mMutex. the audio thread walks mTracks for the whole block, so
 // growing it anywhere but under that lock would pull the vector out from under it
-void Project::InsertNewTrack(int index, std::shared_ptr<Track> parent) {
+std::shared_ptr<Track> Project::InsertNewTrack(int index, std::shared_ptr<Track> parent) {
 	auto track = std::make_shared<Track>();
 	track->SetName("Track " + std::to_string(mTracks.size() + 1));
 	track->SetParent(parent);
@@ -85,6 +91,7 @@ void Project::InsertNewTrack(int index, std::shared_ptr<Track> parent) {
 		track->PrepareToPlay(mTransport.GetSampleRate());
 	}
 	mTracks.insert(mTracks.begin() + std::clamp(index, 0, (int)mTracks.size()), track);
+	return track;
 }
 
 void Project::RemoveTrack(int index) {
@@ -664,19 +671,30 @@ struct WavHeader {
 	uint32_t dataSize = 0;
 };
 
+// beats of silence appended past the last clip, so a reverb or delay still ringing at
+// the end of the arrangement is not cut off mid-tail
+static constexpr double kRenderTailBeats = 4.0;
+
+double Project::SubtreeEndBeat(const std::shared_ptr<Track>& root) const {
+	double endBeat = 0.0;
+	for (const auto& t : mTracks) {
+		if (root && !IsInSubtree(t, root))
+			continue;
+		for (const auto& c : t->GetClips())
+			endBeat = std::max(endBeat, c->GetEndBeat());
+	}
+	return endBeat;
+}
+
 bool Project::RenderAudio(const std::string& path, double startBeat, double endBeat, double sampleRate) {
 	std::lock_guard<std::mutex> lock(mMutex);
+	return RenderToWav(path, nullptr, startBeat, endBeat, sampleRate);
+}
 
+bool Project::RenderToWav(const std::string& path, const std::shared_ptr<Track>& track,
+						  double startBeat, double endBeat, double sampleRate) {
 	if (endBeat <= startBeat) { // detect max duration
-		endBeat = 0.0;
-		for (const auto& t : mTracks) {
-			for (const auto& c : t->GetClips()) {
-				double end = c->GetEndBeat();
-				if (end > endBeat)
-					endBeat = end;
-			}
-		}
-		endBeat += 4.0; // add tail
+		endBeat = SubtreeEndBeat(track) + kRenderTailBeats;
 		startBeat = 0.0;
 	}
 
@@ -725,6 +743,8 @@ bool Project::RenderAudio(const std::string& path, double startBeat, double endB
 	const int blockSize = 512;
 	std::vector<float> blockBuffer(blockSize * 2);
 	std::vector<int16_t> intBuffer(blockSize * 2);
+	// where a single-track bounce throws away the sidechain sources it still has to run
+	std::vector<float> detectorBuffer(blockSize * 2);
 	std::vector<MIDIMessage> emptyMIDI;
 
 	int64_t framesRemaining = totalFrames;
@@ -750,7 +770,36 @@ bool Project::RenderAudio(const std::string& path, double startBeat, double endB
 		firstRenderBlock = false;
 
 		std::fill(blockBuffer.begin(), blockBuffer.end(), 0.0f);
-		ProcessAudioGraph(blockBuffer.data(), framesToDo, 2, context, emptyMIDI, anySolo);
+		if (track) {
+			// the subtree walk on its own, so the detector slots still decay per block
+			// the way ProcessAudioGraph would have kept them. anySolo is false: a solo
+			// somewhere else in the project has nothing to say about a bounce of this
+			// track, and its own mute was already lifted by the caller
+			SidechainHub& hub = SidechainHub::Instance();
+			hub.BeginBlock(framesToDo);
+
+			// a bounce of a ducked track has to hear the thing ducking it, or it comes
+			// out flat and silently wrong. every detector source outside the subtree is
+			// rendered first into a buffer thrown away, which is the producer-before-
+			// consumer order ProcessAudioGraph keeps, minus the summing. a source that
+			// overlaps the subtree either way is skipped: it is already being rendered
+			// as part of the bounce, and running it twice in one block would advance its
+			// dsp twice
+			if (hub.HasSources()) {
+				for (auto& source : mTracks) {
+					if (!hub.IsSource(source->GetId()))
+						continue;
+					if (IsInSubtree(source, track) || IsInSubtree(track, source))
+						continue;
+					std::fill(detectorBuffer.begin(), detectorBuffer.end(), 0.0f);
+					ProcessTrackRecursively(source, detectorBuffer.data(), framesToDo, 2, context, emptyMIDI, false);
+				}
+			}
+
+			ProcessTrackRecursively(track, blockBuffer.data(), framesToDo, 2, context, emptyMIDI, false);
+		} else {
+			ProcessAudioGraph(blockBuffer.data(), framesToDo, 2, context, emptyMIDI, anySolo);
+		}
 		mTransport.Advance(framesToDo);
 
 		// float to int16 conversion
@@ -774,6 +823,80 @@ bool Project::RenderAudio(const std::string& path, double startBeat, double endB
 	PrepareToPlayInternal(oldSR); // internal sr reset
 
 	return true;
+}
+
+// a track name goes into a filename, and track names are free text. anything a path
+// cannot carry becomes an underscore rather than a failed open
+static std::string SanitizeForFilename(const std::string& name) {
+	std::string out;
+	out.reserve(name.size());
+	for (char c : name) {
+		const bool safe = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == ' ' || c == '-' || c == '_';
+		out.push_back(safe ? c : '_');
+	}
+	// a name that was entirely punctuation would leave nothing to open
+	if (out.find_first_not_of(' ') == std::string::npos)
+		out = "Track";
+	return out;
+}
+
+std::shared_ptr<Track> Project::RenderTrackToNewTrack(int index, const std::string& directory,
+													  double startBeat, double endBeat) {
+	std::lock_guard<std::mutex> lock(mMutex);
+
+	if (index < 0 || index >= (int)mTracks.size())
+		return nullptr;
+	auto source = mTracks[index];
+
+	// an explicit range wins - that is the time selection the user drew. otherwise the
+	// track's own content decides how far the bounce runs, plus the usual device tail
+	if (endBeat <= startBeat) {
+		double contentEnd = SubtreeEndBeat(source);
+		if (contentEnd <= 0.0)
+			return nullptr; // nothing under this track to bounce
+		startBeat = 0.0;
+		endBeat = contentEnd + kRenderTailBeats;
+	}
+
+	std::error_code ec;
+	std::filesystem::create_directories(directory, ec);
+
+	// a track bounced twice must not overwrite its own first take, which a clip
+	// elsewhere in the project may still be pointing at
+	const std::string stem = SanitizeForFilename(source->GetName()) + " Render";
+	std::filesystem::path path = std::filesystem::path(directory) / (stem + ".wav");
+	for (int n = 2; std::filesystem::exists(path, ec) && n < 1000; ++n)
+		path = std::filesystem::path(directory) / (stem + " " + std::to_string(n) + ".wav");
+
+	const double sampleRate = mTransport.GetSampleRate() > 0 ? mTransport.GetSampleRate() : 48000.0;
+
+	// see the header: mute and solo describe what the mix is doing right now, not what
+	// this track is, and a bounce has to hear the track even when the mix does not
+	const bool sourceMuted = source->GetMute();
+	source->SetMute(false);
+	const bool rendered = RenderToWav(path.string(), source, startBeat, endBeat, sampleRate);
+	source->SetMute(sourceMuted);
+
+	if (!rendered)
+		return nullptr;
+
+	auto clip = std::make_shared<AudioClip>();
+	if (!clip->LoadFromFile(path.string()))
+		return nullptr;
+
+	clip->SetName(stem);
+	clip->SetStartBeat(startBeat);
+	clip->SetDuration(endBeat - startBeat);
+	// the wav is a whole number of frames, so the beats it covers can land a hair under
+	// what was asked for; clamping is what keeps the clip from ending in a sliver of
+	// silence past the file
+	clip->ValidateDuration(mTransport.GetBpm());
+
+	auto destination = CreateTrackAfterInternal(index);
+	destination->SetName(stem);
+	destination->SetColor(source->GetColor());
+	destination->AddClip(clip);
+	return destination;
 }
 
 void Project::Save(const std::string& path) {

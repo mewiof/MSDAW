@@ -46,6 +46,10 @@ public:
 	void SaveProject();
 	void SaveProjectAs();
 	void OpenProject();
+
+	// load a project straight from a path, with no dialog: the library explorer opens
+	// one by double-click, and OpenProject itself lands here once a file is picked
+	void OpenProjectFile(const std::string& path);
 	void ExportProject();
 
 	// transport logic

@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 // small app-wide configuration that persists across sessions (separate from the
 // per-project file). Stored as a tiny key/value text file under %APPDATA%/MSDAW
@@ -19,6 +20,19 @@ public:
 	// no room for the library has no room for it in the next project either
 	bool libraryCollapsed = false;
 	bool bottomPanelCollapsed = false;
+
+	// folders the user pointed the library's file explorer at. app-wide rather than
+	// per project for the same reason the plugin search paths are: a sample folder is
+	// a property of the machine, not of what is open in it
+	std::vector<std::string> libraryFolders;
+
+	// clicking a sample in the library explorer auditions it. off for anyone who
+	// would rather not have a folder of kicks play at them while they browse
+	bool libraryPreview = true;
+
+	// where the library panel splits its height between the plugin list (above) and
+	// the file explorer (below), as a fraction of the space the two share
+	float libraryBrowserSplit = 0.5f;
 
 	void Load();
 	void Save() const;

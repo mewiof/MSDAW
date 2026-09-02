@@ -27,6 +27,10 @@ Editor::Editor(AudioEngine& engine)
 	mClipView = std::make_unique<ClipView>(mContext);
 	mPianoRollView = std::make_unique<PianoRollView>(mContext);
 
+	// the library explorer's folders are app-wide config, like the plugin search
+	// paths; the browser itself only holds the ones that still exist
+	mContext.fileBrowser.SetRoots(AppConfig::Instance().libraryFolders);
+
 	VSTProcessor::OnGlobalKeyEvent = [this](int virtualKey, bool isDown) {
 		this->OnExternalKey(virtualKey, isDown);
 	};
@@ -164,29 +168,39 @@ void Editor::OpenProject() {
 	ofn.lpstrInitialDir = NULL;
 	ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
 
-	if (GetOpenFileNameA(&ofn) == TRUE) {
-		mContext.state.projectPath = szFile;
-		if (Project* p = GetProject()) {
-			p->Load(mContext.state.projectPath);
-			mContext.undoManager.Clear(); // freshly loaded graph — discard old history
-
-			const auto& vs = p->GetViewState();
-			mContext.state.pixelsPerBeat = std::max(10.0f, vs.pixelsPerBeat);
-			mContext.state.selectionStart = vs.selectionStart;
-			mContext.state.selectionEnd = vs.selectionEnd;
-			mContext.state.timelineScrollX = vs.scrollX;
-			mContext.state.timelineScrollY = vs.scrollY;
-
-			mContext.state.timelineGridNumerator = vs.timelineGridNumerator;
-			mContext.state.timelineGridDenominator = vs.timelineGridDenominator;
-			if (mContext.state.timelineGridDenominator <= 0)
-				mContext.state.timelineGridDenominator = 4;
-			mContext.state.timelineGrid = (double)mContext.state.timelineGridNumerator / mContext.state.timelineGridDenominator;
-
-			mContext.state.restoreScroll = true;
-		}
-	}
+	if (GetOpenFileNameA(&ofn) == TRUE)
+		OpenProjectFile(szFile);
 #endif
+}
+
+void Editor::OpenProjectFile(const std::string& path) {
+	Project* p = GetProject();
+	if (!p)
+		return;
+
+	mContext.state.projectPath = path;
+	p->Load(mContext.state.projectPath);
+	mContext.undoManager.Clear(); // freshly loaded graph — discard old history
+
+	// nothing in the old project survives the load, and both selections are held by
+	// pointer into it
+	mContext.state.ClearClipSelection();
+	mContext.state.ClearDeviceSelection();
+
+	const auto& vs = p->GetViewState();
+	mContext.state.pixelsPerBeat = std::max(10.0f, vs.pixelsPerBeat);
+	mContext.state.selectionStart = vs.selectionStart;
+	mContext.state.selectionEnd = vs.selectionEnd;
+	mContext.state.timelineScrollX = vs.scrollX;
+	mContext.state.timelineScrollY = vs.scrollY;
+
+	mContext.state.timelineGridNumerator = vs.timelineGridNumerator;
+	mContext.state.timelineGridDenominator = vs.timelineGridDenominator;
+	if (mContext.state.timelineGridDenominator <= 0)
+		mContext.state.timelineGridDenominator = 4;
+	mContext.state.timelineGrid = (double)mContext.state.timelineGridNumerator / mContext.state.timelineGridDenominator;
+
+	mContext.state.restoreScroll = true;
 }
 
 void Editor::ExportProject() {
@@ -995,6 +1009,15 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 	RenderSettingsWindow();
 	RenderHistoryWindow();
 	PumpPluginEditors();
+
+	// a project the library asked for, loaded once every view has finished drawing:
+	// swapping the tracks out mid-frame would leave the rest of them iterating a
+	// list that no longer exists
+	if (!mContext.state.pendingProjectPath.empty()) {
+		const std::string projectToOpen = mContext.state.pendingProjectPath;
+		mContext.state.pendingProjectPath.clear();
+		OpenProjectFile(projectToOpen);
+	}
 
 	if (mContext.state.processDrop) {
 		// snapshot track topology so a drop that creates a track is undoable

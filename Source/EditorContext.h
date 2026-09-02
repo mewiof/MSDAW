@@ -6,6 +6,7 @@
 #include <vector>
 #include "AudioEngine.h"
 #include "Clip.h"
+#include "Library/FileBrowser.h"
 #include "PluginManager.h"
 #include "AudioProcessor.h"
 #include "Track.h"
@@ -256,6 +257,12 @@ struct EditorState {
 	// (a bounced track's wav) beside the project rather than off in an app folder
 	std::string projectPath;
 
+	// a project the library explorer wants opened, handed over rather than loaded on
+	// the spot: swapping the project out mid-frame would pull the tracks out from
+	// under the views still to be drawn, and only the editor knows to clear the undo
+	// history and pull the view state out of the file
+	std::string pendingProjectPath;
+
 	// os drag and drop
 	std::string droppedPath;
 	float dropX = 0.0f;
@@ -274,6 +281,7 @@ struct EditorContext {
 	EditorState state;
 	EditorLayout layout;
 	PluginManager pluginManager;
+	FileBrowser fileBrowser;
 	UndoManager undoManager;
 
 	// native window handle

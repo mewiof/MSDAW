@@ -120,6 +120,12 @@ target_link_libraries(MSDAWCore
 		Freetype::Freetype
 )
 
+# the library explorer's folder picker (SHBrowseForFolder) and "show in explorer"
+# (ShellExecute) live in shell32; the picker frees its result with CoTaskMemFree
+if(WIN32)
+	target_link_libraries(MSDAWCore PUBLIC shell32 ole32)
+endif()
+
 target_compile_definitions(MSDAWCore
 	PUBLIC
 		_CRT_SECURE_NO_WARNINGS

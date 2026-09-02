@@ -6,7 +6,6 @@
 #include <cmath>
 
 void LibraryView::Render(const ImVec2& pos, float width, float height) {
-	const Theme& th = Theme::Instance();
 	AppConfig& config = AppConfig::Instance();
 
 	ImGui::SetNextWindowPos(pos);
@@ -45,8 +44,47 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 
 	ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 
-	// internal effects. the collapse handle rides the first section header rather than
-	// taking a row of its own - the library is already the narrowest column on screen
+	RenderInternalDevices();
+
+	ImGui::Dummy(ImVec2(0, 10));
+
+	// the plugin list and the file explorer share whatever is left below the devices,
+	// with a splitter between them. both are lists that can be arbitrarily long, so
+	// neither gets to size itself off its contents - the user decides the balance
+	const float scale = mContext.state.mainScale;
+	const float splitterHeight = std::floor(5.0f * scale);
+	const float minSectionHeight = std::floor(60.0f * scale);
+	const float sharedHeight = ImGui::GetContentRegionAvail().y;
+
+	float pluginsHeight = sharedHeight * config.libraryBrowserSplit;
+	if (sharedHeight - splitterHeight >= minSectionHeight * 2.0f)
+		pluginsHeight = std::clamp(pluginsHeight, minSectionHeight, sharedHeight - splitterHeight - minSectionHeight);
+	else
+		pluginsHeight = std::max((sharedHeight - splitterHeight) * 0.5f, 0.0f); // too short to honor the minimums
+
+	ImGui::BeginChild("LibPlugins", ImVec2(0, pluginsHeight));
+	RenderPlugins();
+	ImGui::EndChild();
+
+	RenderSplitter(sharedHeight);
+
+	ImGui::BeginChild("LibFiles");
+	mFileBrowserView.Render(pos, ImVec2(pos.x + width, pos.y + height));
+	ImGui::EndChild();
+
+	ImGui::End();
+}
+
+// ================================================================
+// INTERNAL DEVICES
+// ================================================================
+
+void LibraryView::RenderInternalDevices() {
+	const Theme& th = Theme::Instance();
+	AppConfig& config = AppConfig::Instance();
+
+	// the collapse handle rides the first section header rather than taking a row of
+	// its own - the library is already the narrowest column on screen
 	if (ImGui::ArrowButton("##CollapseLibrary", ImGuiDir_Left)) {
 		config.libraryCollapsed = true;
 		config.Save();
@@ -120,11 +158,17 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 		ImGui::EndDragDropSource();
 	}
 	ImGui::PopID();
+}
 
-	ImGui::Dummy(ImVec2(0, 10));
+// ================================================================
+// PLUGINS
+// ================================================================
 
-	// VST plugins
+void LibraryView::RenderPlugins() {
+	const Theme& th = Theme::Instance();
+
 	ImGui::PushStyleColor(ImGuiCol_Text, th.textMuted);
+	ImGui::AlignTextToFramePadding();
 	ImGui::Text("PLUGINS");
 	ImGui::Separator();
 	ImGui::PopStyleColor();
@@ -201,6 +245,34 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 		ImGui::PopID();
 	}
 	ImGui::EndChild();
+}
 
-	ImGui::End();
+// ================================================================
+// SPLITTER
+// ================================================================
+
+void LibraryView::RenderSplitter(float sharedHeight) {
+	const Theme& th = Theme::Instance();
+	AppConfig& config = AppConfig::Instance();
+
+	const float splitterHeight = std::floor(5.0f * mContext.state.mainScale);
+	ImGui::InvisibleButton("##LibrarySplitter", ImVec2(ImGui::GetContentRegionAvail().x, splitterHeight));
+
+	const bool active = ImGui::IsItemActive();
+	if (active || ImGui::IsItemHovered())
+		ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+
+	if (active && sharedHeight > 0.0f) {
+		config.libraryBrowserSplit = std::clamp(config.libraryBrowserSplit + ImGui::GetIO().MouseDelta.y / sharedHeight, 0.1f, 0.9f);
+	}
+	// written to disk once the grab is let go, not on every pixel of the drag
+	if (ImGui::IsItemDeactivated())
+		config.Save();
+
+	// a hairline rather than a filled bar: the grab area is five pixels tall so it can
+	// be caught, but only the line itself should be visible at rest
+	const ImVec2 min = ImGui::GetItemRectMin();
+	const ImVec2 max = ImGui::GetItemRectMax();
+	const float y = std::floor((min.y + max.y) * 0.5f);
+	ImGui::GetWindowDrawList()->AddLine(ImVec2(min.x, y), ImVec2(max.x, y), active ? th.accent : th.divider);
 }

@@ -2,11 +2,108 @@
 #include "ClipView.h"
 #include "Clips/AudioClip.h"
 #include "Clips/MIDIClip.h"
+#include "Project.h"
 #include "Undo/Actions.h"
 #include <string>
 #include <algorithm>
 #include <memory>
 #include <mutex>
+
+// ================================================================
+// CLIP FIELD
+// ================================================================
+
+bool AudioClipParameter::DrawField(float width) {
+	if (!mEdit.clip) {
+		mGestureActive = false;
+		return false;
+	}
+
+	// the clip is the value, this object only mirrors it: read it back at the top of
+	// every frame so an edit that came from anywhere else - another clip selected, an
+	// undone warp action, a tempo change retiming the segment - is simply what the box
+	// shows, with no sync to keep and nothing to drift
+	const AudioClipWarpState frameBefore = mEdit.clip->CaptureWarpState();
+	value = (float)((mEdit.clip.get()->*mRead)());
+
+	mCommitPending = false;
+	const bool changed = DrawCompact(width > 0.0f ? width : ImGui::GetContentRegionAvail().x, mValueFmt);
+
+	// a drag that began this frame has not moved the clip yet, so the state read above
+	// is the one the whole gesture undoes back to
+	if (!mGestureActive && IsInEditGesture()) {
+		mGestureActive = true;
+		mGestureBefore = frameBefore;
+	}
+
+	if (changed)
+		WriteToClip();
+
+	// pushed from here rather than from CommitEdit because this is the only point that
+	// sees the clip AFTER the edit has landed on it
+	if (mCommitPending) {
+		if (mEdit.project && mEdit.undoManager)
+			mEdit.undoManager->Push(std::make_unique<AudioClipWarpAction>(
+				mEdit.project, mEdit.clip,
+				mGestureActive ? mGestureBefore : frameBefore,
+				mEdit.clip->CaptureWarpState(), mActionName));
+		mGestureActive = false;
+	} else if (!IsInEditGesture()) {
+		mGestureActive = false;
+	}
+
+	return changed;
+}
+
+void AudioClipParameter::WriteToClip() {
+	AudioClip* clip = mEdit.clip.get();
+	auto apply = [&]() {
+		(clip->*mWrite)((double)value);
+		// the warp fields decide how many beats of the file the clip covers, and the
+		// visible duration is clamped to that. validating unconditionally keeps the
+		// write in one place and costs nothing for the fields that do not move it
+		clip->ValidateDuration(mEdit.projectBpm);
+	};
+
+	// the audio thread reads all of this while it renders the clip
+	if (mEdit.project) {
+		std::lock_guard<std::mutex> lock(mEdit.project->GetMutex());
+		apply();
+	} else {
+		apply();
+	}
+}
+
+void AudioClipParameter::CommitEdit(float, float) {
+	// deliberately does not chain to the base: the undo entry is an AudioClipWarpAction
+	// pushed by DrawField, and a clip field has no automation lane to be the Show Auto
+	// button's "last touched parameter" for
+	mCommitPending = true;
+}
+
+// ================================================================
+// CLIP VIEW
+// ================================================================
+
+ClipView::ClipView(EditorContext& context)
+	: mContext(context),
+	  // the ranges are the ones the drag fields carried before; a value box travels its
+	  // whole range over 200 px, with Shift for a tenth of that and digits typed straight
+	  // in when neither is fine enough
+	  mSegmentBpm(mEdit, "Seg. BPM", 120.0f, 20.0f, 999.0f,
+				  &AudioClip::GetSegmentBpm, &AudioClip::SetSegmentBpm, "%.2f", "Set clip BPM"),
+	  mTransientEnvelope(mEdit, "Envelope", 0.5f, 0.0f, 1.0f,
+						 &AudioClip::GetTransientEnvelope, &AudioClip::SetTransientEnvelope, "%.2f", "Set transient envelope"),
+	  mGrainSize(mEdit, "Grain Size", 80.0f, 20.0f, 300.0f,
+				 &AudioClip::GetGrainSizeMs, &AudioClip::SetGrainSizeMs, "%.0f ms", "Set grain size"),
+	  mFluctuation(mEdit, "Fluctuation", 0.0f, 0.0f, 1.0f,
+				   &AudioClip::GetFluctuation, &AudioClip::SetFluctuation, "%.2f", "Set fluctuation"),
+	  mFormants(mEdit, "Formants", 1.0f, 0.0f, 1.0f,
+				&AudioClip::GetFormants, &AudioClip::SetFormants, "%.2f", "Set formants"),
+	  mTransposeSemitones(mEdit, "Semitones", 0.0f, -48.0f, 48.0f,
+						  &AudioClip::GetTransposeSemitones, &AudioClip::SetTransposeSemitones, "%.0f st", "Transpose clip"),
+	  mTransposeCents(mEdit, "Detune", 0.0f, -100.0f, 100.0f,
+					  &AudioClip::GetTransposeCents, &AudioClip::SetTransposeCents, "%.0f ct", "Transpose clip") {}
 
 void ClipView::Render(const ImVec2& pos, float width, float height) {
 	ImVec2 defaultPadding = ImGui::GetStyle().WindowPadding;
@@ -28,6 +125,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 		float txtW = ImGui::CalcTextSize("No Clip Selected").x;
 		ImGui::SetCursorPos(ImVec2(width * 0.5f - txtW * 0.5f, height * 0.5f - 10.0f));
 		ImGui::TextDisabled("No Clip Selected");
+		mEdit.clip = nullptr;
 		ImGui::EndChild();
 		ImGui::End();
 		ImGui::PopStyleVar();
@@ -56,12 +154,20 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 	}
 	ImGui::Separator();
 
-	if (auto ac = std::dynamic_pointer_cast<AudioClip>(clip)) {
-		Project* project = mContext.GetProject();
-		double projectBpm = project ? project->GetTransport().GetBpm() : 120.0;
+	auto ac = std::dynamic_pointer_cast<AudioClip>(clip);
+	// the fields read the clip through this, so it is refilled before any of them draw
+	// and emptied again the moment a MIDI clip (or nothing) is selected
+	mEdit.project = mContext.GetProject();
+	mEdit.undoManager = &mContext.undoManager;
+	mEdit.clip = ac;
+	mEdit.projectBpm = mEdit.project ? mEdit.project->GetTransport().GetBpm() : 120.0;
 
-		// all warp/pitch fields are read by the audio thread, so every mutation runs
-		// under the project lock; the undo step records the before -> current diff
+	if (ac) {
+		Project* project = mEdit.project;
+		const double projectBpm = mEdit.projectBpm;
+
+		// the toggles and buttons are not parameters, so they take the lock and push
+		// their own before -> after step by hand
 		auto locked = [&](auto&& fn) {
 			if (project) {
 				std::lock_guard<std::mutex> lock(project->GetMutex());
@@ -74,22 +180,18 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 			if (project)
 				mContext.undoManager.Push(std::make_unique<AudioClipWarpAction>(project, ac, before, ac->CaptureWarpState(), name));
 		};
-		// drag widgets fire every frame; snapshot on activation, commit one step on release
-		auto beginDrag = [&]() {
-			if (ImGui::IsItemActivated()) {
-				mWarpGestureBefore = ac->CaptureWarpState();
-				mWarpGestureClip = ac;
-				mWarpGestureActive = true;
-			}
-		};
-		auto endDrag = [&](const char* name) {
-			if (ImGui::IsItemDeactivatedAfterEdit() && mWarpGestureActive && mWarpGestureClip == ac) {
-				pushUndo(mWarpGestureBefore, name);
-			}
-			if (ImGui::IsItemDeactivated()) {
-				mWarpGestureActive = false;
-				mWarpGestureClip.reset();
-			}
+
+		// a label in a fixed column with the value box beside it, which is how the
+		// mixer and the transport lay their parameters out too
+		const float fieldWidth = 100.0f * mContext.state.mainScale;
+		const float labelWidth = ImGui::CalcTextSize("Fluctuation").x + ImGui::GetStyle().ItemSpacing.x;
+		auto field = [&](AudioClipParameter& param, const char* tooltip) {
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted(param.name.c_str());
+			ImGui::SameLine(labelWidth);
+			param.DrawField(fieldWidth);
+			if (tooltip && ImGui::IsItemHovered())
+				ImGui::SetTooltip("%s", tooltip);
 		};
 
 		// audio clip controls
@@ -118,8 +220,11 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 			if (warping) {
 				const char* warpModes[] = {"Beats", "Tones", "Texture", "Re-Pitch", "Complex", "Complex Pro"};
 				int currentMode = (int)ac->GetWarpMode();
-				ImGui::SetNextItemWidth(100);
-				if (ImGui::Combo("Mode", &currentMode, warpModes, IM_ARRAYSIZE(warpModes))) {
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextUnformatted("Mode");
+				ImGui::SameLine(labelWidth);
+				ImGui::SetNextItemWidth(fieldWidth);
+				if (ImGui::Combo("##WarpMode", &currentMode, warpModes, IM_ARRAYSIZE(warpModes))) {
 					if (currentMode >= 0 && currentMode <= 5) {
 						AudioClipWarpState before = ac->CaptureWarpState();
 						locked([&]() { ac->SetWarpMode((WarpMode)currentMode); });
@@ -127,20 +232,10 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 					}
 				}
 
-				double bpm = ac->GetSegmentBpm();
-				float fBpm = (float)bpm;
-				ImGui::SetNextItemWidth(100);
-				bool bpmEdited = ImGui::DragFloat("Seg. BPM", &fBpm, 0.1f, 20.0f, 999.0f, "%.2f");
-				beginDrag();
-				if (bpmEdited) {
-					locked([&]() {
-						ac->SetSegmentBpm((double)fBpm);
-						ac->ValidateDuration(projectBpm);
-					});
-				}
-				endDrag("Set clip BPM");
+				field(mSegmentBpm, "Tempo the file was recorded at");
 
 				// half/double-time: the usual fix when the detected tempo is an octave off
+				ImGui::SameLine();
 				if (ImGui::SmallButton("/2")) {
 					AudioClipWarpState before = ac->CaptureWarpState();
 					locked([&]() {
@@ -162,45 +257,15 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 				// per-mode controls, mirroring Ableton's per-warp-mode knobs
 				WarpMode mode = ac->GetWarpMode();
 				if (mode == WarpMode::Beats) {
-					double env = ac->GetTransientEnvelope();
-					float fEnv = (float)env;
-					ImGui::SetNextItemWidth(100);
-					bool edited = ImGui::DragFloat("Envelope", &fEnv, 0.005f, 0.0f, 1.0f, "%.2f");
-					beginDrag();
-					if (edited)
-						locked([&]() { ac->SetTransientEnvelope((double)fEnv); });
-					endDrag("Set transient envelope");
+					field(mTransientEnvelope, "How hard each transient's grain is faded");
 				} else if (mode != WarpMode::RePitch) {
 					// Tones/Texture/Complex/ComplexPro share a grain-size knob
-					double gs = ac->GetGrainSizeMs();
-					float fGs = (float)gs;
-					ImGui::SetNextItemWidth(100);
-					bool edited = ImGui::DragFloat("Grain Size", &fGs, 0.5f, 20.0f, 300.0f, "%.0f ms");
-					beginDrag();
-					if (edited)
-						locked([&]() { ac->SetGrainSizeMs((double)fGs); });
-					endDrag("Set grain size");
+					field(mGrainSize, "Length of the grains the file is rebuilt from");
 
-					if (mode == WarpMode::Texture) {
-						double fl = ac->GetFluctuation();
-						float fFl = (float)fl;
-						ImGui::SetNextItemWidth(100);
-						bool e2 = ImGui::DragFloat("Fluctuation", &fFl, 0.005f, 0.0f, 1.0f, "%.2f");
-						beginDrag();
-						if (e2)
-							locked([&]() { ac->SetFluctuation((double)fFl); });
-						endDrag("Set fluctuation");
-					}
-					if (mode == WarpMode::ComplexPro) {
-						double fm = ac->GetFormants();
-						float fFm = (float)fm;
-						ImGui::SetNextItemWidth(100);
-						bool e2 = ImGui::DragFloat("Formants", &fFm, 0.005f, 0.0f, 1.0f, "%.2f");
-						beginDrag();
-						if (e2)
-							locked([&]() { ac->SetFormants((double)fFm); });
-						endDrag("Set formants");
-					}
+					if (mode == WarpMode::Texture)
+						field(mFluctuation, "Randomizes the grain positions");
+					if (mode == WarpMode::ComplexPro)
+						field(mFormants, "How much of the original formants is kept");
 				}
 
 				// honest one-liner: only Re-Pitch couples tempo to pitch
@@ -227,31 +292,8 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 				ImGui::TextDisabled("Disabled in Re-Pitch");
 			ImGui::BeginDisabled(repitch);
 
-			double semi = ac->GetTransposeSemitones();
-			float fSemi = (float)semi;
-			ImGui::SetNextItemWidth(100);
-			bool semiEdited = ImGui::DragFloat("Semitones", &fSemi, 0.1f, -48.0f, 48.0f, "%.0f st");
-			beginDrag();
-			if (semiEdited) {
-				locked([&]() {
-					ac->SetTransposeSemitones((double)fSemi);
-					ac->ValidateDuration(projectBpm);
-				});
-			}
-			endDrag("Transpose clip");
-
-			double cents = ac->GetTransposeCents();
-			float fCents = (float)cents;
-			ImGui::SetNextItemWidth(100);
-			bool centsEdited = ImGui::DragFloat("Detune", &fCents, 0.1f, -100.0f, 100.0f, "%.0f ct");
-			beginDrag();
-			if (centsEdited) {
-				locked([&]() {
-					ac->SetTransposeCents((double)fCents);
-					ac->ValidateDuration(projectBpm);
-				});
-			}
-			endDrag("Transpose clip");
+			field(mTransposeSemitones, "Transpose in whole semitones");
+			field(mTransposeCents, "Fine tuning, a hundredth of a semitone each");
 
 			// add a helper reset button
 			if (ImGui::Button("Reset Pitch")) {

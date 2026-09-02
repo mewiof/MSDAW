@@ -21,6 +21,11 @@ private:
 	// too early to ask ImGui::IsWindowHovered() - so we use last frame's answer
 	bool mHoveredLastFrame = false;
 
+	// middle button held: the view follows the mouse on both axes at once. the button
+	// is grabbed while the arrangement is hovered and kept until it comes back up, so
+	// a pan that wanders over the track list or off the panel entirely still tracks
+	bool mPanning = false;
+
 	// last frame's scroll-independent content origin (screen x of beat 0 at scroll 0).
 	// the pre-Begin zoom anchor needs it to place the cursor in content space, but it
 	// cannot call GetCursorScreenPos() before Begin exists - so we cache last frame's

@@ -167,9 +167,11 @@ void PianoRollView::Render() {
 	double viewOrigin = 0.0;
 	std::vector<RollClip> rollClips = CollectClips(viewOrigin);
 	if (rollClips.empty()) {
-		// the piano roll is closed for this frame: make sure a held preview note
-		// does not get stuck sounding forever
+		// the piano roll is closed for this frame: make sure a held preview note does
+		// not get stuck sounding forever, and that a pan the close interrupted does
+		// not pick itself back up the next time the roll opens
 		StopPreview();
+		mPanning = false;
 		return;
 	}
 
@@ -206,6 +208,7 @@ void PianoRollView::Render() {
 	bool windowOpen = ImGui::Begin("Piano Roll", nullptr);
 	if (!windowOpen) {
 		StopPreview();
+		mPanning = false;
 		ImGui::End();
 		return;
 	}
@@ -397,6 +400,19 @@ void PianoRollView::Render() {
 				prNextScrollX = std::max(0.0f, (float)(beatAtMouse * ppbNew) - (io.MousePos.x - gridWinPos.x));
 			}
 		}
+	}
+
+	// ---- middle-button pan: hold the wheel down and drag the grid around under the
+	// cursor, both axes at once. resolved here rather than inside the child for the
+	// same reason the zoom is - a scroll set from in there only lands on the next
+	// frame, and a view that trails the mouse by a frame reads as sticky ----
+	if (mPanning)
+		mPanning = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+	else if (mGridHoveredLast && ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
+		mPanning = true;
+	if (mPanning) {
+		prNextScrollX = std::max(0.0f, mScrollX - io.MouseDelta.x);
+		prNextScrollY = std::max(0.0f, mScrollY - io.MouseDelta.y);
 	}
 
 	// post-zoom sizing (reflects this frame's zoom)
@@ -1172,4 +1188,9 @@ void PianoRollView::Render() {
 	}
 
 	ImGui::End();
+
+	// after End, so it wins over the hand/resize cursors the notes under the pointer
+	// set while it is dragged across them
+	if (mPanning)
+		ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
 }

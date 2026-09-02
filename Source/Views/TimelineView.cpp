@@ -46,6 +46,11 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 		ImGui::SetNextWindowContentSize(ImVec2(contentWidthDecl, 0.0f)); // 0 y == leave vertical automatic
 	}
 
+	// the scroll this frame opens at. a negative axis is left where imgui had it, which
+	// is what SetNextWindowScroll reads a negative component as
+	float nextScrollX = -1.0f;
+	float nextScrollY = -1.0f;
+
 	// keep the beat under the cursor pinned across the zoom. mContentLeftX is last
 	// frame's scroll-independent content origin and state.timelineScrollX is last
 	// frame's scroll - together they locate the mouse in content space, letting us
@@ -56,11 +61,26 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 		float mouseX = io.MousePos.x;
 		float contentLeft0 = mContentLeftX;
 		double mouseBeat = (double)(mouseX - (contentLeft0 - mContext.state.timelineScrollX)) / zoomOldPPB;
-		float newScrollX = (float)(mouseBeat * newPPB) - (mouseX - contentLeft0);
-		if (newScrollX < 0.0f)
-			newScrollX = 0.0f;
-		ImGui::SetNextWindowScroll(ImVec2(newScrollX, -1.0f)); // -1 y == leave vertical scroll untouched
+		nextScrollX = std::max((float)(mouseBeat * newPPB) - (mouseX - contentLeft0), 0.0f);
 	}
+
+	// middle-button pan: hold the wheel down and drag the arrangement around under the
+	// cursor, both axes at once. resolved here for the same reason the zoom is - a
+	// scroll set from inside the window only lands on the NEXT frame, and a view that
+	// trails the mouse by a frame reads as sticky. imgui clamps the target to the
+	// scrollable range for us, so only the negative sentinel has to be kept out
+	if (mPanning)
+		mPanning = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+	else if (mHoveredLastFrame && ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
+		mPanning = true;
+	if (mPanning) {
+		nextScrollX = std::max(mContext.state.timelineScrollX - io.MouseDelta.x, 0.0f);
+		nextScrollY = std::max(mContext.state.timelineScrollY - io.MouseDelta.y, 0.0f);
+		mContext.state.followPlayback = false; // the user is driving the view now
+	}
+
+	if (nextScrollX >= 0.0f || nextScrollY >= 0.0f)
+		ImGui::SetNextWindowScroll(ImVec2(nextScrollX, nextScrollY));
 
 	ImGui::SetNextWindowPos(pos);
 	ImGui::SetNextWindowSize(ImVec2(width, height));
@@ -572,4 +592,9 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 		}
 	}
 	ImGui::End();
+
+	// after End, so it wins over the hand/resize cursors the clips under the pointer
+	// set while it is dragged across them
+	if (mPanning)
+		ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
 }

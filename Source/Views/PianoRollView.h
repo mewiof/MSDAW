@@ -81,6 +81,11 @@ private:
 	// early to know this frame's hover - so we reuse last frame's result
 	bool mGridHoveredLast = false;
 
+	// middle button held: the grid follows the mouse on both axes at once. grabbed
+	// while the grid is hovered and kept until the button comes back up, so a pan that
+	// wanders over the keys or the ruler still tracks
+	bool mPanning = false;
+
 	// auto-center: when the focused clip changes we recenter the view on its
 	// notes. compared by weak_ptr identity so we never deref a stale clip. the origin
 	// is tracked alongside it because adding a clip to the selection can move the

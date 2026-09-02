@@ -488,11 +488,14 @@ bool AutoSidechainProcessor::RenderCustomUI(const ImVec2& size) {
 	}
 
 	ImGui::SameLine();
-	if (mListen)
+	// the button flips mListen as it is drawn, so the pop has to be guarded by what the
+	// push saw - reading the member twice pops a color that was never pushed
+	const bool listening = mListen;
+	if (listening)
 		ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
 	if (ImGui::Button("Listen", ImVec2(listenWidth, 0.0f)))
 		mListen = !mListen;
-	if (mListen)
+	if (listening)
 		ImGui::PopStyleColor();
 	if (ImGui::IsItemHovered())
 		ImGui::SetTooltip("Monitor the filtered detector signal instead of this track");

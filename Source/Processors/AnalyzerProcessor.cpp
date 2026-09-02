@@ -1467,11 +1467,13 @@ void AnalyzerProcessor::DrawControlRow(float width) {
 	// the left, and never let a long tab row push them off the panel
 	ImGui::SetCursorScreenPos(ImVec2(rowStart.x + width - rightWidth, rowStart.y));
 
-	if (mFrozen)
+	// the button flips mFrozen as it is drawn, so the pop is guarded by what the push saw
+	const bool frozen = mFrozen;
+	if (frozen)
 		ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
 	if (ImGui::Button("Freeze", ImVec2(freezeWidth, 0.0f)))
 		mFrozen = !mFrozen;
-	if (mFrozen)
+	if (frozen)
 		ImGui::PopStyleColor();
 	if (ImGui::IsItemHovered())
 		ImGui::SetTooltip("Hold the picture still so it can be read, or compared against another track");

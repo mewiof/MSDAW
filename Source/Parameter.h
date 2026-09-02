@@ -70,6 +70,17 @@ public:
 	// request that the editor reveal this parameter's automation lane
 	static void RequestAutomation(Parameter* param) { sAutomationRequestParameter = param; }
 protected:
+	// how a finished edit is recorded, called once per edit by both commit paths. the
+	// default hands it to sOnEditCommitted, which the editor turns into a
+	// ParameterChangeAction writing straight back into this object - correct for a
+	// parameter that IS the value. a parameter that only MIRRORS a value owned
+	// elsewhere overrides this: restoring the mirror does not restore what it mirrors,
+	// and by the time an undo runs the mirror may be pointing at something else
+	virtual void CommitEdit(float oldValue, float newValue);
+
+	// true while this parameter is the one inside a Begin/EndEditGesture pair
+	bool IsInEditGesture() const { return sEditingParam == this; }
+
 	static Parameter* sAutomationRequestParameter;
 	static Parameter* sSelectedParameter;
 

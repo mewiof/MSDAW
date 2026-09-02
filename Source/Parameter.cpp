@@ -43,11 +43,8 @@ void Parameter::EndEditGesture() {
 	}
 	float oldValue = sEditOldValue;
 	sEditingParam = nullptr;
-	if (value != oldValue) {
-		sLastTouchedParameter = this;
-		if (sOnEditCommitted)
-			sOnEditCommitted(this, oldValue, value);
-	}
+	if (value != oldValue)
+		CommitEdit(oldValue, value);
 }
 
 void Parameter::CommitEditImmediate(float oldValue) {
@@ -58,9 +55,13 @@ void Parameter::CommitEditImmediate(float oldValue) {
 		sEditingParam = nullptr;
 	if (value == oldValue)
 		return;
+	CommitEdit(oldValue, value);
+}
+
+void Parameter::CommitEdit(float oldValue, float newValue) {
 	sLastTouchedParameter = this;
 	if (sOnEditCommitted)
-		sOnEditCommitted(this, oldValue, value);
+		sOnEditCommitted(this, oldValue, newValue);
 }
 
 bool Parameter::HandleCommonInteractions() {

@@ -15,6 +15,8 @@
 #include "TimelineAutomationRenderer.h"
 #include "TrackLayout.h"
 #include "Theme.h"
+#include "Library/LibraryImport.h"
+#include "Undo/Actions.h"
 #include "Views/DeviceRackOps.h"
 
 void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteractionState& interaction,
@@ -113,6 +115,17 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 						rack->AddChain("Chain");
 					DeviceRackOps::InsertDevice(project, context.undoManager, t, chainEnd, proc, "Add device");
 				}
+			}
+			// a file dragged out of the library lands where it was dropped, snapped to
+			// the grid the timeline is showing - the same landing an OS drop gets
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("LIBRARY_FILE")) {
+				const std::string path = (const char*)payload->Data;
+				const double startBeat = TimelineClipOps::DropBeatAt(context, winPos.x, ImGui::GetMousePos().x);
+
+				ClipEditScope scope(project, context.undoManager, "Import file");
+				scope.Touch(t);
+				if (LibraryImport::ImportToTrack(project, t, path, startBeat))
+					scope.Commit();
 			}
 			ImGui::EndDragDropTarget();
 		}

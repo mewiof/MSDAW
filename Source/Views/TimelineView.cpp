@@ -311,6 +311,15 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 					}
 				}
 			}
+			// dropped past the last track: the file gets a track of its own, recorded by
+			// the topology snapshot this target already takes around every drop
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("LIBRARY_FILE")) {
+				const std::string path = (const char*)payload->Data;
+				const double startBeat = TimelineClipOps::DropBeatAt(mContext, winPos.x, ImGui::GetMousePos().x);
+				const int trackIndex = LibraryImport::ImportToNewTrack(project, path, startBeat);
+				if (trackIndex >= 0)
+					mContext.state.SelectTrack(trackIndex);
+			}
 			auto dropAfter = TrackTopologyAction::Snapshot(project);
 			if (dropAfter.size() != dropBefore.size())
 				mContext.undoManager.Push(std::make_unique<TrackTopologyAction>(project, dropBefore, dropAfter, "Add track"));

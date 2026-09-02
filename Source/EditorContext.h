@@ -15,11 +15,13 @@
 struct EditorLayout {
 	float transportHeight = 40.0f;	  // single control row - taller left a dead strip under the buttons
 	// the device strip is a fixed height and nothing in it scrolls, so this number is
-	// what every built-in device lays itself out inside. it is set by the tallest of
-	// them: EQ Eight's globals column is eleven rows, and under this they start eating
-	// the graph. proportionally it matches the original device once our larger UI font
-	// is accounted for
-	float bottomPanelHeight = 340.0f;
+	// what every built-in device lays itself out inside. it is the shortest strip the
+	// tallest of them still draws its own editor at full size in: the tab strip, the
+	// rack's scrollbar and a device's own header eat ~83 px, and what is left is exactly
+	// EQ Eight's globals column - eleven rows at full control height with the gaps
+	// between them closed. take more away and those controls start shrinking; below
+	// ~260 the device gives up on its editor and falls back to a parameter list
+	float bottomPanelHeight = 300.0f;
 	float libraryWidth = 200.0f;
 	float libraryCollapsedWidth = 26.0f; // folded-away library: just the rail that brings it back
 	float trackListWidth = 240.0f;

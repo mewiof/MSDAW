@@ -51,6 +51,12 @@ void SelectRangeTo(EditorContext& context, const std::shared_ptr<Clip>& target);
 // slid between the grid lines every other gesture rides would read as a bug
 double SnapMarqueeBeat(EditorContext& context, double beat);
 
+// where a file dropped at `screenX` starts, given the screen x of beat 0. clamped
+// to the start of the timeline and snapped to the grid, so an import lands on the
+// same lines every other gesture does. `timelineOriginX` is the window position the
+// timeline draws from, which already carries the horizontal scroll
+double DropBeatAt(EditorContext& context, float timelineOriginX, float screenX);
+
 // clips a marquee overlaps, in track order then start-beat order. trackFrom/trackTo
 // and beatFrom/beatTo may come in either order
 std::vector<std::shared_ptr<Clip>> ClipsInBox(Project* project, int trackFrom, int trackTo, double beatFrom, double beatTo);

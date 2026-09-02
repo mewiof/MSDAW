@@ -121,6 +121,15 @@ double SnapMarqueeBeat(EditorContext& context, double beat) {
 	return std::round(beat / context.state.timelineGrid) * context.state.timelineGrid;
 }
 
+double DropBeatAt(EditorContext& context, float timelineOriginX, float screenX) {
+	double beat = (double)(screenX - timelineOriginX) / context.state.pixelsPerBeat;
+	if (beat < 0.0)
+		beat = 0.0;
+	if (context.state.timelineGrid > 0.0)
+		beat = std::round(beat / context.state.timelineGrid) * context.state.timelineGrid;
+	return beat;
+}
+
 std::vector<std::shared_ptr<Clip>> ClipsInBox(Project* project, int trackFrom, int trackTo, double beatFrom, double beatTo) {
 	std::vector<std::shared_ptr<Clip>> hits;
 	if (!project)

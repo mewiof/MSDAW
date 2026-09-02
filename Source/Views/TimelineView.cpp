@@ -5,6 +5,7 @@
 #include "ProcessorFactory.h"
 #include "Processors/VSTProcessor.h"
 #include "Processors/VST3Processor.h"
+#include "Library/LibraryImport.h"
 #include "Undo/Actions.h"
 #include <filesystem>
 #include <algorithm>
@@ -327,49 +328,18 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 				float relY = mContext.state.dropY - trackAreaStartY;
 				// only accept a drop that lands on an actual track row (not empty space below)
 				int trackIndex = (relY >= 0.0f && relY < TrackLayout::TotalHeight(rows)) ? TrackLayout::RowAtY(rows, relY) : -1;
-				float relX = mContext.state.dropX - winPos.x;
-				double startBeat = (double)relX / mContext.state.pixelsPerBeat;
-				if (startBeat < 0)
-					startBeat = 0;
-				if (mContext.state.timelineGrid > 0.0)
-					startBeat = round(startBeat / mContext.state.timelineGrid) * mContext.state.timelineGrid;
+				const double startBeat = TimelineClipOps::DropBeatAt(mContext, winPos.x, mContext.state.dropX);
 
-				std::filesystem::path p(mContext.state.droppedPath);
-				std::string ext = p.extension().string();
-				std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+				// audio and MIDI come in through the same importer the library drags use,
+				// so a file dropped from Explorer and one dragged out of the panel land
+				// identically - and both as one undo step
 				bool handled = false;
-
-				if ((ext == ".wav" || ext == ".mp3" || ext == ".flac") && trackIndex >= 0 && trackIndex < (int)tracks.size()) {
-					if (tracks[trackIndex]->AcceptsClips()) {
-						auto clip = std::make_shared<AudioClip>();
-						clip->SetName(p.filename().string());
-						if (clip->LoadFromFile(mContext.state.droppedPath)) {
-							// calculate proper clip duration based on sample rate and bpm
-							double sampleRate = clip->GetSampleRate();
-							uint64_t frames = clip->GetTotalFileFrames();
-							double projectBpm = transport ? transport->GetBpm() : 120.0;
-
-							if (sampleRate > 0) {
-								double durationSecs = (double)frames / sampleRate;
-								double durationBeats = durationSecs * (projectBpm / 60.0);
-								clip->SetDuration(durationBeats);
-							}
-
-							clip->SetStartBeat(startBeat);
-							tracks[trackIndex]->AddClip(clip);
-							handled = true;
-						}
-					}
-				} else if ((ext == ".mid" || ext == ".mIDI") && trackIndex >= 0 && trackIndex < (int)tracks.size()) {
-					if (tracks[trackIndex]->AcceptsClips()) {
-						auto clip = std::make_shared<MIDIClip>();
-						clip->SetName(p.filename().string());
-						if (clip->LoadFromFile(mContext.state.droppedPath)) {
-							clip->SetStartBeat(startBeat);
-							tracks[trackIndex]->AddClip(clip);
-							handled = true;
-						}
-					}
+				if (trackIndex >= 0 && trackIndex < (int)tracks.size()) {
+					ClipEditScope scope(project, mContext.undoManager, "Import file");
+					scope.Touch(tracks[trackIndex]);
+					handled = LibraryImport::ImportToTrack(project, tracks[trackIndex], mContext.state.droppedPath, startBeat);
+					if (handled)
+						scope.Commit();
 				}
 				if (handled)
 					mContext.state.processDrop = false;

@@ -97,6 +97,18 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	}
 	ImGui::PopID();
 
+	// audio effect rack. it arrives empty, and the rack view gives it its first chain
+	ImGui::PushID("Rack");
+	if (ImGui::Selectable("Audio Effect Rack")) {
+	}
+	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "Rack", strlen("Rack") + 1);
+		ImGui::Text("Audio Effect Rack");
+		ImGui::TextDisabled("Container");
+		ImGui::EndDragDropSource();
+	}
+	ImGui::PopID();
+
 	// analyzer
 	ImGui::PushID("Analyzer");
 	if (ImGui::Selectable("Analyzer")) {

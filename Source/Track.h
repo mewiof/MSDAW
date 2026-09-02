@@ -9,6 +9,7 @@
 #include <iostream>
 #include "AudioProcessor.h"
 #include "MIDITypes.h"
+#include "ProcessorHost.h"
 #include "Clip.h"
 #include "imgui.h" // for ImU32
 #include "Parameter.h"
@@ -30,7 +31,10 @@ struct AutomationCurve {
 	float Evaluate(double beat) const;
 };
 
-class Track {
+// a track owns a chain of devices like any other host, so the rack view, the undo
+// actions and every walk over its parameters treat "on the track" and "inside a rack on
+// the track" as the same shape
+class Track : public ProcessorHost {
 public:
 	Track();
 	~Track();
@@ -89,13 +93,8 @@ public:
 				 bool accumulateToOutput = false,
 				 bool detectorOnly = false);
 
-	// processor management
-	void AddProcessor(std::shared_ptr<AudioProcessor> processor);
-	void InsertProcessor(int index, std::shared_ptr<AudioProcessor> processor);
-	void RemoveProcessor(int index);
-	void MoveProcessor(int fromIndex, int toIndex);
-
-	std::vector<std::shared_ptr<AudioProcessor>>& GetProcessors() { return mProcessors; }
+	// processor management (insert / remove / move / replace come from ProcessorHost)
+	std::vector<std::shared_ptr<AudioProcessor>>& GetProcessors() override { return mProcessors; }
 
 	// clip management
 	void AddClip(std::shared_ptr<Clip> clip);
@@ -150,6 +149,10 @@ public:
 
 	// temp storage for parent index during loading
 	int mLoadedParentIndex = -1;
+protected:
+	// the fader and (on the master) the tempo, which belong to the track itself rather
+	// than to any device on it
+	void CollectOwnParameters(std::vector<Parameter*>& out) override;
 private:
 	std::string mName = "Track";
 	uint32_t mId = 0;

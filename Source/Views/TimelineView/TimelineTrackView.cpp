@@ -3,6 +3,7 @@
 #include "Project.h"
 #include "Track.h"
 #include "ProcessorFactory.h"
+#include "Processors/RackProcessor.h"
 #include "Processors/VSTProcessor.h"
 #include "Processors/VST3Processor.h"
 #include <algorithm>
@@ -14,6 +15,7 @@
 #include "TimelineAutomationRenderer.h"
 #include "TrackLayout.h"
 #include "Theme.h"
+#include "Views/DeviceRackOps.h"
 
 void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteractionState& interaction,
 									 PendingClipMove& pendingMove, PendingClipDelete& pendingDelete,
@@ -80,53 +82,36 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 		ImGui::InvisibleButton("##TrackDropTarget", ImVec2(viewWidth, rowH));
 
 		if (ImGui::BeginDragDropTarget()) {
+			// a device dropped on a lane lands at the end of that track's chain, through
+			// the same operations the rack view uses - so it takes the project lock and
+			// lands in the history exactly like a drop inside the rack does
+			const int chainEnd = (int)t->GetProcessors().size();
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("PROCESSOR_MOVE")) {
-				DeviceMovePayload* moveData = (DeviceMovePayload*)payload->Data;
-				if (moveData->trackIndex != (int)i) {
-					std::shared_ptr<Track> srcTrack = nullptr;
-					if (moveData->trackIndex == -1)
-						srcTrack = project->GetMasterTrack();
-					else if (moveData->trackIndex >= 0 && moveData->trackIndex < (int)project->GetTracks().size())
-						srcTrack = project->GetTracks()[moveData->trackIndex];
-
-					if (srcTrack && moveData->deviceIndex < (int)srcTrack->GetProcessors().size()) {
-						auto proc = srcTrack->GetProcessors()[moveData->deviceIndex];
-						srcTrack->RemoveProcessor(moveData->deviceIndex);
-						t->AddProcessor(proc);
-					}
-				}
+				const DeviceRackOps::DevicePath source = *(const DeviceRackOps::DevicePath*)payload->Data;
+				auto location = DeviceRackOps::ResolveDevice(project, source);
+				if (location.IsValid() && location.host != t)
+					DeviceRackOps::MoveDevice(project, context.undoManager, location.host, location.index, t, chainEnd);
 			}
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("VST_PLUGIN")) {
 				std::string path = (const char*)payload->Data;
 				auto vST = std::make_shared<VSTProcessor>(path);
-				if (vST->Load()) {
-					t->AddProcessor(vST);
-					if (project->GetTransport().GetSampleRate() > 0)
-						vST->PrepareToPlay(project->GetTransport().GetSampleRate());
-				}
+				if (vST->Load())
+					DeviceRackOps::InsertDevice(project, context.undoManager, t, chainEnd, vST, "Add device");
 			}
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("VST3_PLUGIN")) {
 				std::string data = (const char*)payload->Data;
 				size_t pipe = data.find('|');
 				if (pipe != std::string::npos) {
-					std::string path = data.substr(0, pipe);
-					std::string classID = data.substr(pipe + 1);
-					auto vST = std::make_shared<VST3Processor>(path, classID);
-					if (vST->Load()) {
-						t->AddProcessor(vST);
-						if (project->GetTransport().GetSampleRate() > 0)
-							vST->PrepareToPlay(project->GetTransport().GetSampleRate());
-					}
+					auto vST = std::make_shared<VST3Processor>(data.substr(0, pipe), data.substr(pipe + 1));
+					if (vST->Load())
+						DeviceRackOps::InsertDevice(project, context.undoManager, t, chainEnd, vST, "Add device");
 				}
 			}
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("INTERNAL_PLUGIN")) {
-				std::string type = (const char*)payload->Data;
-				std::shared_ptr<AudioProcessor> proc = ProcessorFactory::Instance().Create(type);
-
-				if (proc) {
-					t->AddProcessor(proc);
-					if (project->GetTransport().GetSampleRate() > 0)
-						proc->PrepareToPlay(project->GetTransport().GetSampleRate());
+				if (auto proc = ProcessorFactory::Instance().Create((const char*)payload->Data)) {
+					if (auto rack = std::dynamic_pointer_cast<RackProcessor>(proc))
+						rack->AddChain("Chain");
+					DeviceRackOps::InsertDevice(project, context.undoManager, t, chainEnd, proc, "Add device");
 				}
 			}
 			ImGui::EndDragDropTarget();

@@ -334,7 +334,7 @@ void Editor::HandleGlobalShortcuts() {
 
 	static bool gWasDown = false;
 	bool gIsDown = (GetAsyncKeyState('G') & 0x8000) != 0;
-	if (ctrl && gIsDown && !gWasDown) {
+	if (ctrl && gIsDown && !gWasDown && !mContext.state.deviceRackOwnsGroupShortcut) {
 		if (Project* p = GetProject()) {
 			if (!mContext.state.multiSelectedTracks.empty()) {
 				auto before = TrackTopologyAction::Snapshot(p);
@@ -385,7 +385,7 @@ void Editor::HandleGlobalShortcuts() {
 			TogglePlayStop();
 	}
 
-	if (ctrl && ImGui::IsKeyPressed(ImGuiKey_G, false)) {
+	if (ctrl && ImGui::IsKeyPressed(ImGuiKey_G, false) && !mContext.state.deviceRackOwnsGroupShortcut) {
 		if (Project* p = GetProject()) {
 			if (!mContext.state.multiSelectedTracks.empty()) {
 				auto before = TrackTopologyAction::Snapshot(p);
@@ -717,6 +717,24 @@ void Editor::ProcessComputerKeyboardMIDI() {
 #endif
 }
 
+// a plugin nested in a rack needs servicing exactly like one sitting on the track, so
+// the walk follows every chain a device hosts
+static void IdleChainEditors(ProcessorHost& host) {
+	for (auto& proc : host.GetProcessors()) {
+		if (!proc)
+			continue;
+		if (proc->IsEditorOpen())
+			proc->EditorIdle();
+
+		std::vector<ProcessorHost*> nested;
+		proc->CollectHostedChains(nested);
+		for (ProcessorHost* chain : nested) {
+			if (chain)
+				IdleChainEditors(*chain);
+		}
+	}
+}
+
 void Editor::PumpPluginEditors() {
 	// give every open plugin editor a chance to service its GUI each frame. VST2
 	// plugins need effEditIdle to repaint smoothly; other processors no-op
@@ -724,19 +742,11 @@ void Editor::PumpPluginEditors() {
 	if (!project)
 		return;
 
-	if (auto master = project->GetMasterTrack()) {
-		for (auto& proc : master->GetProcessors()) {
-			if (proc && proc->IsEditorOpen())
-				proc->EditorIdle();
-		}
-	}
+	if (auto master = project->GetMasterTrack())
+		IdleChainEditors(*master);
 	for (auto& track : project->GetTracks()) {
-		if (!track)
-			continue;
-		for (auto& proc : track->GetProcessors()) {
-			if (proc && proc->IsEditorOpen())
-				proc->EditorIdle();
-		}
+		if (track)
+			IdleChainEditors(*track);
 	}
 }
 
@@ -889,6 +899,10 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 	mSystemMonitor.Update(); // refresh cpu/ram for the menu-bar meter (self-throttled)
 
 	HandleGlobalShortcuts();
+	// the device rack claims Ctrl+G for the frame it is drawn in and nothing longer:
+	// switching away from the device tab, or off a track that had a device selected,
+	// has to hand the shortcut straight back to the track list
+	mContext.state.deviceRackOwnsGroupShortcut = false;
 	ProcessComputerKeyboardMIDI();
 	RenderMenuBar();
 

@@ -36,6 +36,10 @@ public:
 	bool IsSelected() const { return sSelectedParameter == this; }
 	void Select();
 
+	// the parameter the user last clicked, which is what a rack's map mode maps onto a
+	// macro. null once a click has landed anywhere else
+	static Parameter* GetSelectedParameter() { return sSelectedParameter; }
+
 	// clears the typed-value selection when a frame's click landed on anything other
 	// than a parameter (empty space, another widget), so the digit-entry focus can be
 	// dismissed by clicking away. call once per frame after every parameter is drawn

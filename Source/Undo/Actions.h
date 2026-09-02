@@ -5,6 +5,8 @@
 #include "Undo/UndoableAction.h"
 #include "Undo/UndoManager.h"
 #include "Parameter.h"
+#include "ProcessorHost.h"
+#include "Processors/RackProcessor.h"
 #include "Track.h"
 #include "Project.h"
 #include "Clip.h"
@@ -37,79 +39,147 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// device present/absent on a track. Holds the processor shared_ptr so the
-// object (and every Parameter* inside it) stays alive across the whole history
-//   isInsert = true  -> the device was ADDED   (Redo inserts, Undo removes)
-//   isInsert = false -> the device was REMOVED (Redo removes, Undo inserts)
+// a device chain, snapshotted whole. one action covers insert, remove, reorder,
+// group, ungroup and a multi-device delete, on a track or on any rack chain
+// nested inside one - "the devices in this host changed" is the only fact a
+// device edit ever reports. the retained shared_ptrs keep every device (and
+// every Parameter* inside it) alive across the whole history
 // ---------------------------------------------------------------------------
-class ProcessorPresenceAction : public UndoableAction {
+class ProcessorChainAction : public UndoableAction {
 public:
-	ProcessorPresenceAction(Project* project, std::shared_ptr<Track> track,
-							std::shared_ptr<AudioProcessor> proc, int index, bool isInsert)
-		: mProject(project), mTrack(std::move(track)), mProc(std::move(proc)), mIndex(index), mIsInsert(isInsert) {}
+	using Chain = std::vector<std::shared_ptr<AudioProcessor>>;
 
-	void Undo() override { mIsInsert ? DoRemove() : DoInsert(); }
-	void Redo() override { mIsInsert ? DoInsert() : DoRemove(); }
-	const char* Name() const override { return mIsInsert ? "Add device" : "Remove device"; }
-private:
-	void DoInsert() {
-		if (!mTrack || !mProc)
-			return;
-		std::lock_guard<std::mutex> lock(mProject->GetMutex());
-		mTrack->InsertProcessor(mIndex, mProc);
+	ProcessorChainAction(Project* project, std::shared_ptr<ProcessorHost> host,
+						 Chain before, Chain after, const char* name)
+		: mProject(project), mHost(std::move(host)), mBefore(std::move(before)), mAfter(std::move(after)), mName(name) {}
+
+	void Undo() override { Apply(mBefore); }
+	void Redo() override { Apply(mAfter); }
+	const char* Name() const override { return mName; }
+
+	static Chain Snapshot(const std::shared_ptr<ProcessorHost>& host) {
+		return host ? host->GetProcessors() : Chain{};
 	}
-	void DoRemove() {
-		if (!mTrack)
+private:
+	void Apply(const Chain& chain) {
+		if (!mHost)
 			return;
 		std::lock_guard<std::mutex> lock(mProject->GetMutex());
-		auto& procs = mTrack->GetProcessors();
-		// prefer the recorded index, but fall back to a search in case indices shifted
-		if (mIndex >= 0 && mIndex < (int)procs.size() && procs[mIndex] == mProc) {
-			mTrack->RemoveProcessor(mIndex);
-			return;
-		}
-		for (int i = 0; i < (int)procs.size(); ++i) {
-			if (procs[i] == mProc) {
-				mTrack->RemoveProcessor(i);
-				return;
-			}
-		}
+		mHost->SetProcessors(chain);
 	}
 
 	Project* mProject;
-	std::shared_ptr<Track> mTrack;
-	std::shared_ptr<AudioProcessor> mProc;
-	int mIndex;
-	bool mIsInsert;
+	std::shared_ptr<ProcessorHost> mHost;
+	Chain mBefore;
+	Chain mAfter;
+	const char* mName;
 };
 
-// reorder a device within a single track. from/to are plain final positions in
-// the processor vector (not the "insert-before" convention), which makes the
-// move trivially invertible
-class ProcessorMoveAction : public UndoableAction {
+// ---------------------------------------------------------------------------
+// one device edit spanning several chains = one history entry. Touch() every
+// host the edit is about to mutate (before mutating it), then Commit(). the
+// same shape as ClipEditScope: hosts that came out unchanged are dropped, so
+// dragging a device inside one rack still reads as a plain "Move device"
+// ---------------------------------------------------------------------------
+class DeviceEditScope {
 public:
-	ProcessorMoveAction(Project* project, std::shared_ptr<Track> track, int from, int to)
-		: mProject(project), mTrack(std::move(track)), mFrom(from), mTo(to) {}
+	DeviceEditScope(Project* project, UndoManager& undoManager, const char* name)
+		: mProject(project), mUndo(undoManager), mName(name) {}
 
-	void Undo() override { Apply(mTo, mFrom); }
-	void Redo() override { Apply(mFrom, mTo); }
-	const char* Name() const override { return "Move device"; }
+	// snapshotting a host twice would capture it mid-edit, so repeats are ignored
+	void Touch(const std::shared_ptr<ProcessorHost>& host) {
+		if (!host || !mProject)
+			return;
+		for (const auto& entry : mHosts) {
+			if (entry.host == host)
+				return;
+		}
+		mHosts.push_back({host, ProcessorChainAction::Snapshot(host)});
+	}
+
+	void Commit() {
+		if (!mProject || mHosts.empty())
+			return;
+		mUndo.BeginTransaction(mName);
+		for (auto& entry : mHosts) {
+			auto after = ProcessorChainAction::Snapshot(entry.host);
+			if (after != entry.before)
+				mUndo.Push(std::make_unique<ProcessorChainAction>(mProject, entry.host, entry.before, std::move(after), mName));
+		}
+		mUndo.EndTransaction();
+		mHosts.clear();
+	}
 private:
-	void Apply(int from, int to) {
-		if (!mTrack)
-			return;
+	struct HostEntry {
+		std::shared_ptr<ProcessorHost> host;
+		ProcessorChainAction::Chain before;
+	};
+
+	Project* mProject;
+	UndoManager& mUndo;
+	const char* mName;
+	std::vector<HostEntry> mHosts;
+};
+
+// ---------------------------------------------------------------------------
+// activating / deactivating devices. the flag is read by the audio thread on
+// its way past each device, so the write takes the project lock; one action
+// covers however many devices the selection held
+// ---------------------------------------------------------------------------
+class DeviceBypassAction : public UndoableAction {
+public:
+	struct Entry {
+		std::shared_ptr<AudioProcessor> device;
+		bool bypassed;
+	};
+
+	DeviceBypassAction(Project* project, std::vector<Entry> before, std::vector<Entry> after, const char* name)
+		: mProject(project), mBefore(std::move(before)), mAfter(std::move(after)), mName(name) {}
+
+	void Undo() override { Apply(mBefore); }
+	void Redo() override { Apply(mAfter); }
+	const char* Name() const override { return mName; }
+private:
+	void Apply(const std::vector<Entry>& state) {
 		std::lock_guard<std::mutex> lock(mProject->GetMutex());
-		auto& procs = mTrack->GetProcessors();
-		if (from < 0 || from >= (int)procs.size() || to < 0 || to >= (int)procs.size())
-			return;
-		auto proc = procs[from];
-		procs.erase(procs.begin() + from);
-		procs.insert(procs.begin() + to, proc);
+		for (const auto& entry : state) {
+			if (entry.device)
+				entry.device->SetBypassed(entry.bypassed);
+		}
 	}
 	Project* mProject;
-	std::shared_ptr<Track> mTrack;
-	int mFrom;
-	int mTo;
+	std::vector<Entry> mBefore;
+	std::vector<Entry> mAfter;
+	const char* mName;
+};
+
+// ---------------------------------------------------------------------------
+// everything a rack-level edit changes: its name, its color, its macro titles,
+// colors and mappings, and the chain list itself. one snapshot covers the lot,
+// and the chains are held by shared_ptr so undoing a deleted chain brings the
+// devices in it back too
+// ---------------------------------------------------------------------------
+class RackStateAction : public UndoableAction {
+public:
+	RackStateAction(Project* project, std::shared_ptr<RackProcessor> rack,
+					RackProcessor::RackState before, RackProcessor::RackState after, const char* name)
+		: mProject(project), mRack(std::move(rack)), mBefore(std::move(before)), mAfter(std::move(after)), mName(name) {}
+
+	void Undo() override { Apply(mBefore); }
+	void Redo() override { Apply(mAfter); }
+	const char* Name() const override { return mName; }
+private:
+	void Apply(const RackProcessor::RackState& state) {
+		if (!mRack)
+			return;
+		std::lock_guard<std::mutex> lock(mProject->GetMutex());
+		mRack->ApplyState(state);
+	}
+	Project* mProject;
+	std::shared_ptr<RackProcessor> mRack;
+	RackProcessor::RackState mBefore;
+	RackProcessor::RackState mAfter;
+	const char* mName;
 };
 
 // ---------------------------------------------------------------------------

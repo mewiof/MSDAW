@@ -31,6 +31,8 @@ public:
 	ImU32 bgActive;			  // selected row (neutral, never the accent)
 	ImU32 bgDeviceEffect;	  // device rack slot: effect
 	ImU32 bgDeviceInstrument; // device rack slot: instrument
+	ImU32 bgDeviceRack;		  // a rack's own shell, around the panels it holds
+	ImU32 bgRackInner;		  // recessed ground the rack's macro / chain / device panels sit on
 	ImU32 bgOverlay;		  // translucent dark box floating over the canvas
 	ImU32 bgLane;				  // timeline lane behind an ordinary track
 	ImU32 bgLaneSelected;		  // ... behind the selected track

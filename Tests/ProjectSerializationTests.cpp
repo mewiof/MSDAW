@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "Clips/MIDIClip.h"
+#include "ProcessorFactory.h"
+#include "Processors/RackProcessor.h"
 #include "Project.h"
 
 // ================================================================
@@ -322,4 +324,140 @@ TEST_F(ProjectSerializationTest, ClipsSavedWithoutASequenceIdLoadUnique) {
 	auto second = LoadedMIDIClip(loaded, 0, 1);
 	ASSERT_TRUE(first && second);
 	EXPECT_FALSE(first->IsLinkedTo(*second));
+}
+
+// ================================================================
+// RACKS
+// ================================================================
+// a rack is nested devices, a chain list and a bank of macro mappings, all of which
+// have to come back pointing at each other. the mappings are the sharp part: they
+// name their target by its path inside the rack, and the devices at those paths do
+// not exist yet while the mapping lines are being read
+
+namespace {
+
+	// a rack with two chains, a device in the first, and macro 1 mapped to it
+	std::shared_ptr<RackProcessor> MakeSavedRack() {
+		auto rack = std::make_shared<RackProcessor>();
+		rack->SetName("Bass Grit");
+		rack->SetColor(0xFF3366CCu);
+		rack->SetVisibleMacroCount(12);
+
+		auto first = rack->AddChain("Dirt");
+		first->SetColor(0xFF11AA22u);
+		first->GetVolumeParameter()->value = -4.5f;
+		first->SetSolo(true);
+		auto device = ProcessorFactory::Instance().Create("BitCrusher");
+		first->AddProcessor(device);
+
+		auto second = rack->AddChain("Clean");
+		second->SetMute(true);
+
+		rack->GetMacroMutable(0).title = "Grit";
+		rack->GetMacroMutable(0).color = 0xFFAA5511u;
+		rack->MapMacro(0, device, "Bits", 4.0f, 16.0f);
+		rack->GetMacroParameter(0)->value = RackProcessor::kMacroMax;
+		return rack;
+	}
+
+	std::shared_ptr<RackProcessor> LoadedRack(Project& project, int trackIndex) {
+		auto& devices = project.GetTracks()[trackIndex]->GetProcessors();
+		return devices.empty() ? nullptr : std::dynamic_pointer_cast<RackProcessor>(devices.front());
+	}
+
+} // namespace
+
+TEST_F(ProjectSerializationTest, RackChainsAndTheirDevicesRoundTrip) {
+	Project saved;
+	saved.Initialize();
+	saved.CreateTrack();
+	saved.GetTracks()[0]->AddProcessor(MakeSavedRack());
+	saved.Save(mPath.string());
+
+	Project loaded;
+	loaded.Initialize();
+	loaded.Load(mPath.string());
+
+	auto rack = LoadedRack(loaded, 0);
+	ASSERT_NE(rack, nullptr);
+	EXPECT_EQ(std::string(rack->GetName()), "Bass Grit");
+	EXPECT_EQ(rack->GetColor(), 0xFF3366CCu);
+	EXPECT_EQ(rack->GetVisibleMacroCount(), 12);
+
+	ASSERT_EQ(rack->GetChains().size(), 2u);
+	auto first = rack->GetChains()[0];
+	EXPECT_EQ(first->GetName(), "Dirt");
+	EXPECT_EQ(first->GetColor(), 0xFF11AA22u);
+	EXPECT_TRUE(first->GetSolo());
+	EXPECT_FLOAT_EQ(first->GetVolumeParameter()->value, -4.5f);
+	ASSERT_EQ(first->GetProcessors().size(), 1u);
+	EXPECT_EQ(first->GetProcessors()[0]->GetProcessorId(), "BitCrusher");
+
+	EXPECT_EQ(rack->GetChains()[1]->GetName(), "Clean");
+	EXPECT_TRUE(rack->GetChains()[1]->GetMute());
+}
+
+TEST_F(ProjectSerializationTest, MacroTitlesColorsAndMappingsRoundTrip) {
+	Project saved;
+	saved.Initialize();
+	saved.CreateTrack();
+	saved.GetTracks()[0]->AddProcessor(MakeSavedRack());
+	saved.Save(mPath.string());
+
+	Project loaded;
+	loaded.Initialize();
+	loaded.Load(mPath.string());
+
+	auto rack = LoadedRack(loaded, 0);
+	ASSERT_NE(rack, nullptr);
+	EXPECT_EQ(rack->GetMacro(0).title, "Grit");
+	EXPECT_EQ(rack->GetMacro(0).color, 0xFFAA5511u);
+	ASSERT_EQ(rack->GetMacro(0).mappings.size(), 1u);
+	EXPECT_EQ(rack->GetMacro(0).mappings[0].paramName, "Bits");
+	EXPECT_FLOAT_EQ(rack->GetMacro(0).mappings[0].minValue, 4.0f);
+	EXPECT_FLOAT_EQ(rack->GetMacro(0).mappings[0].maxValue, 16.0f);
+
+	// the mapping is not just data: it has to reach the device it named
+	auto device = rack->GetChains()[0]->GetProcessors()[0];
+	Parameter* bits = nullptr;
+	for (const auto& parameter : device->GetParameters()) {
+		if (parameter->name == "Bits")
+			bits = parameter.get();
+	}
+	ASSERT_NE(bits, nullptr);
+	bits->value = 1.0f;
+
+	std::vector<float> block(64, 0.0f);
+	std::vector<MIDIMessage> messages;
+	ProcessContext context;
+	rack->Process(block.data(), 32, 2, messages, context);
+	EXPECT_FLOAT_EQ(bits->value, 16.0f);
+}
+
+// automation is bound by parameter name, and a device inside a rack has to be
+// reachable by that walk or its curve is silently orphaned on load
+TEST_F(ProjectSerializationTest, AutomationOnADeviceInsideARackRebindsOnLoad) {
+	Project saved;
+	saved.Initialize();
+	saved.CreateTrack();
+	auto rack = MakeSavedRack();
+	saved.GetTracks()[0]->AddProcessor(rack);
+
+	Parameter* bits = rack->GetChains()[0]->GetProcessors()[0]->GetParameters()[0].get();
+	saved.GetTracks()[0]->AddAutomationPoint(bits, 0.0, 8.0f);
+	saved.GetTracks()[0]->AddAutomationPoint(bits, 4.0, 24.0f);
+	saved.Save(mPath.string());
+
+	Project loaded;
+	loaded.Initialize();
+	loaded.Load(mPath.string());
+
+	auto loadedRack = LoadedRack(loaded, 0);
+	ASSERT_NE(loadedRack, nullptr);
+	Parameter* loadedBits = loadedRack->GetChains()[0]->GetProcessors()[0]->GetParameters()[0].get();
+
+	auto* curve = loaded.GetTracks()[0]->GetAutomationCurve(loadedBits);
+	ASSERT_NE(curve, nullptr);
+	ASSERT_EQ(curve->points.size(), 2u);
+	EXPECT_FLOAT_EQ(curve->Evaluate(4.0), 24.0f);
 }

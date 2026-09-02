@@ -21,6 +21,8 @@ Theme::Theme() {
 	bgDeviceEffect = IM_COL32(46, 46, 51, 255);		// effect device slot, a raised card on the canvas
 	bgPanel = IM_COL32(52, 52, 58, 255);			// track rows, ruler, ordinary panels
 	bgDeviceInstrument = IM_COL32(62, 62, 69, 255); // instrument slot, heavier than an effect
+	bgDeviceRack = IM_COL32(58, 58, 65, 255);		// a rack shell, a step above the devices it holds
+	bgRackInner = IM_COL32(38, 38, 43, 255);		// recessed ground inside a rack, so its panels read as inset
 	bgPanelAlt = IM_COL32(68, 68, 75, 255);			// raised buttons, popups, group rows
 	bgHover = IM_COL32(84, 84, 92, 255);			// hovered frame/row/button
 	bgActive = IM_COL32(100, 100, 109, 255);		// selected row (neutral, never the accent)

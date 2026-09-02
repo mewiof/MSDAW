@@ -8,6 +8,9 @@
 #include "Parameter.h"
 #include "AppConfig.h"
 
+// FD: a rack hands out the chains it holds without this header knowing what one is
+class ProcessorHost;
+
 // how a plugin's editor window handles high-DPI displays. Default follows the
 // global AppConfig setting; the other two force a specific behavior per plugin
 enum class EditorScalingMode {
@@ -111,6 +114,11 @@ public:
 		(void)size;
 		return false;
 	}
+
+	// a device that contains further devices (a rack) hands out every chain it holds,
+	// so a walk over a track's devices reaches what is nested inside without having to
+	// know what a rack is. the base contains none
+	virtual void CollectHostedChains(std::vector<ProcessorHost*>& out) { (void)out; }
 
 	// copy whatever state does not live in mParameters (the device rack's copy /
 	// paste / duplicate path only transfers parameter values). both sides are the

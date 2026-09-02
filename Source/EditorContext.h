@@ -94,6 +94,70 @@ struct EditorState {
 		multiSelectedTracks.clear();
 		if (index >= 0)
 			multiSelectedTracks.insert(index);
+		// the device rack shows one track at a time, so a device selection belongs to
+		// the track that was showing when it was made. it also decides which panel
+		// Ctrl+G is talking to: picking a track hands the shortcut back to the tracks
+		ClearDeviceSelection();
+	}
+
+	// ---- device selection ----
+	// selectedDevice is the FOCUSED member of selectedDevices: the device a shift-click
+	// measures its range from, and the one drawn with the accent outline. it is always
+	// also present in selectedDevices, so writing only the pointer leaves the other
+	// stale - every device command reads the vector. go through the helpers
+	//
+	// devices are held by shared_ptr rather than by index because a selection outlives
+	// reordering, grouping and the host it was made in
+	std::shared_ptr<AudioProcessor> selectedDevice = nullptr;
+	std::vector<std::shared_ptr<AudioProcessor>> selectedDevices;
+
+	bool IsDeviceSelected(const std::shared_ptr<AudioProcessor>& device) const {
+		return device && std::find(selectedDevices.begin(), selectedDevices.end(), device) != selectedDevices.end();
+	}
+
+	void ClearDeviceSelection() {
+		selectedDevices.clear();
+		selectedDevice = nullptr;
+	}
+
+	void SelectDevice(std::shared_ptr<AudioProcessor> device) {
+		selectedDevices.clear();
+		if (device)
+			selectedDevices.push_back(device);
+		selectedDevice = std::move(device);
+	}
+
+	void AddDeviceToSelection(std::shared_ptr<AudioProcessor> device) {
+		if (!device)
+			return;
+		if (!IsDeviceSelected(device))
+			selectedDevices.push_back(device);
+		selectedDevice = std::move(device);
+	}
+
+	// ctrl-click on a device already in the selection drops it back out; focus follows
+	// to another member rather than going null
+	void ToggleDeviceSelection(const std::shared_ptr<AudioProcessor>& device) {
+		if (!device)
+			return;
+		auto it = std::find(selectedDevices.begin(), selectedDevices.end(), device);
+		if (it == selectedDevices.end()) {
+			AddDeviceToSelection(device);
+			return;
+		}
+		selectedDevices.erase(it);
+		if (selectedDevice == device)
+			selectedDevice = selectedDevices.empty() ? nullptr : selectedDevices.back();
+	}
+
+	// replace the whole selection at once (a shift-click range, a paste, a group)
+	void SetDeviceSelection(std::vector<std::shared_ptr<AudioProcessor>> devices,
+							std::shared_ptr<AudioProcessor> focus = nullptr) {
+		selectedDevices = std::move(devices);
+		if (focus && IsDeviceSelected(focus))
+			selectedDevice = std::move(focus);
+		else
+			selectedDevice = selectedDevices.empty() ? nullptr : selectedDevices.front();
 	}
 
 	// ---- clip selection ----
@@ -156,8 +220,9 @@ struct EditorState {
 			selectedClip = selectedClips.empty() ? nullptr : selectedClips.front();
 	}
 
-	// clipboard
-	std::shared_ptr<AudioProcessor> processorClipboard = nullptr;
+	// device clipboard. a copy takes the whole device selection, so pasting puts back
+	// the block that was copied rather than only whichever device had the focus
+	std::vector<std::shared_ptr<AudioProcessor>> processorClipboard;
 
 	// automation clipboard
 	std::vector<AutomationPoint> automationClipboard;
@@ -165,6 +230,12 @@ struct EditorState {
 	// window visibility
 	bool showSettingsWindow = false;
 	bool showHistoryWindow = false;
+
+	// Ctrl+G groups whatever the user is looking at: devices when the rack has a
+	// selection and the focus, tracks otherwise. the rack sets this each frame and the
+	// editor's global handler reads it on the next one, the same one-frame handoff the
+	// arrangement uses for its letter keys below
+	bool deviceRackOwnsGroupShortcut = false;
 
 	// the arrangement's clip shortcuts sit on bare letters, and the computer MIDI
 	// keyboard plays notes off those same letters. set by the arrangement each frame

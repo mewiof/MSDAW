@@ -8,12 +8,6 @@
 #include <map>
 #include <vector>
 
-// shared payload for drag-and-drop of devices
-struct DeviceMovePayload {
-	int trackIndex;
-	int deviceIndex;
-};
-
 // a committed cross-track drag. it is deferred out of the clip loop because moving a
 // clip erases from one track's vector and pushes onto another's, both of which the
 // loop is iterating. a multi-clip drag lands as one batch so the whole selection

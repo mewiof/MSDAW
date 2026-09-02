@@ -5,11 +5,10 @@
 #include "Clips/MIDIClip.h"
 #include "Clips/AudioClip.h"
 #include "Clips/WarpEngine.h"
-#include "ProcessorFactory.h"
+#include "Mixing.h"
+#include "ProcessorIO.h"
 #include "SidechainHub.h"
 #include "Theme.h"
-#include "Processors/VSTProcessor.h"
-#include "Processors/VST3Processor.h"
 #include <cmath>
 #include <algorithm>
 #include <sstream>
@@ -124,33 +123,6 @@ void Track::AddToAccumulator(const float* input, int numFrames, int numChannels)
 		mInputAccumulator[i] += input[i];
 	}
 }
-void Track::AddProcessor(std::shared_ptr<AudioProcessor> processor) {
-	InsertProcessor((int)mProcessors.size(), processor);
-}
-void Track::InsertProcessor(int index, std::shared_ptr<AudioProcessor> processor) {
-	if (index < 0)
-		index = 0;
-	if (index > (int)mProcessors.size())
-		index = (int)mProcessors.size();
-	mProcessors.insert(mProcessors.begin() + index, processor);
-}
-void Track::RemoveProcessor(int index) {
-	if (index >= 0 && index < (int)mProcessors.size()) {
-		mProcessors.erase(mProcessors.begin() + index);
-	}
-}
-void Track::MoveProcessor(int fromIndex, int toIndex) {
-	if (fromIndex < 0 || fromIndex >= (int)mProcessors.size())
-		return;
-	if (toIndex < 0 || toIndex > (int)mProcessors.size())
-		return;
-	auto proc = mProcessors[fromIndex];
-	if (toIndex > fromIndex)
-		toIndex--;
-	mProcessors.erase(mProcessors.begin() + fromIndex);
-	mProcessors.insert(mProcessors.begin() + toIndex, proc);
-}
-
 void Track::EvaluateAutomation(double currentBeat) {
 	for (auto& curve : mAutomationCurves) {
 		if (curve.targetParam) {
@@ -290,8 +262,8 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 				int clipChannels = audioClip->GetNumChannels();
 
 				// output window into this block, shared by both playback paths
-				int64_t overlapStart = max(trackStartSample, clipStartSample);
-				int64_t overlapEnd = min(trackEndSample, clipEndSample);
+				int64_t overlapStart = std::max(trackStartSample, clipStartSample);
+				int64_t overlapEnd = std::min(trackEndSample, clipEndSample);
 				int bufferOffset = (int)(overlapStart - trackStartSample);
 				int processCount = (int)(overlapEnd - overlapStart);
 				int64_t outputSamplesSinceClipStart = overlapStart - clipStartSample;
@@ -382,44 +354,11 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 		}
 	}
 
-	float db = mVolumeParam->value;
-	float gain = std::pow(10.0f, db / 20.0f);
-	float pan = mPanParam->value;
-	// stereo balance mode (0dB center)
-	// imported clips must play at their original loudness when centered
-	float gainL = gain;
-	float gainR = gain;
-	if (pan > 0.0f) {
-		// panning right: attenuate left
-		gainL *= (1.0f - pan);
-	} else if (pan < 0.0f) {
-		// panning left: attenuate right
-		gainR *= (1.0f + pan);
-	}
-
+	// the fader: one dB gain and one balance law, shared with a rack chain's mixer
 	float currentPeakL = 0.0f;
 	float currentPeakR = 0.0f;
-
-	if (numChannels >= 2) {
-		for (int i = 0; i < numFrames; ++i) {
-			float L = buffer[i * numChannels + 0] * gainL;
-			float R = buffer[i * numChannels + 1] * gainR;
-			buffer[i * numChannels + 0] = L;
-			buffer[i * numChannels + 1] = R;
-			if (std::abs(L) > currentPeakL)
-				currentPeakL = std::abs(L);
-			if (std::abs(R) > currentPeakR)
-				currentPeakR = std::abs(R);
-		}
-	} else if (numChannels == 1) {
-		for (int i = 0; i < numFrames; ++i) {
-			float val = buffer[i] * gain;
-			buffer[i] = val;
-			if (std::abs(val) > currentPeakL)
-				currentPeakL = std::abs(val);
-		}
-		currentPeakR = currentPeakL;
-	}
+	ApplyGainAndPan(buffer, numFrames, numChannels, mVolumeParam->value, mPanParam->value,
+					&currentPeakL, &currentPeakR);
 
 	if (detectorOnly) {
 		// nothing of this render reaches the mix, so let the meter fall to rest
@@ -532,19 +471,19 @@ void Track::ResolveOverlaps(std::shared_ptr<Clip> activeClip) {
 	}
 }
 
-std::vector<Parameter*> Track::GetAllParameters() {
-	std::vector<Parameter*> params;
-	params.push_back(mVolumeParam.get());
-	params.push_back(mPanParam.get());
+void Track::CollectOwnParameters(std::vector<Parameter*>& out) {
+	out.push_back(mVolumeParam.get());
+	out.push_back(mPanParam.get());
 	if (mBpmParam) {
-		params.push_back(mBpmParam.get());
+		out.push_back(mBpmParam.get());
 	}
-	for (auto& proc : mProcessors) {
-		const auto& procParams = proc->GetParameters();
-		for (auto& p : procParams) {
-			params.push_back(p.get());
-		}
-	}
+}
+
+std::vector<Parameter*> Track::GetAllParameters() {
+	// ProcessorHost walks the chain, descending into any rack sitting on it - so
+	// grouping a device never takes its parameters off the automation list
+	std::vector<Parameter*> params;
+	CollectParameters(params);
 	return params;
 }
 
@@ -561,17 +500,11 @@ AutomationCurve* Track::GetAutomationCurve(Parameter* param) {
 }
 
 Parameter* Track::FindParameter(const std::string& name) {
-	if (mVolumeParam->name == name)
-		return mVolumeParam.get();
-	if (mPanParam->name == name)
-		return mPanParam.get();
-	if (mBpmParam && mBpmParam->name == name)
-		return mBpmParam.get();
-	for (auto& proc : mProcessors) {
-		for (auto& p : proc->GetParameters()) {
-			if (p->name == name)
-				return p.get();
-		}
+	// the same walk GetAllParameters does, so a curve rebinds onto anything the
+	// automation lane was able to offer it - nested devices included
+	for (Parameter* parameter : GetAllParameters()) {
+		if (parameter->name == name)
+			return parameter;
 	}
 	return nullptr;
 }
@@ -644,12 +577,8 @@ void Track::Save(std::ostream& out, int trackIndex) {
 	out << "GROUP " << (mIsGroup ? 1 : 0) << "\n";
 	out << "COLLAPSED " << (mIsCollapsed ? 1 : 0) << "\n";
 
-	for (auto& proc : mProcessors) {
-		out << "PROCESSOR " << proc->GetProcessorId() << "\n";
-		out << "PROC_SCALING " << (int)proc->GetEditorScalingMode() << "\n";
-		proc->Save(out);
-		out << "PROCESSOR_END\n";
-	}
+	for (auto& proc : mProcessors)
+		ProcessorIO::SaveProcessor(out, *proc);
 
 	for (auto& clip : mClips) {
 		std::string type = "UNKNOWN";
@@ -731,39 +660,8 @@ void Track::Load(std::istream& in) {
 		} else if (token == "PROCESSOR") {
 			std::string type;
 			ss >> type;
-			std::shared_ptr<AudioProcessor> proc = nullptr;
-
-			proc = ProcessorFactory::Instance().Create(type);
-			// VST is special
-			if (!proc && type == "VST")
-				proc = std::make_shared<VSTProcessor>("");
-			else if (!proc && type == "VST3")
-				proc = std::make_shared<VST3Processor>("", "");
-
-			if (proc) {
-				// optional per-plugin editor scaling override (written since the
-				// high-DPI work; older projects omit it and rewind untouched)
-				std::streampos posBefore = in.tellg();
-				std::string maybeScaling;
-				if (std::getline(in, maybeScaling)) {
-					std::stringstream ss2(maybeScaling);
-					std::string tk;
-					ss2 >> tk;
-					if (tk == "PROC_SCALING") {
-						int m = 0;
-						ss2 >> m;
-						proc->SetEditorScalingMode((EditorScalingMode)m);
-					} else if (posBefore != std::streampos(-1)) {
-						in.seekg(posBefore); // not ours; let proc->Load consume it
-					}
-				}
-
-				proc->Load(in);
-				AddProcessor(proc);
-				std::string endTag;
-				if (std::getline(in, endTag)) {
-				}
-			}
+			if (auto proc = ProcessorIO::LoadProcessor(in, type))
+				AddProcessor(std::move(proc));
 		} else if (token == "CLIP_GRID_NEXT") {
 			ss >> pendingGridNum >> pendingGridDen;
 		} else if (token == "CLIP_BEGIN") {

@@ -50,11 +50,17 @@ public:
 
 	// transport logic
 	void TogglePlayStop();
+	// (re)start at the insert marker whether or not the transport is already running
+	void PlayFromMarker();
 
 	// undo/redo
 	void PerformUndo();
 	void PerformRedo();
 private:
+	// move the transport to the insert marker. beats are the authoring unit and samples
+	// the playback one, so every seek the editor asks for converts through here
+	void SeekToMarker();
+
 	void RenderMenuBar();
 	void RenderResourceMeter(); // cpu/ram readout pinned to the top-right of the menu bar
 	void DrawMeterCell(const char* id, const char* label, float fraction, float heat, const char* valueText, const char* tooltip);

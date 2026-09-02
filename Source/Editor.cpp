@@ -226,20 +226,37 @@ void Editor::ExportProject() {
 #endif
 }
 
+void Editor::SeekToMarker() {
+	if (Project* project = GetProject()) {
+		Transport& transport = project->GetTransport();
+		double startBeat = mContext.state.selectionStart;
+		int64_t startSample = (int64_t)(startBeat * (60.0 / transport.GetBpm()) * transport.GetSampleRate());
+		transport.SetPosition(startSample);
+	}
+}
+
 void Editor::TogglePlayStop() {
 	if (Project* project = GetProject()) {
 		Transport& transport = project->GetTransport();
 		if (transport.IsPlaying()) {
 			transport.Pause();
-			double startBeat = mContext.state.selectionStart;
-			int64_t startSample = (int64_t)(startBeat * (60.0 / transport.GetBpm()) * transport.GetSampleRate());
-			transport.SetPosition(startSample);
+			SeekToMarker(); // ableton-style: a pause returns to where playback began
 		} else {
-			double startBeat = mContext.state.selectionStart;
-			int64_t startSample = (int64_t)(startBeat * (60.0 / transport.GetBpm()) * transport.GetSampleRate());
-			transport.SetPosition(startSample);
-			transport.Play();
+			PlayFromMarker();
 		}
+	}
+}
+
+// pressed while the transport is already running this is a seek, not a stop: the
+// playhead jumps back to the marker and keeps going, which is what makes hitting it
+// over and over an audition of the same spot. Project::ProcessBlock spots the jump on
+// the next block and resets the graph, so nothing is left ringing from the old position
+void Editor::PlayFromMarker() {
+	if (Project* project = GetProject()) {
+		SeekToMarker();
+		Transport& transport = project->GetTransport();
+		if (!transport.IsPlaying())
+			transport.Play();
 	}
 }
 
@@ -294,14 +311,19 @@ void Editor::HandleGlobalShortcuts() {
 		}
 	}
 
+	bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+
 	static bool spaceWasDown = false;
 	bool spaceIsDown = (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0;
 	if (spaceIsDown && !spaceWasDown) {
-		TogglePlayStop();
+		// bare Space toggles; Ctrl+Space always plays from the marker, so pressing it
+		// again while it runs restarts there instead of stopping
+		if (ctrl)
+			PlayFromMarker();
+		else
+			TogglePlayStop();
 	}
 	spaceWasDown = spaceIsDown;
-
-	bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
 
 	static bool sWasDown = false;
 	bool sIsDown = (GetAsyncKeyState('S') & 0x8000) != 0;
@@ -355,7 +377,12 @@ void Editor::HandleGlobalShortcuts() {
 	}
 
 	if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
-		TogglePlayStop();
+		// bare Space toggles; Ctrl+Space always plays from the marker, so pressing it
+		// again while it runs restarts there instead of stopping
+		if (ctrl)
+			PlayFromMarker();
+		else
+			TogglePlayStop();
 	}
 
 	if (ctrl && ImGui::IsKeyPressed(ImGuiKey_G, false)) {

@@ -34,6 +34,9 @@ bool AudioEngine::Init() {
 	sampleRate = 48000.0;
 	unsigned int bufferFrames = 512;
 
+	// set before the stream can call back, and never touched again
+	mPreview.SetOutputSampleRate(sampleRate);
+
 	// initialize project
 	mProject = std::make_unique<Project>();
 	mProject->Initialize();
@@ -114,7 +117,11 @@ int AudioEngine::OnAudioCallback(void* outputBuffer, void* inputBuffer, unsigned
 		mProject->ProcessBlock(out, nBufferFrames, 2, blockMIDIEvents);
 	}
 
-	// 4. hard clip output to prevent OS limiter ducking
+	// 4. the library's audition, mixed in beside the project - it is not part of the
+	// mix and takes no notice of the transport, but it is still bound by the clip below
+	mPreview.ProcessBlock(out, nBufferFrames, 2);
+
+	// 5. hard clip output to prevent OS limiter ducking
 	for (unsigned int i = 0; i < nBufferFrames * 2; ++i) {
 		if (out[i] > 1.0f)
 			out[i] = 1.0f;

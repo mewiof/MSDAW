@@ -898,6 +898,10 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 
 	mSystemMonitor.Update(); // refresh cpu/ram for the menu-bar meter (self-throttled)
 
+	// the audio thread never frees a file it has finished auditioning; this is the
+	// thread that does, and it also notices here that a preview has run out
+	mContext.engine.GetPreviewPlayer().Collect();
+
 	HandleGlobalShortcuts();
 	// the device rack claims Ctrl+G for the frame it is drawn in and nothing longer:
 	// switching away from the device tab, or off a track that had a device selected,

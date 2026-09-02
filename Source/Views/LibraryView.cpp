@@ -3,6 +3,7 @@
 #include "AppConfig.h"
 #include "Theme.h"
 #include <algorithm>
+#include <cmath>
 
 void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	const Theme& th = Theme::Instance();
@@ -131,6 +132,25 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
 	if (ImGui::InputTextWithHint("##libSearch", "Search", filter.InputBuf, IM_ARRAYSIZE(filter.InputBuf)))
 		filter.Build();
+
+	// declare how tall the list comes out BEFORE the child begins. imgui decides a
+	// child's scrollbar by measuring the content against the size that child had LAST
+	// frame, unless the content size is spelled out - and folding the panel below
+	// changes this column's height in one step, so without this the scrollbar trailed
+	// the fold by a frame (and came back a frame late on the way out)
+	int visiblePlugins = 0;
+	for (const auto& plugin : plugins)
+		if (filter.PassFilter(plugin.name.c_str()))
+			++visiblePlugins;
+	// one Selectable per plugin, each a text line tall with the item spacing under it.
+	// imgui advances its cursor by a TRUNCATED row pitch, so truncate here as well: at a
+	// fractional DPI scale the two differ by a pixel per row, and a list declared taller
+	// than it draws can be scrolled into blank space past the last plugin
+	const float rowPitch = std::floor(ImGui::GetTextLineHeightWithSpacing());
+	const float listHeight = visiblePlugins > 0
+								 ? (float)visiblePlugins * rowPitch - ImGui::GetStyle().ItemSpacing.y
+								 : 0.0f;
+	ImGui::SetNextWindowContentSize(ImVec2(0.0f, listHeight));
 
 	ImGui::BeginChild("LibList");
 	for (const auto& plugin : plugins) {

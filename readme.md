@@ -39,8 +39,16 @@ MSDAW is released under the [MIT License](LICENSE) and relies on:
 
 - **[SDL3](https://github.com/libsdl-org/SDL):** platform window management & input (zlib License)
 - **[Dear ImGui](https://github.com/ocornut/imgui):** user interface (MIT License)
-- **[RtAudio](https://github.com/thestk/rtaudio):** audio I/O abstraction (MIT-style License)
-- **[FreeType](https://github.com/freetype/freetype):** font engine (FreeType License/GPL)
-- **[VST3 SDK](https://github.com/steinbergmedia/vst3sdk):** VST3 plugin hosting (GPLv3 License)
+- **[RtAudio](https://github.com/thestk/rtaudio):** audio I/O abstraction (MIT License)
+- **[FreeType](https://freetype.org):** font engine (FreeType License, the FTL arm of its dual license)
+- **[VST3 SDK](https://github.com/steinbergmedia/vst3sdk):** VST3 plugin hosting (MIT License, as of SDK 3.8.0)
 - **VST 2.4 SDK:** VST2 plugin interface logic (Proprietary/Legacy Steinberg license; contact `mewiof@gmail.com` for instant removal)
 - **[googletest](https://github.com/google/googletest):** test suite only, never linked into the app (BSD 3-Clause License)
+
+MSDAW is based in part on the work of the FreeType Team.
+
+MSDAW ships as a single executable, so it carries these licenses in full inside the
+binary rather than in files beside it — **Third Party** in the menu bar shows each one.
+The texts are read from every dependency's own license file when CMake configures the
+build (see the *Third-party notices* section of [CMakeLists.txt](CMakeLists.txt)), so a
+new dependency is credited by adding one line there, not by transcribing anything.

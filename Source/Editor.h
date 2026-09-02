@@ -70,6 +70,7 @@ private:
 	void DrawMeterCell(const char* id, const char* label, float fraction, float heat, const char* valueText, const char* tooltip);
 	void RenderSettingsWindow();
 	void RenderHistoryWindow();
+	void RenderThirdPartyWindow(); // what MSDAW is built on, with the license each part ships under
 	void ProcessComputerKeyboardMIDI(); // imgui input
 	void HandleGlobalShortcuts();
 	void PumpPluginEditors(); // per-frame idle for open plugin editor windows
@@ -90,6 +91,9 @@ private:
 	// NOTE: the project's path on disk lives on EditorState, not here - the track list
 	// needs it to put a bounced track's wav beside the project
 	int mActiveBottomTab = 0; // 0 - devices, 1 - clips
+
+	// which dependency the third-party window is showing the license of
+	int mSelectedNotice = 0;
 
 	// live cpu/ram sampling for the menu-bar resource meter
 	SystemMonitor mSystemMonitor;

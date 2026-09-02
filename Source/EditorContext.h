@@ -231,6 +231,7 @@ struct EditorState {
 	// window visibility
 	bool showSettingsWindow = false;
 	bool showHistoryWindow = false;
+	bool showThirdPartyWindow = false;
 
 	// Ctrl+G groups whatever the user is looking at: devices when the rack has a
 	// selection and the focus, tracks otherwise. the rack sets this each frame and the

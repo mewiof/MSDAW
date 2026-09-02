@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "MIDIClip.h"
+#include "PathText.h"
 #include <fstream>
 #include <iostream>
 #include <algorithm>
@@ -55,7 +56,8 @@ bool MIDIClip::LoadFromFile(const std::string& path) {
 	if (!mSequence)
 		mSequence = std::make_shared<MIDISequence>();
 
-	std::ifstream file(path, std::ios::binary);
+	// UTF-8 in, so the open goes through a path rather than a narrow ANSI string
+	std::ifstream file(PathText::ToPath(path), std::ios::binary);
 	if (!file.is_open()) {
 		std::cout << "Failed to open MIDI file: " << path << "\n";
 		return false;

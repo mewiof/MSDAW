@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "Project.h"
+#include "PathText.h"
 #include "SidechainHub.h"
 #include "Clips/MIDIClip.h"
 #include "Clips/AudioClip.h"
@@ -976,7 +977,9 @@ void Project::RelinkMIDIClips() {
 
 void Project::Load(const std::string& path) {
 	std::lock_guard<std::mutex> lock(mMutex);
-	std::ifstream in(path);
+	// through a path rather than the narrow string: a project opened from the library
+	// explorer arrives as UTF-8, which a narrow ifstream would read in the ANSI code page
+	std::ifstream in(PathText::ToPath(path));
 	if (!in.is_open())
 		return;
 

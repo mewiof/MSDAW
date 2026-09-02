@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "AudioClip.h"
+#include "PathText.h"
 #include <fstream>
 #include <cmath>
 #include <cstring>
@@ -25,7 +26,9 @@ struct RiffHeader {
 bool AudioClip::LoadFromFile(const std::string& path) {
 
 	mFilePath = path; // store for serialization
-	std::ifstream file(path, std::ios::binary);
+	// through a path rather than the narrow string: a narrow ifstream reads its
+	// argument in the ANSI code page, and the paths the app passes around are UTF-8
+	std::ifstream file(PathText::ToPath(path), std::ios::binary);
 	if (!file.is_open()) {
 		std::cout << "Failed to open audio file: " << path << "\n";
 		return false;

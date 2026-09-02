@@ -808,7 +808,7 @@ void AnalyzerProcessor::Save(std::ostream& out) {
 	// for extra lines on the far side
 	out << "ANALYZER_VIEW " << mView << " " << mChannelMode << " " << mTriggerMode << "\n";
 	out << "ANALYZER_SCALE " << mTiltDbPerOctave << " " << mFloorDb << " " << mCeilingDb << " "
-		<< mScopeMs << " " << (mShowPeakHold ? 1 : 0) << "\n";
+		<< mScopeWindow.value << " " << (mShowPeakHold ? 1 : 0) << "\n";
 	AudioProcessor::Save(out);
 }
 
@@ -822,7 +822,7 @@ void AnalyzerProcessor::Load(std::istream& in) {
 		} else if (line.rfind("ANALYZER_SCALE ", 0) == 0) {
 			std::stringstream stream(line.substr(15));
 			int peakHold = 1;
-			stream >> mTiltDbPerOctave >> mFloorDb >> mCeilingDb >> mScopeMs >> peakHold;
+			stream >> mTiltDbPerOctave >> mFloorDb >> mCeilingDb >> mScopeWindow.value >> peakHold;
 			mShowPeakHold = peakHold != 0;
 		} else {
 			// anything else is the base class's territory. it tolerates the leading
@@ -838,7 +838,7 @@ void AnalyzerProcessor::Load(std::istream& in) {
 	mTiltDbPerOctave = std::clamp(mTiltDbPerOctave, 0.0f, 6.0f);
 	mFloorDb = std::clamp(mFloorDb, -140.0f, -24.0f);
 	mCeilingDb = std::clamp(mCeilingDb, -12.0f, 24.0f);
-	mScopeMs = std::clamp(mScopeMs, 1.0f, 200.0f);
+	mScopeWindow.value = std::clamp(mScopeWindow.value, 1.0f, 200.0f);
 }
 
 void AnalyzerProcessor::CopyStateFrom(const AudioProcessor& other) {
@@ -854,7 +854,7 @@ void AnalyzerProcessor::CopyStateFrom(const AudioProcessor& other) {
 	mTiltDbPerOctave = source->mTiltDbPerOctave;
 	mFloorDb = source->mFloorDb;
 	mCeilingDb = source->mCeilingDb;
-	mScopeMs = source->mScopeMs;
+	mScopeWindow.value = source->mScopeWindow.value;
 	mShowPeakHold = source->mShowPeakHold;
 }
 
@@ -1282,7 +1282,7 @@ void AnalyzerProcessor::DrawScope(const ImVec2& pos, const ImVec2& size) {
 	}
 
 	const int write = mRingWrite.load(std::memory_order_relaxed);
-	const int windowSamples = std::clamp((int)(mScopeMs * 0.001f * (float)mSampleRate), 16, kRingSize / 2);
+	const int windowSamples = std::clamp((int)(mScopeWindow.value * 0.001f * (float)mSampleRate), 16, kRingSize / 2);
 	int start = write - windowSamples;
 
 	if (mTriggerMode == (int)AnalyzerTriggerMode::Rising) {
@@ -1340,7 +1340,7 @@ void AnalyzerProcessor::DrawScope(const ImVec2& pos, const ImVec2& size) {
 	}
 
 	char text[48];
-	snprintf(text, sizeof(text), "%.0f ms", mScopeMs);
+	snprintf(text, sizeof(text), "%.0f ms", mScopeWindow.value);
 	dl->AddText(ImVec2(pos.x + 4.0f, pos.y + 2.0f), th.textDim, text);
 
 	dl->PopClipRect();
@@ -1449,8 +1449,9 @@ void AnalyzerProcessor::DrawControlRow(float width) {
 			  "Free runs, Edge locks to a rising zero crossing so a tone stands still,\n"
 			  "Beat locks the window to the transport so a loop draws the same picture");
 
-		ImGui::SetNextItemWidth(std::min(leftWidth * 0.4f, 130.0f));
-		ImGui::SliderFloat("##Window", &mScopeMs, 1.0f, 200.0f, "%.0f ms", ImGuiSliderFlags_Logarithmic);
+		// null format: the parameter prints its own ms units, so this box reads the same
+		// as every other millisecond control in the app
+		mScopeWindow.DrawCompact(std::min(leftWidth * 0.4f, 130.0f), nullptr);
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("How much time the width of the graph covers");
 		ImGui::SameLine();

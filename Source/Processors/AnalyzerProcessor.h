@@ -1,5 +1,6 @@
 #pragma once
 #include "AudioProcessor.h"
+#include "Parameters/KnobParameter.h"
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -351,7 +352,10 @@ private:
 	float mTiltDbPerOctave = 4.5f;
 	float mFloorDb = -96.0f;
 	float mCeilingDb = 6.0f;
-	float mScopeMs = 20.0f;
+	// the scope's window length. a parameter rather than a bare float so it is edited
+	// with the same value box as every other number in the app; it stays out of
+	// mParameters because it moves nothing in the audio and so has no automation lane
+	KnobParameter mScopeWindow{"Window", 20.0f, 1.0f, 200.0f, ImGuiKnobVariant_Milliseconds};
 	bool mShowPeakHold = true;
 	bool mFrozen = false;
 };

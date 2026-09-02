@@ -37,3 +37,6 @@ build
 
 # build/test logs
 *.log
+
+# imgui window layout, rewritten on every run
+imgui.ini

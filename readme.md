@@ -5,7 +5,7 @@ https://github.com/user-attachments/assets/1edac651-7c0c-4511-9eb0-d284dfb59650
 ## Features
 
 - **plugin hosting:** support for VST2 and VST3 instruments/effects
-- **built-in plugins:** Bit Crusher, Auto Sidechain, EQ Eight, Analyzer
+- **built-in plugins:** Bit Crusher, Auto Sidechain, EQ Eight, Analyzer, Modulator (LFO / Performer / Stepper)
 - **racks:** group devices into a rack of parallel chains, driven by mappable, automatable macro knobs
 - **timeline engine:** audio/MIDI clips (with linking)
 - **track management:** hierarchical track grouping and routing

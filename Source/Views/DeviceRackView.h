@@ -1,5 +1,6 @@
 #pragma once
 #include "EditorContext.h"
+#include "Processors/ModulatorProcessor.h"
 #include "Views/DeviceRackOps.h"
 #include "imgui.h"
 #include <functional>
@@ -50,9 +51,11 @@ private:
 	void RenderChain(const std::shared_ptr<ProcessorHost>& host, const DeviceRackOps::ChainPath& path, float bodyHeight);
 	void RenderDevice(const std::shared_ptr<ProcessorHost>& host, const DeviceRackOps::ChainPath& path, int index, float bodyHeight);
 	void RenderRackBody(const std::shared_ptr<RackProcessor>& rack, const DeviceRackOps::ChainPath& path, int deviceIndex);
+	void RenderModulatorBody(const std::shared_ptr<ModulatorProcessor>& modulator);
 	void RenderMacroPanel(const std::shared_ptr<RackProcessor>& rack, float width, float height);
 	void RenderChainList(const std::shared_ptr<RackProcessor>& rack, const DeviceRackOps::ChainPath& path, int deviceIndex, float width, float height);
 	void RenderMappingBrowser(const std::shared_ptr<RackProcessor>& rack);
+	void RenderTargetBrowser(const std::shared_ptr<ModulatorProcessor>& modulator);
 	void RenderRenamePopup();
 	void RenderDeviceContextMenu(const std::shared_ptr<AudioProcessor>& device);
 
@@ -95,10 +98,19 @@ private:
 	std::weak_ptr<RackProcessor> mBrowserRack;
 	bool mOpenBrowserPopup = false;
 
+	// the same three pieces of state for a modulator. it maps the same way a rack macro
+	// does - arm Map, click a parameter, hand it over - except that what it may reach is
+	// the whole project rather than the inside of one device
+	std::weak_ptr<ModulatorProcessor> mMapModeModulator;
+	std::weak_ptr<ModulatorProcessor> mBrowserModulator;
+	bool mOpenTargetPopup = false;
+
 	// a min/max drag in the mapping browser is one undo entry, not one per frame: the
 	// state is captured when the drag starts and pushed when it ends
 	std::weak_ptr<RackProcessor> mRangeEditRack;
 	RackProcessor::RackState mRangeEditBefore;
+	std::weak_ptr<ModulatorProcessor> mRangeEditModulator;
+	ModulatorProcessor::State mRangeEditModulatorBefore;
 
 	RenameTarget mRenameTarget = RenameTarget::None;
 	std::weak_ptr<RackProcessor> mRenameRack;

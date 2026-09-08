@@ -394,4 +394,18 @@ namespace DeviceRackOps {
 		undoManager.Push(std::make_unique<RackStateAction>(project, rack, std::move(before), rack->CaptureState(), name));
 	}
 
+	void EditModulator(Project* project, UndoManager& undoManager, const std::shared_ptr<ModulatorProcessor>& modulator,
+					   const char* name, const std::function<void()>& edit) {
+		if (!project || !modulator || !edit)
+			return;
+
+		ModulatorProcessor::State before = modulator->CaptureState();
+		{
+			std::lock_guard<std::mutex> lock(project->GetMutex());
+			edit();
+		}
+		undoManager.Push(std::make_unique<ModulatorStateAction>(project, modulator, std::move(before),
+																modulator->CaptureState(), name));
+	}
+
 } // namespace DeviceRackOps

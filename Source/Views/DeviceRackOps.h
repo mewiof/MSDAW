@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 
+class ModulatorProcessor;
 class Project;
 
 // ================================================================
@@ -131,5 +132,11 @@ namespace DeviceRackOps {
 	// removed) under the project lock and records it as one history entry
 	void EditRack(Project* project, UndoManager& undoManager, const std::shared_ptr<RackProcessor>& rack,
 				  const char* name, const std::function<void()>& edit);
+
+	// the same thing for a modulator: a target added, dropped, re-ranged or switched
+	// off. the target list is a vector the audio thread walks every block, so unlike a
+	// step level it cannot be written without the lock
+	void EditModulator(Project* project, UndoManager& undoManager, const std::shared_ptr<ModulatorProcessor>& modulator,
+					   const char* name, const std::function<void()>& edit);
 
 } // namespace DeviceRackOps

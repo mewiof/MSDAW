@@ -23,7 +23,10 @@
 // 5: the Rack device, which nests chains of further devices under a PROCESSOR block:
 //    RACK_* lines, a CHAIN_BEGIN block per chain, and MMAP lines naming a macro's
 //    target by its path inside the rack. older projects have no racks and are unchanged
-const int kCurrentProjectVersion = 5;
+// 6: the Modulator device, which writes MOD_LEVELS / MOD_HEIGHTS / MOD_CURVES pattern
+//    lines and a MOD_TARGET line per driven parameter, naming it by track id plus a
+//    device path into that track. older projects have no modulators and are unchanged
+const int kCurrentProjectVersion = 6;
 
 Project::Project() {
 	// device UIs reach the track list through the hub (an AudioProcessor has no
@@ -92,6 +95,10 @@ std::shared_ptr<Track> Project::InsertNewTrack(int index, std::shared_ptr<Track>
 		track->PrepareToPlay(mTransport.GetSampleRate());
 	}
 	mTracks.insert(mTracks.begin() + std::clamp(index, 0, (int)mTracks.size()), track);
+	// a track brings a whole device chain with it. a modulator addresses parameters
+	// across the project, so "which devices exist" changing here has to reach it the
+	// same way a device added to one chain does
+	ProcessorHost::BumpChainGeneration();
 	return track;
 }
 
@@ -107,6 +114,7 @@ void Project::RemoveTrack(int index) {
 			}
 		}
 		mTracks.erase(mTracks.begin() + index);
+		ProcessorHost::BumpChainGeneration();
 	}
 }
 
@@ -290,6 +298,8 @@ void Project::SetSelectedTrack(int index) {
 void Project::RestoreTracks(std::vector<std::shared_ptr<Track>> tracks) {
 	std::lock_guard<std::mutex> lock(mMutex);
 	mTracks = std::move(tracks);
+	// an undo can put a whole track back, devices and all
+	ProcessorHost::BumpChainGeneration();
 }
 
 void Project::PrepareToPlayInternal(double sampleRate) {

@@ -5,6 +5,7 @@
 #include "Parameters/KnobParameter.h"
 #include "ProcessorFactory.h"
 #include "ProcessorIO.h"
+#include "Processors/ModulatorProcessor.h"
 #include "Processors/RackProcessor.h"
 #include "Processors/VSTProcessor.h"
 #include "Processors/VST3Processor.h"
@@ -26,6 +27,7 @@ namespace {
 	constexpr float kDeviceWidth = 280.0f;
 	constexpr float kDeviceWidthSidechain = 430.0f; // source picker + graph + a full knob row
 	constexpr float kDeviceWidthEQ = 620.0f;		// knob column + graph + globals, over eight bands
+	constexpr float kDeviceWidthModulator = 500.0f; // two lane panels wide enough for sixteen steps
 	constexpr float kMacroCellWidth = 66.0f;
 	constexpr float kChainListWidth = 176.0f;
 	constexpr float kViewColumnWidth = 20.0f;
@@ -36,6 +38,11 @@ namespace {
 	// the rack a device is, or null
 	std::shared_ptr<RackProcessor> AsRack(const std::shared_ptr<AudioProcessor>& device) {
 		return std::dynamic_pointer_cast<RackProcessor>(device);
+	}
+
+	// the modulator a device is, or null
+	std::shared_ptr<ModulatorProcessor> AsModulator(const std::shared_ptr<AudioProcessor>& device) {
+		return std::dynamic_pointer_cast<ModulatorProcessor>(device);
 	}
 
 	// a two-state toggle drawn as a button, used for the rack's view column and for a
@@ -102,6 +109,8 @@ float DeviceRackView::DeviceWidth(const std::shared_ptr<AudioProcessor>& device)
 		return kDeviceWidthSidechain * scale;
 	if (processorId == "EQEight")
 		return kDeviceWidthEQ * scale;
+	if (processorId == "Modulator")
+		return kDeviceWidthModulator * scale;
 	return kDeviceWidth * scale;
 }
 
@@ -201,7 +210,7 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 	mTrack = nullptr;
 
 	// an edit can have taken the armed parameter's device out of the project
-	if (edited || mMapModeRack.expired())
+	if (edited || (mMapModeRack.expired() && mMapModeModulator.expired()))
 		mMapCandidate = nullptr;
 }
 
@@ -342,6 +351,8 @@ void DeviceRackView::RenderDevice(const std::shared_ptr<ProcessorHost>& host, co
 	const ImVec2 available = ImGui::GetContentRegionAvail();
 	if (rack) {
 		RenderRackBody(rack, path, index);
+	} else if (auto modulator = AsModulator(device)) {
+		RenderModulatorBody(modulator);
 	} else if (device->IsBypassed()) {
 		ImGui::TextDisabled("Device Bypassed");
 	} else if (!device->RenderCustomUI(available)) {
@@ -737,6 +748,163 @@ void DeviceRackView::RenderMappingBrowser(const std::shared_ptr<RackProcessor>& 
 																			rack->CaptureState(), "Macro range"));
 			}
 			mRangeEditRack.reset();
+		}
+	}
+
+	ImGui::EndPopup();
+}
+
+// ================================================================
+// MODULATOR
+// ================================================================
+
+void DeviceRackView::RenderModulatorBody(const std::shared_ptr<ModulatorProcessor>& modulator) {
+	const Theme& th = Theme::Instance();
+
+	// ---- map row ----
+	// the same arm-then-hand-over gesture a rack macro takes, except that the parameter
+	// may live anywhere in the project rather than having to be inside this device
+	const bool mapMode = (mMapModeModulator.lock() == modulator);
+	if (mapMode) {
+		if (Parameter* clicked = Parameter::GetSelectedParameter())
+			mMapCandidate = clicked;
+	}
+	if (ToggleButton("Map", mapMode, ImVec2(0, 0), th.accent))
+		mMapModeModulator = mapMode ? std::weak_ptr<ModulatorProcessor>() : std::weak_ptr<ModulatorProcessor>(modulator);
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Click a parameter anywhere - a rack macro, a plugin knob, a fader -\n"
+						  "then press + to drive it from here");
+
+	if (mapMode) {
+		ImGui::SameLine();
+		ImGui::BeginDisabled(mMapCandidate == nullptr);
+		if (ImGui::Button("+")) {
+			Parameter* candidate = mMapCandidate;
+			mDeferred.push_back([this, modulator, candidate]() {
+				Project* project = mContext.GetProject();
+				DeviceRackOps::EditModulator(project, mContext.undoManager, modulator, "Modulation target",
+											 [modulator, project, candidate]() { modulator->AddTarget(project, candidate); });
+			});
+		}
+		ImGui::EndDisabled();
+
+		ImGui::SameLine();
+		if (mMapCandidate)
+			ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(th.accent), "-> %s", mMapCandidate->name.c_str());
+		else
+			ImGui::TextDisabled("click a parameter");
+	}
+
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Targets"))
+		mOpenTargetPopup = true;
+	// the popup is opened here whoever asked for it: OpenPopup names an id relative to
+	// the current stack (see the rack's mapping browser for the same dance)
+	if (mOpenTargetPopup) {
+		mBrowserModulator = modulator;
+		mOpenTargetPopup = false;
+		ImGui::OpenPopup("ModulationTargets");
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("%d", (int)modulator->GetTargets().size());
+	RenderTargetBrowser(modulator);
+
+	// ---- generator ----
+	modulator->RenderCustomUI(ImGui::GetContentRegionAvail());
+
+	// a step drag or a randomize finished inside the device's own editor, where there was
+	// no undo manager to report it to and no shared_ptr to keep the device alive with
+	ModulatorProcessor::State before;
+	ModulatorProcessor::State after;
+	std::string name;
+	if (modulator->TakePatternEdit(before, after, name)) {
+		if (Project* project = mContext.GetProject()) {
+			mContext.undoManager.Push(std::make_unique<ModulatorStateAction>(project, modulator, std::move(before),
+																			 std::move(after), name));
+		}
+	}
+}
+
+void DeviceRackView::RenderTargetBrowser(const std::shared_ptr<ModulatorProcessor>& modulator) {
+	if (mBrowserModulator.lock() != modulator)
+		return;
+
+	const float scale = mContext.state.mainScale;
+	ImGui::SetNextWindowSize(ImVec2(470.0f * scale, 0.0f), ImGuiCond_Appearing);
+	if (!ImGui::BeginPopup("ModulationTargets"))
+		return;
+
+	ImGui::TextDisabled("MODULATION TARGETS");
+	ImGui::Separator();
+
+	auto& targets = modulator->GetTargetsMutable();
+	if (targets.empty()) {
+		ImGui::TextDisabled("Nothing driven yet. Turn on Map, click a parameter,\n"
+							"then press + to hand it to this modulator.");
+	}
+
+	for (int i = 0; i < (int)targets.size(); ++i) {
+		ModulatorProcessor::Target& target = targets[i];
+		ImGui::PushID(i);
+
+		bool enabled = target.enabled;
+		if (ImGui::Checkbox("##On", &enabled)) {
+			const bool wanted = enabled;
+			mDeferred.push_back([this, modulator, i, wanted]() {
+				DeviceRackOps::EditModulator(mContext.GetProject(), mContext.undoManager, modulator, "Modulation target",
+											 [modulator, i, wanted]() {
+												 auto& list = modulator->GetTargetsMutable();
+												 if (i < (int)list.size())
+													 list[i].enabled = wanted;
+											 });
+			});
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Stop driving this parameter without forgetting the range");
+
+		ImGui::SameLine();
+		ImGui::Text("%s", target.deviceName.empty() ? "(missing)" : target.deviceName.c_str());
+		if (ImGui::IsItemHovered() && !target.trackName.empty())
+			ImGui::SetTooltip("on %s", target.trackName.c_str());
+
+		ImGui::SameLine(190.0f * scale);
+		ImGui::Text("%s", target.paramName.c_str());
+
+		// min and max are plain floats the audio thread reads, exactly like a parameter
+		// value; the drag writes them live and reports one undo entry when it is let go
+		ImGui::SameLine(320.0f * scale);
+		ImGui::SetNextItemWidth(56.0f * scale);
+		ImGui::DragFloat("##Min", &target.minValue, 0.01f);
+		if (ImGui::IsItemActivated()) {
+			mRangeEditModulator = modulator;
+			mRangeEditModulatorBefore = modulator->CaptureState();
+		}
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(56.0f * scale);
+		ImGui::DragFloat("##Max", &target.maxValue, 0.01f);
+		if (ImGui::IsItemActivated()) {
+			mRangeEditModulator = modulator;
+			mRangeEditModulatorBefore = modulator->CaptureState();
+		}
+
+		ImGui::SameLine();
+		if (ImGui::SmallButton("x")) {
+			mDeferred.push_back([this, modulator, i]() {
+				DeviceRackOps::EditModulator(mContext.GetProject(), mContext.undoManager, modulator, "Drop target",
+											 [modulator, i]() { modulator->RemoveTarget(i); });
+			});
+		}
+		ImGui::PopID();
+	}
+
+	// one history entry for the whole drag, pushed once the handle is let go
+	if (auto editing = mRangeEditModulator.lock()) {
+		if (editing == modulator && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+			if (Project* project = mContext.GetProject()) {
+				mContext.undoManager.Push(std::make_unique<ModulatorStateAction>(project, modulator, mRangeEditModulatorBefore,
+																				 modulator->CaptureState(), "Modulation range"));
+			}
+			mRangeEditModulator.reset();
 		}
 	}
 

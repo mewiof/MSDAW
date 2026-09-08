@@ -147,6 +147,19 @@ void LibraryView::RenderInternalDevices() {
 	}
 	ImGui::PopID();
 
+	// modulator. it makes no sound at all: it drives other devices' parameters, so it
+	// is filed with the effects rather than under a category of its own
+	ImGui::PushID("Modulator");
+	if (ImGui::Selectable("Modulator")) {
+	}
+	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "Modulator", strlen("Modulator") + 1);
+		ImGui::Text("Modulator");
+		ImGui::TextDisabled("LFO / Performer / Stepper");
+		ImGui::EndDragDropSource();
+	}
+	ImGui::PopID();
+
 	// analyzer
 	ImGui::PushID("Analyzer");
 	if (ImGui::Selectable("Analyzer")) {

@@ -6,6 +6,7 @@
 #include "Undo/UndoManager.h"
 #include "Parameter.h"
 #include "ProcessorHost.h"
+#include "Processors/ModulatorProcessor.h"
 #include "Processors/RackProcessor.h"
 #include "Track.h"
 #include "Project.h"
@@ -180,6 +181,39 @@ private:
 	RackProcessor::RackState mBefore;
 	RackProcessor::RackState mAfter;
 	const char* mName;
+};
+
+// ---------------------------------------------------------------------------
+// a modulator's patterns and its target list, snapshotted whole. one action
+// covers a step drag, a randomize, a target added or dropped and a range edit -
+// none of which are parameter values, so none of them are already covered by
+// ParameterChangeAction. the retained shared_ptr keeps the device alive across
+// the whole history
+// ---------------------------------------------------------------------------
+class ModulatorStateAction : public UndoableAction {
+public:
+	ModulatorStateAction(Project* project, std::shared_ptr<ModulatorProcessor> modulator,
+						 ModulatorProcessor::State before, ModulatorProcessor::State after, std::string name)
+		: mProject(project), mModulator(std::move(modulator)), mBefore(std::move(before)),
+		  mAfter(std::move(after)), mName(std::move(name)) {}
+
+	void Undo() override { Apply(mBefore); }
+	void Redo() override { Apply(mAfter); }
+	const char* Name() const override { return mName.c_str(); }
+private:
+	void Apply(const ModulatorProcessor::State& state) {
+		if (!mModulator || !mProject)
+			return;
+		std::lock_guard<std::mutex> lock(mProject->GetMutex());
+		mModulator->ApplyState(state);
+	}
+	Project* mProject;
+	std::shared_ptr<ModulatorProcessor> mModulator;
+	ModulatorProcessor::State mBefore;
+	ModulatorProcessor::State mAfter;
+	// the name is built at the call site (which pattern changed), so it cannot be
+	// the borrowed literal every other action here carries
+	std::string mName;
 };
 
 // ---------------------------------------------------------------------------

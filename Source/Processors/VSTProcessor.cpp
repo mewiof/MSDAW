@@ -2,6 +2,7 @@
 #include "PrecompHeader.h"
 #include "VSTProcessor.h"
 #include "PluginManager.h"
+#include "MIDIPanic.h"
 #include <iostream>
 #include <mutex>
 #include <map>
@@ -246,101 +247,28 @@ void VSTProcessor::Suspend() {
 
 void VSTProcessor::Reset() {
 	// stop/seek: hard panic, also cut any reverb/delay tails for a clean restart
-	SendMIDIPanic(true);
+	mPendingPanic = true;
+	mPendingPanicAllSoundOff = true;
 }
 
 void VSTProcessor::AllNotesOff() {
 	// loop wrap: release held notes but let the plugin's own reverb/delay keep ringing
-	SendMIDIPanic(false);
+	mPendingPanic = true;
 }
 
-void VSTProcessor::SendMIDIPanic(bool allSoundOff) {
-	if (!mAEffect)
+// a panic used to go out as an effProcessEvents of its own the moment the transport asked
+// for it. that call sits outside the process cycle the events belong to, and the one
+// Process makes a moment later can replace the queue before the plugin has read it, which
+// leaves the notes hanging. queueing it instead lets it lead the next block's own events,
+// which is also the only order that works: a wrap or a seek re-triggers a note at sample 0,
+// and a release delivered behind that note-on would let go of the note we just started
+void VSTProcessor::ApplyPendingPanic(std::vector<MIDIMessage>& mIDIMessages) {
+	if (!mPendingPanic)
 		return;
 
-	// calculate space needed for panic ccs + note offs for stuck notes
-	const int kNumChannels = 16;
-	const int kPanicEventsPerChannel = allSoundOff ? 2 : 1; // cc 123 (+ cc 120 on hard panic)
-	size_t activeNoteCount = 0;
-	for (int i = 0; i < kNumChannels; ++i) {
-		activeNoteCount += mActiveMIDINotes[i].size();
-	}
-
-	size_t totalEvents = (kNumChannels * kPanicEventsPerChannel) + activeNoteCount;
-
-	const size_t kEventsOffset = (size_t)((char*)&((VstEvents*)nullptr)->events - (char*)nullptr);
-	size_t requiredBufferSize = kEventsOffset + (totalEvents * sizeof(VstEvent*));
-
-	if (mVSTEventBuffer.size() < requiredBufferSize) {
-		mVSTEventBuffer.resize(requiredBufferSize);
-	}
-
-	VstEvents* vSTEvents = (VstEvents*)mVSTEventBuffer.data();
-	vSTEvents->numEvents = (VstInt32)totalEvents;
-	vSTEvents->reserved = 0;
-
-	size_t ptrArraySize = totalEvents * sizeof(VstEvent*);
-	size_t dataSize = totalEvents * sizeof(VstMidiEvent);
-	size_t totalBufferSize = kEventsOffset + ptrArraySize + dataSize;
-
-	if (mVSTEventBuffer.size() < totalBufferSize)
-		mVSTEventBuffer.resize(totalBufferSize);
-
-	vSTEvents = (VstEvents*)mVSTEventBuffer.data();
-	uint8_t* eventDataStart = mVSTEventBuffer.data() + kEventsOffset + ptrArraySize;
-
-	int eventIdx = 0;
-
-	// 1. send explicit note offs for all active notes
-	for (int ch = 0; ch < kNumChannels; ++ch) {
-		for (int note : mActiveMIDINotes[ch]) {
-			VstMidiEvent* e = (VstMidiEvent*)(eventDataStart + eventIdx * sizeof(VstMidiEvent));
-			memset(e, 0, sizeof(VstMidiEvent));
-			e->type = kVstMidiType;
-			e->byteSize = sizeof(VstMidiEvent);
-			e->deltaFrames = 0;
-			e->midiData[0] = (char)(0x80 | ch);
-			e->midiData[1] = (char)note;
-			e->midiData[2] = 0;
-
-			vSTEvents->events[eventIdx] = (VstEvent*)e;
-			eventIdx++;
-		}
-		mActiveMIDINotes[ch].clear();
-	}
-
-	// 2. send panic ccs
-	for (int ch = 0; ch < kNumChannels; ++ch) {
-		// cc 123 (all notes off)
-		{
-			VstMidiEvent* e = (VstMidiEvent*)(eventDataStart + eventIdx * sizeof(VstMidiEvent));
-			memset(e, 0, sizeof(VstMidiEvent));
-			e->type = kVstMidiType;
-			e->byteSize = sizeof(VstMidiEvent);
-			e->deltaFrames = 0;
-			e->midiData[0] = (char)(0xB0 | ch);
-			e->midiData[1] = 123;
-			e->midiData[2] = 0;
-			vSTEvents->events[eventIdx] = (VstEvent*)e;
-			eventIdx++;
-		}
-		// cc 120 (all sound off) -- only on a hard panic; skipped on loop wrap so the
-		// plugin's reverb/delay tails ring on across the loop point
-		if (allSoundOff) {
-			VstMidiEvent* e = (VstMidiEvent*)(eventDataStart + eventIdx * sizeof(VstMidiEvent));
-			memset(e, 0, sizeof(VstMidiEvent));
-			e->type = kVstMidiType;
-			e->byteSize = sizeof(VstMidiEvent);
-			e->deltaFrames = 0;
-			e->midiData[0] = (char)(0xB0 | ch);
-			e->midiData[1] = 120;
-			e->midiData[2] = 0;
-			vSTEvents->events[eventIdx] = (VstEvent*)e;
-			eventIdx++;
-		}
-	}
-
-	mAEffect->dispatcher(mAEffect, effProcessEvents, 0, 0, vSTEvents, 0.0f);
+	PrependMIDIPanic(mIDIMessages, mActiveMIDINotes, mPendingPanicAllSoundOff);
+	mPendingPanic = false;
+	mPendingPanicAllSoundOff = false;
 }
 
 void VSTProcessor::Process(float* buffer, int numFrames, int numChannels,
@@ -414,6 +342,8 @@ void VSTProcessor::Process(float* buffer, int numFrames, int numChannels,
 	}
 
 	// 3. process MIDI & update note tracking
+	ApplyPendingPanic(mIDIMessages);
+
 	if (!mIDIMessages.empty()) {
 		// update active notes tracking
 		for (const auto& msg : mIDIMessages) {

@@ -1,6 +1,7 @@
 #include "Parameters/SliderParameter.h"
 #include "PrecompHeader.h"
 #include "PluginManager.h"
+#include "MIDIPanic.h"
 
 // define INIT_CLASS_IID before including the VST3 headers for GUIDs
 #define INIT_CLASS_IID
@@ -718,24 +719,9 @@ void VST3Processor::Process(float* buffer, int numFrames, int numChannels,
 	SyncParametersToController(numFrames);
 
 	if (mNeedsFlush) {
-		for (int ch = 0; ch < 16; ++ch) {
-			for (int note : mActiveMIDINotes[ch]) {
-				MIDIMessage msg;
-				msg.status = 0x80 | ch;
-				msg.data1 = note;
-				msg.data2 = 0;
-				msg.frameIndex = 0;
-				mIDIMessages.push_back(msg);
-			}
-			mActiveMIDINotes[ch].clear();
-
-			MIDIMessage msgCC;
-			msgCC.status = 0xB0 | ch;
-			msgCC.data1 = 123;
-			msgCC.data2 = 0;
-			msgCC.frameIndex = 0;
-			mIDIMessages.push_back(msgCC);
-		}
+		// never an all-sound-off: the release alone leaves the synth's own reverb/delay
+		// tail ringing, which is what a loop wrap wants and what a stop or seek can afford
+		PrependMIDIPanic(mIDIMessages, mActiveMIDINotes, false);
 		mNeedsFlush = false;
 	}
 

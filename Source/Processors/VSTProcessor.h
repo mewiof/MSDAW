@@ -77,12 +77,17 @@ private:
 	// track active MIDI notes per channel (16 channels) to ensure note-off on reset
 	std::set<int> mActiveMIDINotes[16];
 
+	// a panic waiting to be flushed at the head of the next block. Reset() queues a hard
+	// one, which adds all-sound-off (cc 120) and so cuts reverb/delay tails; AllNotesOff()
+	// queues a release only, so a looped region's ambience carries across the wrap
+	bool mPendingPanic = false;
+	bool mPendingPanicAllSoundOff = false;
+
 	void InitializeParameters();
 	void Resume();
 	void Suspend();
 
-	// flush sounding notes: always releases active notes + all-notes-off (cc 123); when
-	// allSoundOff is true also sends all-sound-off (cc 120), which cuts reverb/delay tails
-	// Reset() passes true (hard panic), AllNotesOff() passes false (keep tails on loop wrap)
-	void SendMIDIPanic(bool allSoundOff);
+	// prepend a queued panic's note-offs and ccs to a block's MIDI, ahead of anything the
+	// sequencer put there
+	void ApplyPendingPanic(std::vector<MIDIMessage>& mIDIMessages);
 };

@@ -2,6 +2,9 @@
 #include "ContinuousParameter.h"
 #include "Theme.h"
 
+Parameter* ContinuousParameter::s_DragParam = nullptr;
+float ContinuousParameter::s_DragNormalized = 0.0f;
+
 ImGuiID ContinuousParameter::s_TypingID = 0;
 char ContinuousParameter::s_TextBuffer[64] = "";
 bool ContinuousParameter::s_FocusNextFrame = false;
@@ -14,6 +17,20 @@ float ContinuousParameter::NormalizedFromValue() const {
 
 void ContinuousParameter::SetValueFromNormalized(float t) {
 	value = minValue + std::clamp(t, 0.0f, 1.0f) * (maxValue - minValue);
+}
+
+void ContinuousParameter::BeginDragPosition() {
+	s_DragParam = this;
+	s_DragNormalized = NormalizedFromValue();
+}
+
+void ContinuousParameter::ApplyDragDelta(float deltaNormalized) {
+	// a gesture that started somewhere else (or never started) picks the position up
+	// from wherever the value is now
+	if (s_DragParam != this)
+		BeginDragPosition();
+	s_DragNormalized = std::clamp(s_DragNormalized + deltaNormalized, 0.0f, 1.0f);
+	SetValueFromNormalized(s_DragNormalized);
 }
 
 void ContinuousParameter::FormatValue(char* buffer, size_t bufferSize, const char* valueFmt) const {
@@ -38,8 +55,10 @@ bool ContinuousParameter::DrawCompact(float width, const char* valueFmt, bool dr
 		bool isActive = ImGui::IsItemActive();
 		bool isHovered = ImGui::IsItemHovered() && !ImGui::IsAnyItemActive();
 
-		if (ImGui::IsItemActivated())
+		if (ImGui::IsItemActivated()) {
 			BeginEditGesture(); // capture value at drag start (one undo entry per drag)
+			BeginDragPosition();
+		}
 
 		if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right))
 			Select();
@@ -55,7 +74,7 @@ bool ContinuousParameter::DrawCompact(float width, const char* valueFmt, bool dr
 				if (ImGui::GetIO().KeyShift)
 					sensitivity *= 0.1f;
 
-				SetValueFromNormalized(NormalizedFromValue() - deltaY * sensitivity);
+				ApplyDragDelta(-deltaY * sensitivity);
 				changed = true;
 			}
 			HandleInfiniteDrag();

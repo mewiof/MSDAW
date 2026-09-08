@@ -18,13 +18,18 @@ namespace {
 	void FormatKnobValue(char* buffer, size_t bufferSize, float value, ImGuiKnobVariant variant) {
 		switch (variant) {
 		case ImGuiKnobVariant_Percent:
+		case ImGuiKnobVariant_PercentBipolar:
 			snprintf(buffer, bufferSize, "%.0f%%", value);
 			break;
 		case ImGuiKnobVariant_Hertz:
+			// an LFO lives below 10 Hz, where one decimal rounds most of its travel to the
+			// same reading. the extra digit only ever appears down there
 			if (value >= 1000.0f)
 				snprintf(buffer, bufferSize, "%.2f kHz", value / 1000.0f);
-			else
+			else if (value >= 10.0f)
 				snprintf(buffer, bufferSize, "%.1f Hz", value);
+			else
+				snprintf(buffer, bufferSize, "%.2f Hz", value);
 			break;
 		case ImGuiKnobVariant_Decibel:
 		case ImGuiKnobVariant_DecibelBipolar:
@@ -40,6 +45,13 @@ namespace {
 				snprintf(buffer, bufferSize, "%.1f ms", value);
 			else
 				snprintf(buffer, bufferSize, "%.2f ms", value);
+			break;
+		case ImGuiKnobVariant_Integer:
+			snprintf(buffer, bufferSize, "%.0f", value);
+			break;
+		case ImGuiKnobVariant_Degrees:
+			// the degree sign is Latin-1, which the app's font range already covers
+			snprintf(buffer, bufferSize, "%.0f°", value);
 			break;
 		case ImGuiKnobVariant_Linear:
 		case ImGuiKnobVariant_LinearBipolar:
@@ -57,10 +69,16 @@ float KnobParameter::NormalizedFromValue() const {
 }
 
 void KnobParameter::SetValueFromNormalized(float t) {
-	if (variant == ImGuiKnobVariant_Hertz)
+	if (variant == ImGuiKnobVariant_Hertz) {
 		value = LinearToLog(std::clamp(t, 0.0f, 1.0f), minValue, maxValue);
-	else
+	} else {
 		ContinuousParameter::SetValueFromNormalized(t);
+		// a count has no meaning between two of its steps, so the dial lands on one. the
+		// snap happens here rather than at the read site so the printed value, the dial
+		// angle and what the audio thread uses can never disagree
+		if (variant == ImGuiKnobVariant_Integer)
+			value = std::round(value);
+	}
 }
 
 void KnobParameter::FormatValue(char* buffer, size_t bufferSize, const char* valueFmt) const {
@@ -114,8 +132,10 @@ bool KnobParameter::DrawSized(float radius, float width, const char* label) {
 		bool isActive = ImGui::IsItemActive();
 		bool isHovered = ImGui::IsItemHovered() && !ImGui::IsAnyItemActive();
 
-		if (ImGui::IsItemActivated())
+		if (ImGui::IsItemActivated()) {
 			BeginEditGesture(); // capture value at drag start (one undo entry per drag)
+			BeginDragPosition();
+		}
 
 		if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
 			Select();
@@ -130,7 +150,7 @@ bool KnobParameter::DrawSized(float radius, float width, const char* label) {
 				if (ImGui::GetIO().KeyShift)
 					mouseSensitivity *= 0.1f;
 
-				SetValueFromNormalized(NormalizedFromValue() - deltaY * mouseSensitivity);
+				ApplyDragDelta(-deltaY * mouseSensitivity);
 				changed = true;
 			}
 			HandleInfiniteDrag();
@@ -172,7 +192,8 @@ bool KnobParameter::DrawSized(float radius, float width, const char* label) {
 		drawList->PathArcTo(center, radius * 0.85f, ANGLE_MIN, ANGLE_MAX, 32);
 		drawList->PathStroke(colBackgroud, 0, ringThickness);
 
-		if (variant == ImGuiKnobVariant_DecibelBipolar || variant == ImGuiKnobVariant_LinearBipolar) {
+		if (variant == ImGuiKnobVariant_DecibelBipolar || variant == ImGuiKnobVariant_LinearBipolar ||
+			variant == ImGuiKnobVariant_PercentBipolar) {
 			float tZero = (0.0f - minValue) / (maxValue - minValue);
 			float angleZero = ANGLE_MIN + (ANGLE_MAX - ANGLE_MIN) * tZero;
 

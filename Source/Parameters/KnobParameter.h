@@ -6,10 +6,13 @@ enum ImGuiKnobVariant {
 	ImGuiKnobVariant_Linear,		// 0 to 100, -10 to +10, etc
 	ImGuiKnobVariant_LinearBipolar, // linear, plain number, fills from center
 	ImGuiKnobVariant_Percent,		// 0% to 100%
+	ImGuiKnobVariant_PercentBipolar, // -100% to 100%, fills from center
 	ImGuiKnobVariant_Hertz,			// logarithmic (20Hz ... 20kHz)
 	ImGuiKnobVariant_Decibel,		 // linear, formatted as dB, fills from left
 	ImGuiKnobVariant_DecibelBipolar, // linear, formatted as dB, fills from center
-	ImGuiKnobVariant_Milliseconds	 // linear, formatted as ms (envelope times)
+	ImGuiKnobVariant_Milliseconds,	 // linear, formatted as ms (envelope times)
+	ImGuiKnobVariant_Integer,		 // linear, snapped and printed as a whole number (stage / step counts)
+	ImGuiKnobVariant_Degrees		 // linear, formatted as degrees (LFO phase offsets)
 };
 
 class KnobParameter : public ContinuousParameter {

@@ -24,6 +24,13 @@ protected:
 	// or null to let the parameter pick its own units
 	virtual void FormatValue(char* buffer, size_t bufferSize, const char* valueFmt) const;
 
+	// a drag carries its own normalized position for the length of the gesture instead of
+	// reading it back off the value every frame. a parameter that quantizes (a stage
+	// count) would otherwise round each pixel of travel straight back to where it started,
+	// and only a flick large enough to clear half a step in one frame would move it at all
+	void BeginDragPosition();
+	void ApplyDragDelta(float deltaNormalized);
+
 	// typing interception
 	void CheckTypingStart(ImGuiID currentID);
 	bool IsTyping(ImGuiID currentID) const;
@@ -34,6 +41,9 @@ protected:
 	void HandleInfiniteDrag();
 	void RestoreMousePosition();
 private:
+	static Parameter* s_DragParam;
+	static float s_DragNormalized;
+
 	static ImGuiID s_TypingID;
 	static char s_TextBuffer[64];
 	static bool s_FocusNextFrame;

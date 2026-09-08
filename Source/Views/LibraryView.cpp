@@ -135,6 +135,18 @@ void LibraryView::RenderInternalDevices() {
 	}
 	ImGui::PopID();
 
+	// phaser
+	ImGui::PushID("Phaser");
+	if (ImGui::Selectable("Phaser")) {
+	}
+	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "Phaser", strlen("Phaser") + 1);
+		ImGui::Text("Phaser");
+		ImGui::TextDisabled("Effect");
+		ImGui::EndDragDropSource();
+	}
+	ImGui::PopID();
+
 	// audio effect rack. it arrives empty, and the rack view gives it its first chain
 	ImGui::PushID("Rack");
 	if (ImGui::Selectable("Audio Effect Rack")) {

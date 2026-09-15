@@ -827,8 +827,21 @@ static void IdleChainEditors(ProcessorHost& host) {
 }
 
 void Editor::PumpPluginEditors() {
-	// give every open plugin editor a chance to service its GUI each frame. VST2
-	// plugins need effEditIdle to repaint smoothly; other processors no-op
+	// give every open plugin editor a chance to service its GUI. VST2 plugins need
+	// effEditIdle to repaint smoothly; other processors no-op
+	//
+	// deliberately NOT once per frame: an idle tick is a full repaint of the plugin's
+	// own window, and plugin GUIs are written for the ~20-30 Hz a host has always given
+	// them. we draw at the display's refresh instead, so on a 144 Hz monitor every open
+	// editor was redrawing itself nearly five times more often than it was built to.
+	// a handful of them together is enough GPU work to starve the desktop compositor,
+	// and no plugin looks any smoother for it
+	constexpr int kEditorIdleHz = 30;
+	const auto now = std::chrono::steady_clock::now();
+	if (mLastEditorIdle.time_since_epoch().count() != 0 && now - mLastEditorIdle < std::chrono::milliseconds(1000 / kEditorIdleHz))
+		return;
+	mLastEditorIdle = now;
+
 	Project* project = GetProject();
 	if (!project)
 		return;

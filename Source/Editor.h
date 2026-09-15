@@ -9,6 +9,7 @@
 #include "Views/ClipView.h"
 #include "Views/PianoRollView.h"
 #include "SystemMonitor.h"
+#include <chrono>
 #include <memory>
 #include <string>
 
@@ -73,7 +74,7 @@ private:
 	void RenderThirdPartyWindow(); // what MSDAW is built on, with the license each part ships under
 	void ProcessComputerKeyboardMIDI(); // imgui input
 	void HandleGlobalShortcuts();
-	void PumpPluginEditors(); // per-frame idle for open plugin editor windows
+	void PumpPluginEditors(); // idle tick for open plugin editor windows, held to kEditorIdleHz
 	Project* GetProject();
 private:
 	EditorContext mContext;
@@ -86,6 +87,10 @@ private:
 	std::unique_ptr<DeviceRackView> mDeviceRackView;
 	std::unique_ptr<ClipView> mClipView;
 	std::unique_ptr<PianoRollView> mPianoRollView;
+
+	// when the open plugin editors were last idled, so the rate they are serviced at
+	// stays independent of how fast we draw our own frames (see PumpPluginEditors)
+	std::chrono::steady_clock::time_point mLastEditorIdle{};
 
 	// state
 	// NOTE: the project's path on disk lives on EditorState, not here - the track list

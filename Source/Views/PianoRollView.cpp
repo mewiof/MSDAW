@@ -1163,20 +1163,24 @@ void PianoRollView::Render() {
 			pushNoteEdit(before, "Delete notes");
 		}
 
-		// arrow-key nudging: grid cell horizontally, semitone / octave vertically
+		// arrow-key editing, a grid cell or a semitone at a time. shift takes the
+		// coarser reading of each axis: an octave vertically, and horizontally the
+		// note's tail rather than the note itself - the same pairing the mouse has,
+		// where the body drags and the right edge resizes
 		if (!mSelectedIndices.empty()) {
 			double dBeat = 0.0;
+			double dDuration = 0.0;
 			int dSemi = 0;
 			if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
-				dBeat = -snapGrid;
+				(io.KeyShift ? dDuration : dBeat) = -snapGrid;
 			if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
-				dBeat = snapGrid;
+				(io.KeyShift ? dDuration : dBeat) = snapGrid;
 			if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
 				dSemi = io.KeyShift ? 12 : 1;
 			if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
 				dSemi = io.KeyShift ? -12 : -1;
 
-			if (dBeat != 0.0 || dSemi != 0) {
+			if (dBeat != 0.0 || dDuration != 0.0 || dSemi != 0) {
 				std::vector<MIDINote> before = notes;
 				{
 					auto lk = lockProject();
@@ -1185,11 +1189,22 @@ void PianoRollView::Render() {
 							continue;
 						if (dBeat != 0.0)
 							notes[i].startBeat = std::max(0.0, notes[i].startBeat + dBeat);
+						if (dDuration != 0.0) {
+							// one cell is the shortest a note can be shrunk to, which is
+							// also the floor the mouse resize stops at
+							double newDur = notes[i].durationBeats + dDuration;
+							notes[i].durationBeats = std::max(snapGrid, newDur);
+						}
 						if (dSemi != 0)
 							notes[i].noteNumber = std::clamp(notes[i].noteNumber + dSemi, 0, 127);
 					}
 				}
-				pushNoteEdit(before, dSemi != 0 ? "Nudge pitch" : "Nudge time");
+				const char* name = "Nudge time";
+				if (dSemi != 0)
+					name = "Nudge pitch";
+				else if (dDuration != 0.0)
+					name = "Resize notes";
+				pushNoteEdit(before, name);
 			}
 		}
 	}

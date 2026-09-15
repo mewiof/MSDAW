@@ -487,6 +487,23 @@ std::vector<Parameter*> Track::GetAllParameters() {
 	return params;
 }
 
+std::vector<Parameter*> Track::GetPanelParameters() {
+	std::vector<Parameter*> params;
+	CollectPanelParameters(params);
+	return params;
+}
+
+std::vector<Parameter*> Track::GetAutomatedParameters() {
+	// a curve exists the moment a parameter is picked in the lane, so an empty one says
+	// nothing was ever drawn on it - only the ones carrying points need protecting
+	std::vector<Parameter*> params;
+	for (const auto& curve : mAutomationCurves) {
+		if (curve.targetParam && !curve.points.empty())
+			params.push_back(curve.targetParam);
+	}
+	return params;
+}
+
 AutomationCurve* Track::GetAutomationCurve(Parameter* param) {
 	for (auto& curve : mAutomationCurves) {
 		if (curve.targetParam == param)

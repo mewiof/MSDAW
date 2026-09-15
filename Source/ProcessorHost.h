@@ -38,6 +38,13 @@ public:
 	// what keeps a device automatable after it has been grouped into a rack
 	void CollectParameters(std::vector<Parameter*>& out);
 
+	// the same walk, narrowed to what the device panels actually show: a configured
+	// device contributes the parameters on its panel, an unconfigured one contributes
+	// all of them unless it has an editor of its own to configure it from. what the
+	// automation lane offers, so a plugin publishing thousands of parameters does not
+	// bury the handful worth automating
+	void CollectPanelParameters(std::vector<Parameter*>& out);
+
 	// bumped by every membership change in any chain in the session. a rack's macro
 	// mappings cache the Parameter* they drive, and re-resolve when they see a newer
 	// value - so a device moved, deleted, or brought back by an undo anywhere in the

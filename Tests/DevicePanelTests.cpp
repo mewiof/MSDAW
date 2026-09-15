@@ -169,6 +169,70 @@ TEST(DevicePanel, ConfiguringIsUndoneAsOneEntry) {
 	EXPECT_EQ(device->GetPanelParameters(), std::vector<int>({0, 1}));
 }
 
+// ================================================================
+// WHAT THE AUTOMATION LANE OFFERS
+// ================================================================
+
+TEST(DevicePanel, TheLaneOffersEveryParameterOfAnUnconfigurableDevice) {
+	Project project;
+	project.Initialize();
+	project.CreateTrack();
+	auto track = project.GetTracks()[0];
+
+	auto device = MakeDevice(); // a built-in: no editor of its own to configure from
+	ASSERT_FALSE(device->HasEditor());
+	track->AddProcessor(device);
+
+	// every parameter it publishes is on offer, because its panel is the only way to
+	// reach any of them in the first place
+	std::vector<Parameter*> offered = track->GetPanelParameters();
+	for (const auto& parameter : device->GetParameters())
+		EXPECT_NE(std::find(offered.begin(), offered.end(), parameter.get()), offered.end());
+}
+
+TEST(DevicePanel, TheLaneNarrowsToAConfiguredPanel) {
+	Project project;
+	project.Initialize();
+	project.CreateTrack();
+	auto track = project.GetTracks()[0];
+
+	auto device = MakeDevice();
+	track->AddProcessor(device);
+	device->SetPanelParameters({1});
+
+	std::vector<Parameter*> offered = track->GetPanelParameters();
+	const auto& parameters = device->GetParameters();
+	EXPECT_NE(std::find(offered.begin(), offered.end(), parameters[1].get()), offered.end());
+	EXPECT_EQ(std::find(offered.begin(), offered.end(), parameters[0].get()), offered.end());
+
+	// narrowed, not lost: the full walk still reaches everything, which is what All
+	// in the dropdown falls back to
+	std::vector<Parameter*> all = track->GetAllParameters();
+	EXPECT_NE(std::find(all.begin(), all.end(), parameters[0].get()), all.end());
+}
+
+TEST(DevicePanel, AnAutomatedParameterIsOfferedWhicheverPanelItIsOff) {
+	Project project;
+	project.Initialize();
+	project.CreateTrack();
+	auto track = project.GetTracks()[0];
+
+	auto device = MakeDevice();
+	track->AddProcessor(device);
+	Parameter* drawnOn = device->GetParameters()[0].get();
+
+	// a curve exists the moment a parameter is picked, so an empty one must not count
+	track->GetAutomationCurve(drawnOn);
+	EXPECT_TRUE(track->GetAutomatedParameters().empty());
+
+	track->AddAutomationPoint(drawnOn, 0.0, 0.5);
+
+	// configuring the device onto a panel that excludes it cannot strand the curve
+	device->SetPanelParameters({1});
+	std::vector<Parameter*> automated = track->GetAutomatedParameters();
+	EXPECT_NE(std::find(automated.begin(), automated.end(), drawnOn), automated.end());
+}
+
 TEST(DevicePanel, APanelSurvivesAProjectSaveAndLoad) {
 	const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
 	std::filesystem::path path = std::filesystem::temp_directory_path() /

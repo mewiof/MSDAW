@@ -62,3 +62,31 @@ void ProcessorHost::CollectParameters(std::vector<Parameter*>& out) {
 		}
 	}
 }
+
+void ProcessorHost::CollectPanelParameters(std::vector<Parameter*>& out) {
+	CollectOwnParameters(out);
+	for (auto& processor : GetProcessors()) {
+		if (!processor)
+			continue;
+
+		const auto& parameters = processor->GetParameters();
+		const std::vector<int>& panel = processor->GetPanelParameters();
+		if (!panel.empty()) {
+			for (int index : panel) {
+				if (index >= 0 && index < (int)parameters.size())
+					out.push_back(parameters[index].get());
+			}
+		} else if (!processor->HasEditor()) {
+			// nothing to configure a panel from, so the parameter list is all there is
+			for (auto& parameter : parameters)
+				out.push_back(parameter.get());
+		}
+
+		std::vector<ProcessorHost*> nested;
+		processor->CollectHostedChains(nested);
+		for (ProcessorHost* chain : nested) {
+			if (chain)
+				chain->CollectPanelParameters(out);
+		}
+	}
+}

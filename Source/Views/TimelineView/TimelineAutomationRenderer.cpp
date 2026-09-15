@@ -81,22 +81,46 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 	bool isTrackClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
 	bool isTrackRightClicked = ImGui::IsItemClicked(ImGuiMouseButton_Right);
 
-	// automation dropdown
-	std::vector<Parameter*> allParams = t->GetAllParameters();
-	if (!t->mSelectedAutomationParam && !allParams.empty())
-		t->mSelectedAutomationParam = allParams[0];
+	// automation dropdown. it offers what the device panels show rather than everything
+	// every device publishes - a plugin with 2855 parameters makes a list nobody can
+	// find anything in - plus whatever this track already automates, so curating a panel
+	// can never strand an existing curve behind it. All falls back to the full list
+	std::vector<Parameter*> choices = t->mAutomationListsAllParams ? t->GetAllParameters() : t->GetPanelParameters();
+	for (Parameter* automated : t->GetAutomatedParameters()) {
+		if (std::find(choices.begin(), choices.end(), automated) == choices.end())
+			choices.push_back(automated);
+	}
+	// "Show Auto" points the lane at whatever was last turned - a knob in a plugin's own
+	// editor included - and that parameter need not be on any panel or carry a point yet.
+	// the lane edits it either way, so the dropdown has to be able to show it as current
+	if (t->mSelectedAutomationParam && std::find(choices.begin(), choices.end(), t->mSelectedAutomationParam) == choices.end())
+		choices.push_back(t->mSelectedAutomationParam);
+
+	if (!t->mSelectedAutomationParam && !choices.empty())
+		t->mSelectedAutomationParam = choices[0];
 
 	ImGui::SetCursorScreenPos(ImVec2(winPos.x + 5 + scrollX, yPos + 2));
 	ImGui::PushItemWidth(120);
 	std::string comboLabel = t->mSelectedAutomationParam ? t->mSelectedAutomationParam->name : "None";
 	if (ImGui::BeginCombo(("##AutoParam" + std::to_string(trackIndex)).c_str(), comboLabel.c_str())) {
-		for (auto param : allParams) {
-			bool isSelected = (t->mSelectedAutomationParam == param);
-			if (ImGui::Selectable(param->name.c_str(), isSelected)) {
-				t->mSelectedAutomationParam = param;
+		// a plugin device lists nothing here until its panel is configured, so this is
+		// the way through to the rest of what it publishes
+		ImGui::Checkbox("All parameters", &t->mAutomationListsAllParams);
+		ImGui::Separator();
+
+		// the full list runs to thousands of entries, and every one of them is a widget
+		ImGuiListClipper clipper;
+		clipper.Begin((int)choices.size());
+		while (clipper.Step()) {
+			for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+				Parameter* param = choices[i];
+				bool isSelected = (t->mSelectedAutomationParam == param);
+				if (ImGui::Selectable(param->name.c_str(), isSelected)) {
+					t->mSelectedAutomationParam = param;
+				}
+				if (isSelected)
+					ImGui::SetItemDefaultFocus();
 			}
-			if (isSelected)
-				ImGui::SetItemDefaultFocus();
 		}
 		ImGui::EndCombo();
 	}

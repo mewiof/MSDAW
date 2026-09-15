@@ -108,6 +108,12 @@ public:
 
 	// automation
 	std::vector<Parameter*> GetAllParameters(); // returns track params + processor params
+	// the subset the device panels show - what the automation lane offers by default
+	std::vector<Parameter*> GetPanelParameters();
+	// everything this track already has automation points for, whatever panel those
+	// parameters are or are not on. the lane offers these unconditionally, so curating
+	// a panel can never hide a curve that already exists
+	std::vector<Parameter*> GetAutomatedParameters();
 	AutomationCurve* GetAutomationCurve(Parameter* param);
 	void AddAutomationPoint(Parameter* param, double beat, float value);
 	void RemoveAutomationPoint(Parameter* param, int index);
@@ -140,6 +146,9 @@ public:
 	// ui state
 	bool mShowAutomation = false;
 	Parameter* mSelectedAutomationParam = nullptr;
+	// whether this lane's dropdown is listing every parameter rather than the ones on
+	// the device panels. a way of looking at the list, so it is not saved with the track
+	bool mAutomationListsAllParams = false;
 
 	// serialization
 	void Save(std::ostream& out, int trackIndex);

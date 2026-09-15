@@ -56,6 +56,7 @@ private:
 	void RenderChainList(const std::shared_ptr<RackProcessor>& rack, const DeviceRackOps::ChainPath& path, int deviceIndex, float width, float height);
 	void RenderMappingBrowser(const std::shared_ptr<RackProcessor>& rack);
 	void RenderTargetBrowser(const std::shared_ptr<ModulatorProcessor>& modulator);
+	void RenderParameterList(const std::vector<std::unique_ptr<Parameter>>& parameters);
 	void RenderRenamePopup();
 	void RenderDeviceContextMenu(const std::shared_ptr<AudioProcessor>& device);
 

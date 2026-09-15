@@ -363,8 +363,7 @@ void DeviceRackView::RenderDevice(const std::shared_ptr<ProcessorHost>& host, co
 		// list is as long as the plugin says it is - a hundred sliders belong behind a
 		// scrollbar, not spread across a device ten columns wide
 		ImGui::BeginChild("ParamsScroll", ImVec2(0, 0));
-		for (auto& parameter : device->GetParameters())
-			parameter->Draw();
+		RenderParameterList(device->GetParameters());
 		ImGui::EndChild();
 	}
 
@@ -372,6 +371,30 @@ void DeviceRackView::RenderDevice(const std::shared_ptr<ProcessorHost>& host, co
 	ImGui::PopStyleColor();
 
 	ImGui::PopID();
+}
+
+// a plugin decides how many parameters it publishes, and some publish thousands
+// (Surge XT: 2855). drawing every one of them costs a frame even when only a
+// dozen are on screen, so past the point where a list stops being scannable it
+// gets clipped to what is actually visible. short lists are submitted whole,
+// because a clipper needs one uniform item height and the built-in devices mix
+// sliders, knobs and toggles
+void DeviceRackView::RenderParameterList(const std::vector<std::unique_ptr<Parameter>>& parameters) {
+	const int count = (int)parameters.size();
+	constexpr int kClipThreshold = 64;
+
+	if (count <= kClipThreshold) {
+		for (auto& parameter : parameters)
+			parameter->Draw();
+		return;
+	}
+
+	ImGuiListClipper clipper;
+	clipper.Begin(count);
+	while (clipper.Step()) {
+		for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+			parameters[i]->Draw();
+	}
 }
 
 // ================================================================

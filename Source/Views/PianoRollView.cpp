@@ -5,6 +5,7 @@
 #include "Project.h"
 #include "Undo/Actions.h"
 #include "Theme.h"
+#include "GridScale.h"
 #include "Views/TimelineView/TimelineUtils.h"
 #include <algorithm>
 #include <cmath>
@@ -318,12 +319,24 @@ void PianoRollView::Render() {
 		mLastGridClip = gridClip;
 	}
 
-	mGridNumParam->DrawCompact(30 * scale, "%.0f");
-	ImGui::SameLine();
-	ImGui::AlignTextToFramePadding();
-	ImGui::Text("/");
-	ImGui::SameLine();
-	mGridDenParam->DrawCompact(30 * scale, "%.0f");
+	if (mContext.state.timelineGridAuto) {
+		// the zoom is deciding the division: show what it landed on, and take the
+		// clip's own fields out of play without forgetting them
+		ImGui::BeginDisabled();
+		const double cell = GridScale::Adaptive(mPixelsPerBeat * scale, scale);
+		if (cell >= 1.0)
+			ImGui::Text("%g / 1", cell);
+		else
+			ImGui::Text("1 / %g", 1.0 / cell);
+		ImGui::EndDisabled();
+	} else {
+		mGridNumParam->DrawCompact(30 * scale, "%.0f");
+		ImGui::SameLine();
+		ImGui::AlignTextToFramePadding();
+		ImGui::Text("/");
+		ImGui::SameLine();
+		mGridDenParam->DrawCompact(30 * scale, "%.0f");
+	}
 
 	// the clip is the source of truth; write the (integer) widget values back each frame
 	int clipNum = std::max(1, (int)std::lround(mGridNumParam->value));
@@ -418,6 +431,11 @@ void PianoRollView::Render() {
 	// post-zoom sizing (reflects this frame's zoom)
 	const float NOTE_HEIGHT = mNoteHeight * scale;
 	const float PPB = mPixelsPerBeat * scale;
+
+	// the roll zooms on its own, so it picks its own division rather than taking the
+	// timeline's. the clip's grid is what it falls back to when Auto is off
+	if (mContext.state.timelineGridAuto)
+		snapGrid = GridScale::Adaptive(PPB, scale);
 	float contentW = (float)totalBeats * PPB;
 	float contentH = 128.0f * NOTE_HEIGHT;
 

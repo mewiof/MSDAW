@@ -29,7 +29,10 @@
 // 7: an optional PROC_PANEL line on a device block, listing by index the parameters its
 //    panel was configured to show. a device saved without one shows all of them, which
 //    is how every device already behaved
-const int kCurrentProjectVersion = 7;
+// 8: VIEW_GRID_AUTO in the view state, whether the grid follows the zoom rather than the
+//    saved numerator and denominator. absent in older projects, which read as off - the
+//    fixed grid they were written with
+const int kCurrentProjectVersion = 8;
 
 Project::Project() {
 	// 0 is a real track id, so "nothing is holding this note" has to be -1
@@ -1035,6 +1038,7 @@ void Project::Save(const std::string& path) {
 	out << "VIEW_SCROLL_Y " << mViewState.scrollY << "\n";
 	out << "VIEW_GRID_NUM " << mViewState.timelineGridNumerator << "\n";
 	out << "VIEW_GRID_DEN " << mViewState.timelineGridDenominator << "\n";
+	out << "VIEW_GRID_AUTO " << (mViewState.timelineGridAuto ? 1 : 0) << "\n";
 
 	for (int i = 0; i < (int)mTracks.size(); ++i) {
 		mTracks[i]->Save(out, i);
@@ -1146,6 +1150,10 @@ void Project::Load(const std::string& path) {
 			ss >> mViewState.timelineGridNumerator;
 		} else if (token == "VIEW_GRID_DEN") {
 			ss >> mViewState.timelineGridDenominator;
+		} else if (token == "VIEW_GRID_AUTO") {
+			int v = 0;
+			ss >> v;
+			mViewState.timelineGridAuto = (v != 0);
 		} else if (token == "TRACK_BEGIN") {
 			auto t = std::make_shared<Track>();
 			t->Load(in);

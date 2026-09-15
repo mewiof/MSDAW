@@ -56,6 +56,9 @@ struct EditorState {
 	double timelineGrid = 0.25;
 	int timelineGridNumerator = 1;
 	int timelineGridDenominator = 4;
+	// when set, timelineGrid is recomputed from the zoom every frame and the numerator
+	// and denominator above only say what it falls back to when it is switched off
+	bool timelineGridAuto = false;
 
 	float timelineScrollY = 0.0f; // master timeline scroll y
 	float timelineScrollX = 0.0f; // master timeline scroll x

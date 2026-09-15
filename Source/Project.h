@@ -16,6 +16,7 @@ struct ProjectViewState {
 	float scrollY = 0.0f;
 	int timelineGridNumerator = 1;
 	int timelineGridDenominator = 4;
+	bool timelineGridAuto = false;
 };
 
 class Project {

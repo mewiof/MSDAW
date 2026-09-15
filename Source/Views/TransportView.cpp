@@ -2,6 +2,7 @@
 #include "TransportView.h"
 #include "Project.h"
 #include "Transport.h"
+#include "GridScale.h"
 #include "Parameter.h"
 #include "Theme.h"
 #include <cmath>
@@ -82,12 +83,26 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 		ImGui::AlignTextToFramePadding();
 		ImGui::Text("Grid");
 		ImGui::SameLine();
-		mGridNumParam->DrawCompact(30 * mContext.state.mainScale, "%.0f");
-		ImGui::SameLine();
-		ImGui::AlignTextToFramePadding();
-		ImGui::Text("/");
-		ImGui::SameLine();
-		mGridDenParam->DrawCompact(30 * mContext.state.mainScale, "%.0f");
+
+		const bool gridAuto = mContext.state.timelineGridAuto;
+		if (gridAuto) {
+			// the fields are what the grid falls back to, not what it is doing: show
+			// the division the zoom actually landed on, and take the fields out of play
+			ImGui::BeginDisabled();
+			const double cell = mContext.state.timelineGrid;
+			if (cell >= 1.0)
+				ImGui::Text("%g / 1", cell);
+			else
+				ImGui::Text("1 / %g", 1.0 / std::max(cell, 0.000001));
+			ImGui::EndDisabled();
+		} else {
+			mGridNumParam->DrawCompact(30 * mContext.state.mainScale, "%.0f");
+			ImGui::SameLine();
+			ImGui::AlignTextToFramePadding();
+			ImGui::Text("/");
+			ImGui::SameLine();
+			mGridDenParam->DrawCompact(30 * mContext.state.mainScale, "%.0f");
+		}
 
 		// derive the snap ratio from the (integer) grid fields every frame so undo/redo of
 		// the fields propagates back into the timeline grid
@@ -95,7 +110,26 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 		int gridDen = std::max(1, (int)std::lround(mGridDenParam->value));
 		mContext.state.timelineGridNumerator = gridNum;
 		mContext.state.timelineGridDenominator = gridDen;
-		mContext.state.timelineGrid = (double)gridNum / (double)gridDen;
+		if (gridAuto) {
+			// the transport draws before the timeline does, so this frame's lines and
+			// this frame's snapping both come from the division decided here
+			mContext.state.timelineGrid = GridScale::Adaptive(mContext.state.pixelsPerBeat, mContext.state.mainScale);
+		} else {
+			mContext.state.timelineGrid = (double)gridNum / (double)gridDen;
+		}
+
+		ImGui::SameLine();
+		if (gridAuto) {
+			ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, th.accent);
+			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
+		}
+		if (ImGui::Button("Auto", ImVec2(44 * mContext.state.mainScale, 0)))
+			mContext.state.timelineGridAuto = !gridAuto;
+		if (gridAuto)
+			ImGui::PopStyleColor(3);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Let the grid follow the zoom, in the timeline and the piano roll");
 
 		// computer MIDI keyboard toggle
 		ImGui::SameLine();

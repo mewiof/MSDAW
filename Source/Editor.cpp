@@ -95,6 +95,7 @@ void Editor::NewProject() {
 		mContext.state.timelineGridNumerator = 1;
 		mContext.state.timelineGridDenominator = 4;
 		mContext.state.timelineGrid = 0.25;
+		mContext.state.timelineGridAuto = false;
 	}
 }
 
@@ -111,6 +112,7 @@ void Editor::SaveProject() {
 			vs.scrollY = mContext.state.timelineScrollY;
 			vs.timelineGridNumerator = mContext.state.timelineGridNumerator;
 			vs.timelineGridDenominator = mContext.state.timelineGridDenominator;
+			vs.timelineGridAuto = mContext.state.timelineGridAuto;
 			p->SetViewState(vs);
 			p->Save(mContext.state.projectPath);
 		}
@@ -146,6 +148,7 @@ void Editor::SaveProjectAs() {
 			vs.scrollY = mContext.state.timelineScrollY;
 			vs.timelineGridNumerator = mContext.state.timelineGridNumerator;
 			vs.timelineGridDenominator = mContext.state.timelineGridDenominator;
+			vs.timelineGridAuto = mContext.state.timelineGridAuto;
 			p->SetViewState(vs);
 			p->Save(mContext.state.projectPath);
 		}
@@ -201,6 +204,7 @@ void Editor::OpenProjectFile(const std::string& path) {
 	if (mContext.state.timelineGridDenominator <= 0)
 		mContext.state.timelineGridDenominator = 4;
 	mContext.state.timelineGrid = (double)mContext.state.timelineGridNumerator / mContext.state.timelineGridDenominator;
+	mContext.state.timelineGridAuto = vs.timelineGridAuto;
 
 	mContext.state.restoreScroll = true;
 }

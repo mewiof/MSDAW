@@ -44,29 +44,40 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 
 	ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 
-	RenderInternalDevices();
-
-	ImGui::Dummy(ImVec2(0, 10));
-
-	// the plugin list and the file explorer share whatever is left below the devices,
-	// with a splitter between them. both are lists that can be arbitrarily long, so
-	// neither gets to size itself off its contents - the user decides the balance
+	// all three sections are lists that can be arbitrarily long, so none of them gets
+	// to size itself off its contents - a splitter under each of the first two lets the
+	// user decide the balance. the devices take their share of the whole column, and
+	// the plugins and files then divide whatever the devices left
 	const float scale = mContext.state.mainScale;
 	const float splitterHeight = std::floor(5.0f * scale);
 	const float minSectionHeight = std::floor(60.0f * scale);
-	const float sharedHeight = ImGui::GetContentRegionAvail().y;
 
-	float pluginsHeight = sharedHeight * config.libraryBrowserSplit;
-	if (sharedHeight - splitterHeight >= minSectionHeight * 2.0f)
-		pluginsHeight = std::clamp(pluginsHeight, minSectionHeight, sharedHeight - splitterHeight - minSectionHeight);
-	else
-		pluginsHeight = std::max((sharedHeight - splitterHeight) * 0.5f, 0.0f); // too short to honor the minimums
+	// splits a run of space in two, honoring the minimums unless there is not enough
+	// room for both - in which case an even divide is the best that can be done
+	auto sectionHeight = [&](float available, float fraction) {
+		float height = available * fraction;
+		if (available - splitterHeight >= minSectionHeight * 2.0f)
+			return std::clamp(height, minSectionHeight, available - splitterHeight - minSectionHeight);
+		return std::max((available - splitterHeight) * 0.5f, 0.0f);
+	};
+
+	const float columnHeight = ImGui::GetContentRegionAvail().y;
+	const float devicesHeight = sectionHeight(columnHeight, config.libraryDevicesSplit);
+
+	ImGui::BeginChild("LibInternal", ImVec2(0, devicesHeight));
+	RenderInternalDevices();
+	ImGui::EndChild();
+
+	RenderSplitter("##LibraryDevicesSplitter", config.libraryDevicesSplit, columnHeight);
+
+	const float sharedHeight = ImGui::GetContentRegionAvail().y;
+	const float pluginsHeight = sectionHeight(sharedHeight, config.libraryBrowserSplit);
 
 	ImGui::BeginChild("LibPlugins", ImVec2(0, pluginsHeight));
 	RenderPlugins();
 	ImGui::EndChild();
 
-	RenderSplitter(sharedHeight);
+	RenderSplitter("##LibrarySplitter", config.libraryBrowserSplit, sharedHeight);
 
 	ImGui::BeginChild("LibFiles");
 	mFileBrowserView.Render(pos, ImVec2(pos.x + width, pos.y + height));
@@ -276,19 +287,19 @@ void LibraryView::RenderPlugins() {
 // SPLITTER
 // ================================================================
 
-void LibraryView::RenderSplitter(float sharedHeight) {
+void LibraryView::RenderSplitter(const char* id, float& fraction, float sharedHeight) {
 	const Theme& th = Theme::Instance();
 	AppConfig& config = AppConfig::Instance();
 
 	const float splitterHeight = std::floor(5.0f * mContext.state.mainScale);
-	ImGui::InvisibleButton("##LibrarySplitter", ImVec2(ImGui::GetContentRegionAvail().x, splitterHeight));
+	ImGui::InvisibleButton(id, ImVec2(ImGui::GetContentRegionAvail().x, splitterHeight));
 
 	const bool active = ImGui::IsItemActive();
 	if (active || ImGui::IsItemHovered())
 		ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
 
 	if (active && sharedHeight > 0.0f) {
-		config.libraryBrowserSplit = std::clamp(config.libraryBrowserSplit + ImGui::GetIO().MouseDelta.y / sharedHeight, 0.1f, 0.9f);
+		fraction = std::clamp(fraction + ImGui::GetIO().MouseDelta.y / sharedHeight, 0.1f, 0.9f);
 	}
 	// written to disk once the grab is let go, not on every pixel of the drag
 	if (ImGui::IsItemDeactivated())

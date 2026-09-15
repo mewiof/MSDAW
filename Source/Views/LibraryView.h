@@ -14,10 +14,9 @@ private:
 	void RenderInternalDevices();
 	void RenderPlugins();
 
-	// the draggable boundary between the plugin list and the file explorer.
-	// `sharedHeight` is the space the two divide, which is what a drag moves the
-	// stored fraction against
-	void RenderSplitter(float sharedHeight);
+	// a draggable boundary between two of the column's sections. `sharedHeight` is the
+	// space those two divide, which is what a drag moves the stored fraction against
+	void RenderSplitter(const char* id, float& fraction, float sharedHeight);
 
 	EditorContext& mContext;
 	FileBrowserView mFileBrowserView;

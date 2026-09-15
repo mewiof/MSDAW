@@ -30,6 +30,10 @@ public:
 	// would rather not have a folder of kicks play at them while they browse
 	bool libraryPreview = true;
 
+	// where the library panel splits its height between the built-in devices (above)
+	// and everything under them, as a fraction of the whole column
+	float libraryDevicesSplit = 0.4f;
+
 	// where the library panel splits its height between the plugin list (above) and
 	// the file explorer (below), as a fraction of the space the two share
 	float libraryBrowserSplit = 0.5f;

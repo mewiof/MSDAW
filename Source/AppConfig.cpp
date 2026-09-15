@@ -67,6 +67,10 @@ void AppConfig::Load() {
 			int v = 1;
 			ss >> v;
 			libraryPreview = (v != 0);
+		} else if (key == "library_devices_split") {
+			float v = 0.4f;
+			ss >> v;
+			libraryDevicesSplit = std::clamp(v, 0.1f, 0.9f);
 		} else if (key == "library_browser_split") {
 			float v = 0.5f;
 			ss >> v;
@@ -88,6 +92,7 @@ void AppConfig::Save() const {
 	out << "library_collapsed " << (libraryCollapsed ? 1 : 0) << "\n";
 	out << "bottom_panel_collapsed " << (bottomPanelCollapsed ? 1 : 0) << "\n";
 	out << "library_preview " << (libraryPreview ? 1 : 0) << "\n";
+	out << "library_devices_split " << libraryDevicesSplit << "\n";
 	out << "library_browser_split " << libraryBrowserSplit << "\n";
 	// last, and one line each: a folder path is written raw, so it is the only key
 	// here that can hold whitespace and the reader takes the rest of the line

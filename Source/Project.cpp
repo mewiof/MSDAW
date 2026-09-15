@@ -538,7 +538,14 @@ void Project::ProcessBlock(float* outputBuffer, int numFrames, int numChannels, 
 	// re-derivation happen inside a block, so they don't trip this)
 	bool stopped = mWasPlaying && !isPlaying;
 	bool startedPlaying = !mWasPlaying && isPlaying;
-	bool seeked = isPlaying && mLastBlockEndSample >= 0 && blockStartSample != mLastBlockEndSample;
+	// only a discontinuity *between two playing blocks* is a seek. a stopped transport
+	// does not advance, so the block that starts playback never continues the previous
+	// one and looked like a seek every single time - which panicked every instrument
+	// into the same block the sequencer starts notes in. a note sitting exactly on the
+	// play position was released before it could sound, and the clip appeared to swallow
+	// its first note unless playback began earlier. nothing is left ringing at that point
+	// anyway: the stop that preceded it already reset the graph
+	bool seeked = isPlaying && mWasPlaying && mLastBlockEndSample >= 0 && blockStartSample != mLastBlockEndSample;
 	if (stopped || seeked) {
 		for (auto& track : mTracks)
 			track->Reset();

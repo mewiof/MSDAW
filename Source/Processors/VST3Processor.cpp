@@ -9,6 +9,7 @@
 #undef INIT_CLASS_IID
 
 #include <iostream>
+#include <map>
 #include <algorithm>
 #include <cstring>
 #include <cmath>
@@ -292,6 +293,130 @@ Steinberg::uint32 PLUGIN_API VST3Processor::ParameterChanges::release() {
 	return --mRefCount;
 }
 
+// ================================================================
+// HOST-PROVIDED MESSAGE OBJECTS
+// ================================================================
+// a plugin whose component and controller talk to each other allocates the
+// message through the host (IHostApplication::createInstance), so the host has
+// to supply both halves or the conversation never happens
+
+class HostAttributeList : public Steinberg::Vst::IAttributeList {
+public:
+	Steinberg::tresult PLUGIN_API setInt(AttrID id, Steinberg::int64 value) override {
+		mInts[id] = value;
+		return Steinberg::kResultTrue;
+	}
+	Steinberg::tresult PLUGIN_API getInt(AttrID id, Steinberg::int64& value) override {
+		auto it = mInts.find(id);
+		if (it == mInts.end())
+			return Steinberg::kResultFalse;
+		value = it->second;
+		return Steinberg::kResultTrue;
+	}
+	Steinberg::tresult PLUGIN_API setFloat(AttrID id, double value) override {
+		mFloats[id] = value;
+		return Steinberg::kResultTrue;
+	}
+	Steinberg::tresult PLUGIN_API getFloat(AttrID id, double& value) override {
+		auto it = mFloats.find(id);
+		if (it == mFloats.end())
+			return Steinberg::kResultFalse;
+		value = it->second;
+		return Steinberg::kResultTrue;
+	}
+	Steinberg::tresult PLUGIN_API setString(AttrID id, const Steinberg::Vst::TChar* string) override {
+		std::vector<Steinberg::Vst::TChar>& dst = mStrings[id];
+		dst.clear();
+		if (string) {
+			while (*string)
+				dst.push_back(*string++);
+		}
+		dst.push_back(0);
+		return Steinberg::kResultTrue;
+	}
+	Steinberg::tresult PLUGIN_API getString(AttrID id, Steinberg::Vst::TChar* string, Steinberg::uint32 sizeInBytes) override {
+		auto it = mStrings.find(id);
+		if (it == mStrings.end())
+			return Steinberg::kResultFalse;
+		size_t maxChars = sizeInBytes / sizeof(Steinberg::Vst::TChar);
+		if (maxChars == 0)
+			return Steinberg::kResultFalse;
+		size_t count = (std::min)(it->second.size(), maxChars);
+		std::memcpy(string, it->second.data(), count * sizeof(Steinberg::Vst::TChar));
+		string[count - 1] = 0;
+		return Steinberg::kResultTrue;
+	}
+	Steinberg::tresult PLUGIN_API setBinary(AttrID id, const void* data, Steinberg::uint32 sizeInBytes) override {
+		auto& dst = mBinaries[id];
+		dst.assign((const uint8_t*)data, ((const uint8_t*)data) + sizeInBytes);
+		return Steinberg::kResultTrue;
+	}
+	Steinberg::tresult PLUGIN_API getBinary(AttrID id, const void*& data, Steinberg::uint32& sizeInBytes) override {
+		auto it = mBinaries.find(id);
+		if (it == mBinaries.end())
+			return Steinberg::kResultFalse;
+		data = it->second.data();
+		sizeInBytes = (Steinberg::uint32)it->second.size();
+		return Steinberg::kResultTrue;
+	}
+
+	DECLARE_FUNKNOWN_METHODS
+private:
+	std::map<std::string, Steinberg::int64> mInts;
+	std::map<std::string, double> mFloats;
+	std::map<std::string, std::vector<Steinberg::Vst::TChar>> mStrings;
+	std::map<std::string, std::vector<uint8_t>> mBinaries;
+	Steinberg::uint32 mRefCount = 1;
+};
+Steinberg::tresult PLUGIN_API HostAttributeList::queryInterface(const Steinberg::TUID _iid, void** obj) {
+	QUERY_INTERFACE(_iid, obj, Steinberg::FUnknown::iid, Steinberg::Vst::IAttributeList)
+	QUERY_INTERFACE(_iid, obj, Steinberg::Vst::IAttributeList::iid, Steinberg::Vst::IAttributeList)
+	*obj = nullptr;
+	return Steinberg::kNoInterface;
+}
+Steinberg::uint32 PLUGIN_API HostAttributeList::addRef() {
+	return ++mRefCount;
+}
+Steinberg::uint32 PLUGIN_API HostAttributeList::release() {
+	if (--mRefCount == 0) {
+		delete this;
+		return 0;
+	}
+	return mRefCount;
+}
+
+class HostMessage : public Steinberg::Vst::IMessage {
+public:
+	HostMessage() : mAttributes(new HostAttributeList()) {}
+	virtual ~HostMessage() { mAttributes->release(); }
+
+	Steinberg::FIDString PLUGIN_API getMessageID() override { return mMessageID.empty() ? nullptr : mMessageID.c_str(); }
+	void PLUGIN_API setMessageID(Steinberg::FIDString id) override { mMessageID = id ? id : ""; }
+	Steinberg::Vst::IAttributeList* PLUGIN_API getAttributes() override { return mAttributes; }
+
+	DECLARE_FUNKNOWN_METHODS
+private:
+	std::string mMessageID;
+	HostAttributeList* mAttributes;
+	Steinberg::uint32 mRefCount = 1;
+};
+Steinberg::tresult PLUGIN_API HostMessage::queryInterface(const Steinberg::TUID _iid, void** obj) {
+	QUERY_INTERFACE(_iid, obj, Steinberg::FUnknown::iid, Steinberg::Vst::IMessage)
+	QUERY_INTERFACE(_iid, obj, Steinberg::Vst::IMessage::iid, Steinberg::Vst::IMessage)
+	*obj = nullptr;
+	return Steinberg::kNoInterface;
+}
+Steinberg::uint32 PLUGIN_API HostMessage::addRef() {
+	return ++mRefCount;
+}
+Steinberg::uint32 PLUGIN_API HostMessage::release() {
+	if (--mRefCount == 0) {
+		delete this;
+		return 0;
+	}
+	return mRefCount;
+}
+
 //--- VST3HostContext ------------------------------------------------------
 
 Steinberg::Vst::IHostApplication* VST3HostContext::sInstance = nullptr;
@@ -320,6 +445,16 @@ Steinberg::tresult PLUGIN_API VST3HostContext::getName(Steinberg::Vst::String128
 
 Steinberg::tresult PLUGIN_API VST3HostContext::createInstance(Steinberg::TUID cid, Steinberg::TUID _iid, void** obj) {
 	*obj = nullptr;
+
+	if (std::memcmp(cid, Steinberg::Vst::IMessage::iid, sizeof(Steinberg::TUID)) == 0 && std::memcmp(_iid, Steinberg::Vst::IMessage::iid, sizeof(Steinberg::TUID)) == 0) {
+		*obj = (Steinberg::Vst::IMessage*)new HostMessage();
+		return Steinberg::kResultTrue;
+	}
+	if (std::memcmp(cid, Steinberg::Vst::IAttributeList::iid, sizeof(Steinberg::TUID)) == 0 && std::memcmp(_iid, Steinberg::Vst::IAttributeList::iid, sizeof(Steinberg::TUID)) == 0) {
+		*obj = (Steinberg::Vst::IAttributeList*)new HostAttributeList();
+		return Steinberg::kResultTrue;
+	}
+
 	return Steinberg::kNotImplemented;
 }
 
@@ -335,14 +470,35 @@ Steinberg::uint32 PLUGIN_API VST3HostContext::release() {
 	return --mRefCount;
 }
 
+Steinberg::tresult PLUGIN_API VST3ComponentHandler::beginEdit(Steinberg::Vst::ParamID id) {
+	// plugin GUI started a parameter gesture: capture the value for undo
+	if (mProcessor) {
+		int index = mProcessor->IndexForParamID(id);
+		if (index >= 0)
+			mProcessor->GetParameters()[index]->BeginEditGesture();
+	}
+	return Steinberg::kResultTrue;
+}
+
 Steinberg::tresult PLUGIN_API VST3ComponentHandler::performEdit(Steinberg::Vst::ParamID id, Steinberg::Vst::ParamValue valueNormalized) {
 	if (!mProcessor)
 		return Steinberg::kResultFalse;
-	const auto& params = mProcessor->GetParameters();
-	if (id < params.size()) {
-		params[id]->value = (float)valueNormalized;
+	int index = mProcessor->IndexForParamID(id);
+	if (index >= 0) {
+		const auto& params = mProcessor->GetParameters();
+		params[index]->value = (float)valueNormalized;
 		// remember this as the last touched param so "Show Auto" targets it
-		Parameter::NotifyExternalEdit(params[id].get());
+		Parameter::NotifyExternalEdit(params[index].get());
+	}
+	return Steinberg::kResultTrue;
+}
+
+Steinberg::tresult PLUGIN_API VST3ComponentHandler::endEdit(Steinberg::Vst::ParamID id) {
+	// plugin GUI finished the gesture: commit one undo entry
+	if (mProcessor) {
+		int index = mProcessor->IndexForParamID(id);
+		if (index >= 0)
+			mProcessor->GetParameters()[index]->EndEditGesture();
 	}
 	return Steinberg::kResultTrue;
 }
@@ -384,6 +540,19 @@ VST3Processor::~VST3Processor() {
 
 	if (mController)
 		mController->setComponentHandler(nullptr);
+
+	if (mComponentConnection && mControllerConnection) {
+		mComponentConnection->disconnect(mControllerConnection);
+		mControllerConnection->disconnect(mComponentConnection);
+	}
+	if (mComponentConnection) {
+		mComponentConnection->release();
+		mComponentConnection = nullptr;
+	}
+	if (mControllerConnection) {
+		mControllerConnection->release();
+		mControllerConnection = nullptr;
+	}
 
 	if (mComponentHandler) {
 		mComponentHandler->release();
@@ -501,6 +670,19 @@ bool VST3Processor::Load() {
 		mComponentHandler = new VST3ComponentHandler(this);
 		mController->setComponentHandler(mComponentHandler);
 
+		// wire the two halves together before asking either of them anything. a
+		// plugin that splits processor and controller builds the controller's
+		// parameter list only once it has been connected -- skip this and it
+		// reports zero parameters and refuses to create a view (Surge XT does)
+		if (mComponent->queryInterface(Steinberg::Vst::IConnectionPoint::iid, (void**)&mComponentConnection) == Steinberg::kResultTrue && mController->queryInterface(Steinberg::Vst::IConnectionPoint::iid, (void**)&mControllerConnection) == Steinberg::kResultTrue) {
+			// NOTE: connected directly rather than through a deferring proxy, so a
+			// notify() the plugin sends from the audio thread lands on the
+			// controller there too. no plugin here does that, and the indirection
+			// would need a queue pumped from the UI thread
+			mComponentConnection->connect(mControllerConnection);
+			mControllerConnection->connect(mComponentConnection);
+		}
+
 		MemoryStream stream;
 		if (mComponent->getState(&stream) == Steinberg::kResultTrue) {
 			stream.seek(0, Steinberg::IBStream::kIBSeekSet, nullptr);
@@ -532,9 +714,22 @@ bool VST3Processor::Load() {
 	return true;
 }
 
+Steinberg::Vst::ParamID VST3Processor::ParamIDForIndex(int index) const {
+	if (index >= 0 && index < (int)mParamIDs.size())
+		return mParamIDs[index];
+	return (Steinberg::Vst::ParamID)index;
+}
+
+int VST3Processor::IndexForParamID(Steinberg::Vst::ParamID id) const {
+	auto it = mParamIndexByID.find(id);
+	return (it != mParamIndexByID.end()) ? it->second : -1;
+}
+
 void VST3Processor::InitializeParameters() {
 	mParameters.clear();
 	mLastSentValues.clear();
+	mParamIDs.clear();
+	mParamIndexByID.clear();
 
 	if (!mController)
 		return;
@@ -555,6 +750,8 @@ void VST3Processor::InitializeParameters() {
 		}
 
 		float val = (float)mController->getParamNormalized(info.id);
+		mParamIndexByID[info.id] = (int)mParamIDs.size();
+		mParamIDs.push_back(info.id);
 		AddParameter(std::make_unique<SliderParameter>(nameStr, val, 0.0f, 1.0f));
 		mLastSentValues.push_back(val);
 	}
@@ -649,7 +846,7 @@ void VST3Processor::SyncParametersToController(int numFrames) {
 		float lastSent = mLastSentValues[i];
 
 		if (std::abs(hostVal - lastSent) > 0.000001f) {
-			Steinberg::Vst::ParamID id = (Steinberg::Vst::ParamID)i;
+			Steinberg::Vst::ParamID id = ParamIDForIndex((int)i);
 			Steinberg::int32 index = 0;
 			auto queue = mParamChanges->addParameterData(id, index);
 			if (queue) {
@@ -878,11 +1075,11 @@ void VST3Processor::Process(float* buffer, int numFrames, int numChannels,
 					Steinberg::int32 sampleOffset;
 					Steinberg::Vst::ParamValue value;
 					queue->getPoint(pointCount - 1, sampleOffset, value);
-					Steinberg::Vst::ParamID id = queue->getParameterId();
-					if (id < mParameters.size()) {
-						mParameters[id]->value = (float)value;
-						if (id < mLastSentValues.size())
-							mLastSentValues[id] = (float)value;
+					int index = IndexForParamID(queue->getParameterId());
+					if (index >= 0) {
+						mParameters[index]->value = (float)value;
+						if (index < (int)mLastSentValues.size())
+							mLastSentValues[index] = (float)value;
 					}
 				}
 			}
@@ -983,9 +1180,9 @@ void VST3Processor::Load(std::istream& in) {
 			int idx;
 			float val;
 			if (sscanf_s(line.c_str(), "P %d %f", &idx, &val) == 2) {
-				if (mController && idx < (int)mParameters.size()) {
+				if (mController && idx >= 0 && idx < (int)mParameters.size()) {
 					if (!loadedChunk) {
-						Steinberg::Vst::ParamID id = (Steinberg::Vst::ParamID)idx;
+						Steinberg::Vst::ParamID id = ParamIDForIndex(idx);
 						mController->setParamNormalized(id, val);
 						mParameters[idx]->value = val;
 						if (idx < (int)mLastSentValues.size())

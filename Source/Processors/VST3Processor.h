@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <set>
+#include <unordered_map>
 #include "PluginManager.h"
 
 #include "pluginterfaces/vst/ivstcomponent.h"
@@ -40,34 +41,20 @@ private:
 	Steinberg::uint32 mRefCount = 1;
 };
 
+class VST3Processor;
+
 class VST3ComponentHandler : public Steinberg::Vst::IComponentHandler {
 public:
-	VST3ComponentHandler(AudioProcessor* processor) : mProcessor(processor) {}
+	VST3ComponentHandler(VST3Processor* processor) : mProcessor(processor) {}
 
-	Steinberg::tresult PLUGIN_API beginEdit(Steinberg::Vst::ParamID id) override {
-		// plugin GUI started a parameter gesture: capture the value for undo
-		if (mProcessor) {
-			const auto& params = mProcessor->GetParameters();
-			if (id < params.size())
-				params[id]->BeginEditGesture();
-		}
-		return Steinberg::kResultTrue;
-	}
+	Steinberg::tresult PLUGIN_API beginEdit(Steinberg::Vst::ParamID id) override;
 	Steinberg::tresult PLUGIN_API performEdit(Steinberg::Vst::ParamID id, Steinberg::Vst::ParamValue valueNormalized) override;
-	Steinberg::tresult PLUGIN_API endEdit(Steinberg::Vst::ParamID id) override {
-		// plugin GUI finished the gesture: commit one undo entry
-		if (mProcessor) {
-			const auto& params = mProcessor->GetParameters();
-			if (id < params.size())
-				params[id]->EndEditGesture();
-		}
-		return Steinberg::kResultTrue;
-	}
+	Steinberg::tresult PLUGIN_API endEdit(Steinberg::Vst::ParamID id) override;
 	Steinberg::tresult PLUGIN_API restartComponent(Steinberg::int32 flags) override { return Steinberg::kResultTrue; }
 
 	DECLARE_FUNKNOWN_METHODS
 private:
-	AudioProcessor* mProcessor;
+	VST3Processor* mProcessor;
 	Steinberg::uint32 mRefCount = 1;
 };
 
@@ -91,6 +78,12 @@ public:
 				 std::vector<MIDIMessage>& mIDIMessages,
 				 const ProcessContext& context) override;
 
+	// a plugin numbers its parameters however it likes, so the index into
+	// mParameters is not the ParamID the plugin answers to (Surge XT starts at
+	// 825615485). every id crossing the boundary goes through these
+	Steinberg::Vst::ParamID ParamIDForIndex(int index) const;
+	int IndexForParamID(Steinberg::Vst::ParamID id) const;
+
 	bool HasEditor() const override;
 	void OpenEditor(void* parentWindowHandle) override;
 	void CloseEditor() override;
@@ -112,6 +105,8 @@ private:
 	Steinberg::Vst::IComponent* mComponent = nullptr;
 	Steinberg::Vst::IAudioProcessor* mProcessor = nullptr;
 	Steinberg::Vst::IEditController* mController = nullptr;
+	Steinberg::Vst::IConnectionPoint* mComponentConnection = nullptr;
+	Steinberg::Vst::IConnectionPoint* mControllerConnection = nullptr;
 	Steinberg::IPlugView* mPlugView = nullptr;
 	Steinberg::IPlugFrame* mPlugFrame = nullptr;
 	VST3ComponentHandler* mComponentHandler = nullptr;
@@ -129,6 +124,9 @@ private:
 	std::set<int> mActiveMIDINotes[16];
 
 	std::vector<float> mLastSentValues;
+
+	std::vector<Steinberg::Vst::ParamID> mParamIDs;
+	std::unordered_map<Steinberg::Vst::ParamID, int> mParamIndexByID;
 
 	double mSampleRate = 48000.0;
 	bool mIsActive = false;

@@ -129,6 +129,7 @@ private:
 	std::unordered_map<Steinberg::Vst::ParamID, int> mParamIndexByID;
 
 	double mSampleRate = 48000.0;
+	bool mHasEditor = false;
 	bool mIsActive = false;
 	bool mNeedsFlush = false;
 

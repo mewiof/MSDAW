@@ -711,6 +711,17 @@ bool VST3Processor::Load() {
 	}
 
 	InitializeParameters();
+
+	// whether a plugin has an editor is fixed for its lifetime, and the only way to
+	// ask is to build one and throw it away. that costs 283 ms in Surge XT, which
+	// is unaffordable in HasEditor() - the device header calls it every frame
+	if (mController) {
+		if (Steinberg::IPlugView* view = mController->createView(Steinberg::Vst::ViewType::kEditor)) {
+			view->release();
+			mHasEditor = true;
+		}
+	}
+
 	return true;
 }
 
@@ -1267,14 +1278,7 @@ LRESULT CALLBACK VST3Processor::EditorWindowProc(HWND hwnd, UINT msg, WPARAM wPa
 }
 
 bool VST3Processor::HasEditor() const {
-	if (!mController)
-		return false;
-	Steinberg::IPlugView* view = mController->createView(Steinberg::Vst::ViewType::kEditor);
-	if (view) {
-		view->release();
-		return true;
-	}
-	return false;
+	return mHasEditor;
 }
 
 void VST3Processor::OpenEditor(void* parentWindowHandle) {

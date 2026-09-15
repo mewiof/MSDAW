@@ -626,6 +626,16 @@ void Editor::RenderMenuBar() {
 	}
 }
 
+// releases every note the computer keyboard is holding. the note numbers come from
+// heldKeyNotes rather than from the current octave, so this also lets go of notes whose
+// key no longer maps to them
+static void ReleaseComputerKeyboardNotes(EditorContext& context) {
+	for (const auto& held : context.state.heldKeyNotes)
+		context.engine.SendMIDIEvent(0x80, held.second, 0);
+	context.state.heldKeyNotes.clear();
+	context.state.activeMIDINotes.clear();
+}
+
 void Editor::ProcessComputerKeyboardMIDI() {
 #ifdef _WIN32
 	// only process raw MIDI if main window is focused
@@ -637,16 +647,17 @@ void Editor::ProcessComputerKeyboardMIDI() {
 	bool isOurProcessForeground = (foregroundPid == GetCurrentProcessId());
 	bool isMainWindowForeground = (hWndFG == (HWND)mContext.nativeWindowHandle);
 
-	if (isMainWindowForeground && ImGui::GetIO().WantTextInput)
+	// every way out of this function releases what the keyboard is holding first. these
+	// are the paths where the keys stop being read at all - typing into a field, focus
+	// moving to a text control, the window losing focus - and a note whose key-up lands
+	// in that window has nothing left to end it
+	if (isMainWindowForeground && ImGui::GetIO().WantTextInput) {
+		ReleaseComputerKeyboardNotes(mContext);
 		return;
+	}
 
 	if (!isOurProcessForeground) {
-		// if not focused, release all notes
-		if (!mContext.state.activeMIDINotes.empty()) {
-			for (int note : mContext.state.activeMIDINotes)
-				mContext.engine.SendMIDIEvent(0x80, note, 0);
-			mContext.state.activeMIDINotes.clear();
-		}
+		ReleaseComputerKeyboardNotes(mContext);
 		return;
 	}
 
@@ -658,6 +669,7 @@ void Editor::ProcessComputerKeyboardMIDI() {
 		std::transform(cls.begin(), cls.end(), cls.begin(), ::tolower);
 		// exempt our plugin wrapper classes from the text-input heuristic
 		if (cls != "vsteditorclass" && cls != "vst3editorclass" && cls.find("edit") != std::string::npos) {
+			ReleaseComputerKeyboardNotes(mContext);
 			return;
 		}
 	}
@@ -669,11 +681,7 @@ void Editor::ProcessComputerKeyboardMIDI() {
 	mWasDown = mIsDown;
 
 	if (!mContext.state.isComputerMIDIKeyboardEnabled) {
-		if (!mContext.state.activeMIDINotes.empty()) {
-			for (int note : mContext.state.activeMIDINotes)
-				mContext.engine.SendMIDIEvent(0x80, note, 0);
-			mContext.state.activeMIDINotes.clear();
-		}
+		ReleaseComputerKeyboardNotes(mContext);
 		return;
 	}
 
@@ -712,42 +720,48 @@ void Editor::ProcessComputerKeyboardMIDI() {
 
 	for (const auto& mapping : keyMappings) {
 		int mIDINote = baseNote + mapping.semitoneOffset;
-		if (mIDINote > 127)
-			continue;
-
-		// skip if mod is down
-		if (GetAsyncKeyState(VK_CONTROL) & 0x8000)
-			continue;
 
 		bool isDown = (GetAsyncKeyState(mapping.vk) & 0x8000) != 0;
 		// a letter the arrangement has taken reads as released rather than being skipped
 		// outright, so a note already sounding when the selection appeared still stops
 		if (mapping.vk == 'D' && mContext.state.arrangementOwnsLetterKeys)
 			isDown = false;
-		bool wasDown = mContext.state.activeMIDINotes.count(mIDINote) > 0;
+		// Ctrl is a modifier for the app's shortcuts, not a note key, so it must not let
+		// Ctrl+S start a note. it only gates *starting* one though: skipping the key
+		// outright skipped its release too, and a note held when Ctrl went down had
+		// nothing left to end it
+		bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+		// the key is the identity, not the note: an octave change under a held key moves
+		// the note it would play, and only the note it actually started can release it
+		auto held = mContext.state.heldKeyNotes.find(mapping.semitoneOffset);
+		bool wasDown = held != mContext.state.heldKeyNotes.end();
 
 		if (isDown && !wasDown) {
+			if (ctrlHeld || mIDINote > 127)
+				continue;
 			mContext.engine.SendMIDIEvent(0x90, mIDINote, mContext.state.mIDIVelocity);
+			mContext.state.heldKeyNotes[mapping.semitoneOffset] = mIDINote;
 			mContext.state.activeMIDINotes.insert(mIDINote);
 		} else if (!isDown && wasDown) {
-			mContext.engine.SendMIDIEvent(0x80, mIDINote, 0);
-			mContext.state.activeMIDINotes.erase(mIDINote);
+			mContext.engine.SendMIDIEvent(0x80, held->second, 0);
+			mContext.state.activeMIDINotes.erase(held->second);
+			mContext.state.heldKeyNotes.erase(held);
 		}
 	}
 #else
 	// cross-platform logic
-	if (ImGui::GetIO().WantTextInput)
+	// releases first: a note whose key-up lands while text input has the keyboard would
+	// otherwise have nothing left to end it
+	if (ImGui::GetIO().WantTextInput) {
+		ReleaseComputerKeyboardNotes(mContext);
 		return;
+	}
 
 	if (ImGui::IsKeyPressed(ImGuiKey_M, false))
 		mContext.state.isComputerMIDIKeyboardEnabled = !mContext.state.isComputerMIDIKeyboardEnabled;
 
 	if (!mContext.state.isComputerMIDIKeyboardEnabled) {
-		if (!mContext.state.activeMIDINotes.empty()) {
-			for (int note : mContext.state.activeMIDINotes)
-				mContext.engine.SendMIDIEvent(0x80, note, 0);
-			mContext.state.activeMIDINotes.clear();
-		}
+		ReleaseComputerKeyboardNotes(mContext);
 		return;
 	}
 	bool midiCtrl = ImGui::GetIO().KeyCtrl;
@@ -768,24 +782,27 @@ void Editor::ProcessComputerKeyboardMIDI() {
 		{ImGuiKey_A, 0}, {ImGuiKey_W, 1}, {ImGuiKey_S, 2}, {ImGuiKey_E, 3}, {ImGuiKey_D, 4}, {ImGuiKey_F, 5}, {ImGuiKey_T, 6}, {ImGuiKey_G, 7}, {ImGuiKey_Y, 8}, {ImGuiKey_H, 9}, {ImGuiKey_U, 10}, {ImGuiKey_J, 11}, {ImGuiKey_K, 12}, {ImGuiKey_O, 13}, {ImGuiKey_L, 14}, {ImGuiKey_P, 15}};
 	for (const auto& mapping : keyMappings) {
 		int mIDINote = baseNote + mapping.semitoneOffset;
-		if (mIDINote > 127)
-			continue;
-
-		// skip if mod is down
-		if (ImGui::GetIO().KeyCtrl)
-			continue;
 
 		// a letter the arrangement has taken reads as released rather than being skipped
 		// outright, so a note already sounding when the selection appeared still stops
 		bool owned = (mapping.key == ImGuiKey_D && mContext.state.arrangementOwnsLetterKeys);
+		// Ctrl only gates *starting* a note - see the Win32 branch above
+		bool ctrlHeld = ImGui::GetIO().KeyCtrl;
 
-		if (!owned && ImGui::IsKeyPressed(mapping.key, false)) {
+		// the key is the identity, not the note: an octave change under a held key moves
+		// the note it would play, and only the note it actually started can release it
+		auto held = mContext.state.heldKeyNotes.find(mapping.semitoneOffset);
+
+		if (!owned && !ctrlHeld && held == mContext.state.heldKeyNotes.end() && mIDINote <= 127 && ImGui::IsKeyPressed(mapping.key, false)) {
 			mContext.engine.SendMIDIEvent(0x90, mIDINote, mContext.state.mIDIVelocity);
+			mContext.state.heldKeyNotes[mapping.semitoneOffset] = mIDINote;
 			mContext.state.activeMIDINotes.insert(mIDINote);
+			continue;
 		}
-		if ((owned || ImGui::IsKeyReleased(mapping.key)) && mContext.state.activeMIDINotes.count(mIDINote)) {
-			mContext.engine.SendMIDIEvent(0x80, mIDINote, 0);
-			mContext.state.activeMIDINotes.erase(mIDINote);
+		if ((owned || ImGui::IsKeyReleased(mapping.key)) && held != mContext.state.heldKeyNotes.end()) {
+			mContext.engine.SendMIDIEvent(0x80, held->second, 0);
+			mContext.state.activeMIDINotes.erase(held->second);
+			mContext.state.heldKeyNotes.erase(held);
 		}
 	}
 #endif

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <vector>
 #include <memory>
 #include <mutex>
@@ -114,6 +115,21 @@ private:
 	bool RenderToWav(const std::string& path, const std::shared_ptr<Track>& track,
 					 double startBeat, double endBeat, double sampleRate);
 
+	// splits a block's live keyboard MIDI into the per-track lists below. a note-on goes
+	// to the selected instrument track; the release that ends it goes back to whatever
+	// track that was, because only the instrument actually holding a note can let go of
+	// it. resolving a release against the *current* selection instead meant changing
+	// tracks (or muting one) under a held key delivered the note-off somewhere else and
+	// left the note sounding on an instrument nothing would ever address again
+	void RouteLiveMIDI(const std::vector<MIDIMessage>& liveMIDIEvents);
+
+	// the live MIDI routed to `trackId` this block, null when there is none
+	const std::vector<MIDIMessage>* LiveMIDIFor(int trackId) const;
+
+	// whether `track` or anything below it is owed live MIDI this block. a silenced
+	// track is normally skipped outright, and a group with it
+	bool SubtreeHasLiveMIDI(const std::shared_ptr<Track>& track) const;
+
 	// rebuild the sharing between linked (non-unique) MIDI clips once every track is
 	// in memory: each clip parsed its own copy of the notes, so clips that were saved
 	// with the same SEQ id are handed one sequence again. same two-pass shape as the
@@ -132,11 +148,20 @@ private:
 	int64_t mLastBlockEndSample = -1;
 	int mSelectedTrackIndex = 0;
 
+	// which track each live keyboard note is sounding on, by Track::GetId(), -1 when
+	// nothing holds it. survives across blocks: a key can be held down for as long as
+	// the user likes, and the selection can move while it is
+	std::array<int, 128> mLiveNoteOwner;
+
+	// this block's live MIDI split by destination track id. a member rather than a
+	// local so the audio thread reuses the storage instead of allocating per block
+	std::vector<std::pair<int, std::vector<MIDIMessage>>> mLiveMIDIByTrack;
+
 	// core dsp processing
 	void ProcessAudioGraph(float* destinationBuffer, int numFrames, int numChannels, const ProcessContext& context, const std::vector<MIDIMessage>& liveMIDIEvents, bool anySolo);
 
 	// recursive track helper
-	void ProcessTrackRecursively(std::shared_ptr<Track> track, float* accumulationBuffer, int numFrames, int numChannels, const ProcessContext& context, const std::vector<MIDIMessage>& liveMIDIEvents, bool anySolo);
+	void ProcessTrackRecursively(std::shared_ptr<Track> track, float* accumulationBuffer, int numFrames, int numChannels, const ProcessContext& context, bool anySolo);
 
 	// true when this track, or anything below it, feeds a sidechain detector. drives
 	// both the render order (producers before consumers) and the rule that a muted or

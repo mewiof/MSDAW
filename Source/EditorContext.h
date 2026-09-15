@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <map>
 #include <string>
 #include <memory>
 #include <set>
@@ -252,6 +253,12 @@ struct EditorState {
 
 	// active keyboard notes
 	std::set<int> activeMIDINotes;
+
+	// the note each held key is actually sounding, keyed by its semitone offset in the
+	// layout above. the note a key plays moves with the octave, so a release resolved
+	// against the *current* octave stops a note nobody is holding and leaves the one the
+	// key started sounding forever - hold a key, nudge the octave, let go, note stuck
+	std::map<int, int> heldKeyNotes;
 
 	// where the project lives on disk, empty until it has first been saved. the editor
 	// writes it on every new/open/save; the views read it to put files they generate

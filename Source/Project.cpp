@@ -29,6 +29,8 @@
 const int kCurrentProjectVersion = 6;
 
 Project::Project() {
+	// 0 is a real track id, so "nothing is holding this note" has to be -1
+	mLiveNoteOwner.fill(-1);
 	// device UIs reach the track list through the hub (an AudioProcessor has no
 	// context pointer of its own); AudioEngine owns the one and only Project
 	SidechainHub::Instance().SetProject(this);
@@ -42,6 +44,10 @@ Project::~Project() {
 void Project::Initialize() {
 	std::lock_guard<std::mutex> lock(mMutex);
 	mTracks.clear();
+	// track ids restart with the project, so a stale owner would aim a release at
+	// whichever new track inherited that id
+	mLiveNoteOwner.fill(-1);
+	mLiveMIDIByTrack.clear();
 
 	mMasterTrack = std::make_shared<Track>();
 	mMasterTrack->SetName("Master");
@@ -374,7 +380,7 @@ void Project::SetBpm(double bpm) {
 	SetBpmInternal(bpm);
 }
 
-void Project::ProcessTrackRecursively(std::shared_ptr<Track> track, float* destinationBuffer, int numFrames, int numChannels, const ProcessContext& context, const std::vector<MIDIMessage>& liveMIDIEvents, bool anySolo) {
+void Project::ProcessTrackRecursively(std::shared_ptr<Track> track, float* destinationBuffer, int numFrames, int numChannels, const ProcessContext& context, bool anySolo) {
 
 	// determine if this track is "effectively soloed"
 	// includes explicit/inheriting solo from an ancestor
@@ -423,7 +429,11 @@ void Project::ProcessTrackRecursively(std::shared_ptr<Track> track, float* desti
 			silenced = true;
 	}
 
-	if (silenced && !SubtreeFeedsSidechain(track))
+	// the other exception to skipping a silenced track: one holding a live keyboard
+	// note. the release has to reach the instrument even while the track is muted, or
+	// unmuting it later brings the note straight back. it renders into a buffer we
+	// throw away, exactly like a muted sidechain source
+	if (silenced && !SubtreeHasLiveMIDI(track) && !SubtreeFeedsSidechain(track))
 		return;
 
 	if (track->IsGroup()) {
@@ -442,22 +452,17 @@ void Project::ProcessTrackRecursively(std::shared_ptr<Track> track, float* desti
 
 		for (auto& child : children) {
 			std::vector<float> childBuffer(numFrames * numChannels, 0.0f);
-			ProcessTrackRecursively(child, childBuffer.data(), numFrames, numChannels, context, liveMIDIEvents, anySolo);
+			ProcessTrackRecursively(child, childBuffer.data(), numFrames, numChannels, context, anySolo);
 			// a silenced child leaves its buffer untouched, so this stays a no-op for it
 			track->AddToAccumulator(childBuffer.data(), numFrames, numChannels);
 		}
 	}
 
 	std::vector<float> processBuffer(numFrames * numChannels, 0.0f);
+	// RouteLiveMIDI already decided which track each event belongs to, note by note
 	std::vector<MIDIMessage> trackMIDI;
-	int trackIdx = -1;
-	for (int i = 0; i < (int)mTracks.size(); ++i)
-		if (mTracks[i] == track)
-			trackIdx = i;
-
-	if (trackIdx == mSelectedTrackIndex && track->HasInstrument()) {
-		trackMIDI = liveMIDIEvents;
-	}
+	if (const std::vector<MIDIMessage>* routed = LiveMIDIFor(track->GetId()))
+		trackMIDI = *routed;
 
 	// Track::Process publishes to the detector bus on its way out, which is the whole
 	// point of having rendered a silenced source; only the audible sum is dropped
@@ -469,6 +474,85 @@ void Project::ProcessTrackRecursively(std::shared_ptr<Track> track, float* desti
 	for (int i = 0; i < numFrames * numChannels; ++i) {
 		destinationBuffer[i] += processBuffer[i];
 	}
+}
+
+void Project::RouteLiveMIDI(const std::vector<MIDIMessage>& liveMIDIEvents) {
+	// keep the per-track vectors, drop only their contents: the storage is reused
+	for (auto& entry : mLiveMIDIByTrack)
+		entry.second.clear();
+
+	if (liveMIDIEvents.empty())
+		return;
+
+	// where a new note goes: the selected track, and only if it can actually play one
+	int selectedId = -1;
+	if (mSelectedTrackIndex >= 0 && mSelectedTrackIndex < (int)mTracks.size()) {
+		const auto& selected = mTracks[mSelectedTrackIndex];
+		if (selected && selected->HasInstrument())
+			selectedId = selected->GetId();
+	}
+
+	const auto push = [this](int trackId, const MIDIMessage& msg) {
+		for (auto& entry : mLiveMIDIByTrack) {
+			if (entry.first == trackId) {
+				entry.second.push_back(msg);
+				return;
+			}
+		}
+		mLiveMIDIByTrack.push_back({trackId, {msg}});
+	};
+
+	for (const auto& msg : liveMIDIEvents) {
+		const uint8_t type = msg.status & 0xF0;
+		const int note = msg.data1 & 0x7F;
+		const bool isNoteOn = type == 0x90 && msg.data2 > 0;
+		const bool isNoteOff = type == 0x80 || (type == 0x90 && msg.data2 == 0);
+
+		if (isNoteOn) {
+			// the same note struck again on a different track without a release in
+			// between: end it where it is still sounding, or nothing ever will
+			if (mLiveNoteOwner[note] >= 0 && mLiveNoteOwner[note] != selectedId) {
+				MIDIMessage off = msg;
+				off.status = (uint8_t)(0x80 | (msg.status & 0x0F));
+				off.data2 = 0;
+				push(mLiveNoteOwner[note], off);
+			}
+			mLiveNoteOwner[note] = selectedId;
+			if (selectedId >= 0)
+				push(selectedId, msg);
+		} else if (isNoteOff) {
+			// the release follows the note, not the selection
+			const int owner = mLiveNoteOwner[note] >= 0 ? mLiveNoteOwner[note] : selectedId;
+			mLiveNoteOwner[note] = -1;
+			if (owner >= 0)
+				push(owner, msg);
+		} else if (selectedId >= 0) {
+			// everything else (cc, pitch bend) is aimed at whatever is selected now
+			push(selectedId, msg);
+		}
+	}
+}
+
+const std::vector<MIDIMessage>* Project::LiveMIDIFor(int trackId) const {
+	for (const auto& entry : mLiveMIDIByTrack) {
+		if (entry.first == trackId)
+			return entry.second.empty() ? nullptr : &entry.second;
+	}
+	return nullptr;
+}
+
+bool Project::SubtreeHasLiveMIDI(const std::shared_ptr<Track>& track) const {
+	if (!track)
+		return false;
+	if (LiveMIDIFor(track->GetId()))
+		return true;
+	if (!track->IsGroup())
+		return false;
+	for (const auto& child : mTracks) {
+		if (child->GetParent() == track && SubtreeHasLiveMIDI(child))
+			return true;
+	}
+	return false;
 }
 
 bool Project::SubtreeFeedsSidechain(const std::shared_ptr<Track>& track) const {
@@ -492,6 +576,9 @@ void Project::ProcessAudioGraph(float* destinationBuffer, int numFrames, int num
 	}
 	std::fill(mMixBuffer.begin(), mMixBuffer.begin() + (numFrames * numChannels), 0.0f);
 
+	// note-by-note destinations for this block, resolved before anything is rendered
+	RouteLiveMIDI(liveMIDIEvents);
+
 	SidechainHub& hub = SidechainHub::Instance();
 	hub.BeginBlock(numFrames);
 
@@ -510,7 +597,7 @@ void Project::ProcessAudioGraph(float* destinationBuffer, int numFrames, int num
 	}
 
 	for (auto& track : roots) {
-		ProcessTrackRecursively(track, mMixBuffer.data(), numFrames, numChannels, context, liveMIDIEvents, anySolo);
+		ProcessTrackRecursively(track, mMixBuffer.data(), numFrames, numChannels, context, anySolo);
 	}
 
 	if (mMasterTrack) {
@@ -764,6 +851,10 @@ bool Project::RenderToWav(const std::string& path, const std::shared_ptr<Track>&
 	// where a single-track bounce throws away the sidechain sources it still has to run
 	std::vector<float> detectorBuffer(blockSize * 2);
 	std::vector<MIDIMessage> emptyMIDI;
+	// an offline pass plays no live keyboard: clear whatever the last real-time block
+	// routed, so a subtree bounce that calls ProcessTrackRecursively directly (below,
+	// skipping ProcessAudioGraph and its RouteLiveMIDI) cannot pick up stale events
+	RouteLiveMIDI(emptyMIDI);
 
 	int64_t framesRemaining = totalFrames;
 	bool anySolo = false;
@@ -810,11 +901,11 @@ bool Project::RenderToWav(const std::string& path, const std::shared_ptr<Track>&
 					if (IsInSubtree(source, track) || IsInSubtree(track, source))
 						continue;
 					std::fill(detectorBuffer.begin(), detectorBuffer.end(), 0.0f);
-					ProcessTrackRecursively(source, detectorBuffer.data(), framesToDo, 2, context, emptyMIDI, false);
+					ProcessTrackRecursively(source, detectorBuffer.data(), framesToDo, 2, context, false);
 				}
 			}
 
-			ProcessTrackRecursively(track, blockBuffer.data(), framesToDo, 2, context, emptyMIDI, false);
+			ProcessTrackRecursively(track, blockBuffer.data(), framesToDo, 2, context, false);
 		} else {
 			ProcessAudioGraph(blockBuffer.data(), framesToDo, 2, context, emptyMIDI, anySolo);
 		}

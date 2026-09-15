@@ -174,6 +174,7 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 	Project* project = mContext.GetProject();
 	mTrack = DeviceRackOps::ResolveTrack(project, mContext.state.selectedTrackIndex);
 	mDeferred.clear();
+	mPanelCaptureSeen = false;
 
 	if (mTrack) {
 		// a device the selection names can have been deleted from somewhere else, or
@@ -204,6 +205,12 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 
 	ImGui::End();
 	ImGui::PopStyleVar();
+
+	// a device configuring its panel whose panel was not drawn this frame is out of
+	// reach of the Add button that would switch it off - another track is selected, or
+	// the device is gone. close the session rather than leave it capturing invisibly
+	if (!mPanelCaptureSeen && !mPanelCaptureDevice.expired())
+		EndPanelCapture();
 
 	// the strip has finished drawing, so the chains it walked can be edited safely
 	const bool edited = !mDeferred.empty();
@@ -362,15 +369,127 @@ void DeviceRackView::RenderDevice(const std::shared_ptr<ProcessorHost>& host, co
 		// a plugin with no editor of its own is drawn from its parameter list, and that
 		// list is as long as the plugin says it is - a hundred sliders belong behind a
 		// scrollbar, not spread across a device ten columns wide
-		ImGui::BeginChild("ParamsScroll", ImVec2(0, 0));
-		RenderParameterList(device->GetParameters());
-		ImGui::EndChild();
+		RenderParameterPanel(device);
 	}
 
 	ImGui::EndChild();
 	ImGui::PopStyleColor();
 
 	ImGui::PopID();
+}
+
+// ================================================================
+// PARAMETER PANEL
+// ================================================================
+
+void DeviceRackView::BeginPanelCapture(const std::shared_ptr<AudioProcessor>& device) {
+	EndPanelCapture(); // only one device configures at a time
+	if (!device)
+		return;
+	mPanelCaptureDevice = device;
+	mPanelCaptureBefore = device->GetPanelParameters();
+	device->SetPanelCapture(true);
+	// a capture begun in the deferred edits runs after this frame's drawing, so it has
+	// to vouch for itself or the end-of-frame check would close it again immediately
+	mPanelCaptureSeen = true;
+}
+
+void DeviceRackView::EndPanelCapture() {
+	std::shared_ptr<AudioProcessor> device = mPanelCaptureDevice.lock();
+	mPanelCaptureDevice.reset();
+	if (!device)
+		return;
+
+	device->SetPanelCapture(false);
+	if (device->GetPanelParameters() != mPanelCaptureBefore) {
+		mContext.undoManager.Push(std::make_unique<DevicePanelAction>(
+			device, std::move(mPanelCaptureBefore), device->GetPanelParameters(), "Configure device panel"));
+	}
+	mPanelCaptureBefore.clear();
+}
+
+// a device whose panel has been configured shows exactly what was put on it. what an
+// unconfigured one shows depends on whether the plugin brought its own editor: without
+// one the panel is the only way to reach anything, so it lists everything, which is
+// also what every built-in device wants. with one, a flat list of however many
+// parameters the plugin publishes (Surge XT: 2855) is not worth scrolling when the
+// plugin's own editor is a click away - so it starts empty and gets configured, with
+// All there for the times the full list really is what is wanted
+void DeviceRackView::RenderParameterPanel(const std::shared_ptr<AudioProcessor>& device) {
+	const Theme& th = Theme::Instance();
+	const auto& parameters = device->GetParameters();
+	const std::vector<int>& panel = device->GetPanelParameters();
+	const bool capturing = device->IsPanelCapturing();
+	const bool configurable = device->HasEditor();
+	const bool showAll = (mPanelShowAllDevice.lock() == device);
+
+	if (capturing)
+		mPanelCaptureSeen = true;
+
+	if (configurable) {
+		if (ToggleButton("Add", capturing, ImVec2(0, 0), th.accent)) {
+			if (capturing)
+				mDeferred.push_back([this]() { EndPanelCapture(); });
+			else
+				mDeferred.push_back([this, device]() { BeginPanelCapture(device); });
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Turn on, then tweak controls in the plugin's editor to put them on this panel");
+
+		ImGui::SameLine();
+		if (panel.empty()) {
+			if (ToggleButton("All", showAll, ImVec2(0, 0), th.accent))
+				mPanelShowAllDevice = showAll ? std::weak_ptr<AudioProcessor>() : std::weak_ptr<AudioProcessor>(device);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("List every parameter the plugin publishes");
+		} else {
+			if (ImGui::SmallButton("Clear")) {
+				mDeferred.push_back([this, device]() {
+					EndPanelCapture();
+					std::vector<int> before = device->GetPanelParameters();
+					device->SetPanelParameters({});
+					mContext.undoManager.Push(std::make_unique<DevicePanelAction>(
+						device, std::move(before), std::vector<int>(), "Clear device panel"));
+				});
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Take everything back off this panel");
+		}
+		ImGui::Separator();
+	}
+
+	ImGui::BeginChild("ParamsScroll", ImVec2(0, 0));
+
+	if (!panel.empty()) {
+		// while configuring, each row carries the button that takes it back off again -
+		// out of the way the rest of the time, when the panel is there to be played
+		for (int index : panel) {
+			if (index < 0 || index >= (int)parameters.size())
+				continue;
+
+			ImGui::PushID(index);
+			if (capturing) {
+				if (ImGui::SmallButton("-")) {
+					mDeferred.push_back([device, index]() {
+						std::vector<int> next = device->GetPanelParameters();
+						next.erase(std::remove(next.begin(), next.end(), index), next.end());
+						device->SetPanelParameters(std::move(next));
+					});
+				}
+				ImGui::SameLine();
+			}
+			parameters[index]->Draw();
+			ImGui::PopID();
+		}
+	} else if (!configurable || showAll) {
+		RenderParameterList(parameters);
+	} else if (capturing) {
+		ImGui::TextDisabled("Tweak a control in the\nplugin's editor");
+	} else {
+		ImGui::TextDisabled("Press Add, then tweak\nthe plugin's editor");
+	}
+
+	ImGui::EndChild();
 }
 
 // a plugin decides how many parameters it publishes, and some publish thousands

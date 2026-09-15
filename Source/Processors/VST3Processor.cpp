@@ -474,8 +474,12 @@ Steinberg::tresult PLUGIN_API VST3ComponentHandler::beginEdit(Steinberg::Vst::Pa
 	// plugin GUI started a parameter gesture: capture the value for undo
 	if (mProcessor) {
 		int index = mProcessor->IndexForParamID(id);
-		if (index >= 0)
+		if (index >= 0) {
 			mProcessor->GetParameters()[index]->BeginEditGesture();
+			// touching a control is enough to configure it onto the panel; waiting for
+			// the value to move would miss a control that was clicked but not dragged
+			mProcessor->CapturePanelParameter(index);
+		}
 	}
 	return Steinberg::kResultTrue;
 }
@@ -489,6 +493,8 @@ Steinberg::tresult PLUGIN_API VST3ComponentHandler::performEdit(Steinberg::Vst::
 		params[index]->value = (float)valueNormalized;
 		// remember this as the last touched param so "Show Auto" targets it
 		Parameter::NotifyExternalEdit(params[index].get());
+		// a plugin that moves a parameter without a begin/end gesture still configures
+		mProcessor->CapturePanelParameter(index);
 	}
 	return Steinberg::kResultTrue;
 }

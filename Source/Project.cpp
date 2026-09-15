@@ -26,7 +26,10 @@
 // 6: the Modulator device, which writes MOD_LEVELS / MOD_HEIGHTS / MOD_CURVES pattern
 //    lines and a MOD_TARGET line per driven parameter, naming it by track id plus a
 //    device path into that track. older projects have no modulators and are unchanged
-const int kCurrentProjectVersion = 6;
+// 7: an optional PROC_PANEL line on a device block, listing by index the parameters its
+//    panel was configured to show. a device saved without one shows all of them, which
+//    is how every device already behaved
+const int kCurrentProjectVersion = 7;
 
 Project::Project() {
 	// 0 is a real track id, so "nothing is holding this note" has to be -1

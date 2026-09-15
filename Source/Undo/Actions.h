@@ -155,6 +155,32 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// the curated parameter list a device panel shows. one action covers a whole
+// configuring session - every control touched in the plugin's editor between
+// switching Add on and off - as well as a single parameter dropped and the list
+// cleared. no lock: the audio thread never reads this list, it only decides what
+// the panel draws
+// ---------------------------------------------------------------------------
+class DevicePanelAction : public UndoableAction {
+public:
+	DevicePanelAction(std::shared_ptr<AudioProcessor> device, std::vector<int> before, std::vector<int> after, const char* name)
+		: mDevice(std::move(device)), mBefore(std::move(before)), mAfter(std::move(after)), mName(name) {}
+
+	void Undo() override { Apply(mBefore); }
+	void Redo() override { Apply(mAfter); }
+	const char* Name() const override { return mName; }
+private:
+	void Apply(const std::vector<int>& state) {
+		if (mDevice)
+			mDevice->SetPanelParameters(state);
+	}
+	std::shared_ptr<AudioProcessor> mDevice;
+	std::vector<int> mBefore;
+	std::vector<int> mAfter;
+	const char* mName;
+};
+
+// ---------------------------------------------------------------------------
 // everything a rack-level edit changes: its name, its color, its macro titles,
 // colors and mappings, and the chain list itself. one snapshot covers the lot,
 // and the chains are held by shared_ptr so undoing a deleted chain brings the

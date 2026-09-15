@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <memory>
@@ -68,6 +69,31 @@ public:
 
 	// get parameters
 	const std::vector<std::unique_ptr<Parameter>>& GetParameters() const { return mParameters; }
+
+	// ---- device panel ----
+	// which parameters the device panel draws, as indices into mParameters, in the
+	// order they were added. empty means "all of them" - what every device that has
+	// never been configured does, and what keeps a three-knob effect from needing
+	// configuring at all. this narrows the panel and nothing else: automation and
+	// macro mappings still see every parameter the device publishes
+	const std::vector<int>& GetPanelParameters() const { return mPanelParameters; }
+	void SetPanelParameters(std::vector<int> indices) { mPanelParameters = std::move(indices); }
+
+	// while capture is on, touching a control in the plugin's own editor appends
+	// that parameter to the panel. it is how a plugin publishing thousands of them
+	// (Surge XT: 2855) gets a panel with the dozen that matter on it. transient:
+	// the mode belongs to the configuring session, not to the project
+	bool IsPanelCapturing() const { return mPanelCapture; }
+	void SetPanelCapture(bool enabled) { mPanelCapture = enabled; }
+
+	// called from the plugin's own automation callback while its editor is open, so
+	// on the UI thread - the same thread the panel is drawn from
+	void CapturePanelParameter(int index) {
+		if (!mPanelCapture || index < 0 || index >= (int)mParameters.size())
+			return;
+		if (std::find(mPanelParameters.begin(), mPanelParameters.end(), index) == mPanelParameters.end())
+			mPanelParameters.push_back(index);
+	}
 
 	// bypass state
 	bool IsBypassed() const { return mIsBypassed; }
@@ -159,6 +185,8 @@ public:
 	}
 protected:
 	std::vector<std::unique_ptr<Parameter>> mParameters;
+	std::vector<int> mPanelParameters;
+	bool mPanelCapture = false;
 	bool mIsBypassed = false;
 	EditorScalingMode mEditorScalingMode = EditorScalingMode::Default;
 

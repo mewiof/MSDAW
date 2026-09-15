@@ -15,6 +15,15 @@ namespace ProcessorIO {
 	void SaveProcessor(std::ostream& out, AudioProcessor& processor) {
 		out << "PROCESSOR " << processor.GetProcessorId() << "\n";
 		out << "PROC_SCALING " << (int)processor.GetEditorScalingMode() << "\n";
+		// only written once a panel has actually been configured, so a device that
+		// shows everything keeps writing exactly what it used to
+		const std::vector<int>& panel = processor.GetPanelParameters();
+		if (!panel.empty()) {
+			out << "PROC_PANEL";
+			for (int index : panel)
+				out << " " << index;
+			out << "\n";
+		}
 		processor.Save(out);
 		out << "PROCESSOR_END\n";
 	}
@@ -37,20 +46,34 @@ namespace ProcessorIO {
 			return nullptr;
 		}
 
-		// optional per-plugin editor scaling override (written since the high-DPI work;
-		// older projects omit it and rewind untouched)
-		std::streampos posBefore = in.tellg();
-		std::string maybeScaling;
-		if (std::getline(in, maybeScaling)) {
-			std::stringstream ss(maybeScaling);
+		// optional PROC_ lines sit between the id and the device's own body, and each
+		// was added after projects already existed - so any of them may be missing.
+		// read them while they keep coming, and rewind the first line that is not ours
+		// for the device to consume
+		while (true) {
+			std::streampos posBefore = in.tellg();
+			std::string maybeProcLine;
+			if (!std::getline(in, maybeProcLine))
+				break;
+
+			std::stringstream ss(maybeProcLine);
 			std::string token;
 			ss >> token;
+
 			if (token == "PROC_SCALING") {
 				int mode = 0;
 				ss >> mode;
 				processor->SetEditorScalingMode((EditorScalingMode)mode);
-			} else if (posBefore != std::streampos(-1)) {
-				in.seekg(posBefore); // not ours; let the device consume it
+			} else if (token == "PROC_PANEL") {
+				std::vector<int> panel;
+				int index = 0;
+				while (ss >> index)
+					panel.push_back(index);
+				processor->SetPanelParameters(std::move(panel));
+			} else {
+				if (posBefore != std::streampos(-1))
+					in.seekg(posBefore);
+				break;
 			}
 		}
 
@@ -93,6 +116,7 @@ namespace ProcessorIO {
 
 		clone->SetBypassed(source->IsBypassed());
 		clone->SetEditorScalingMode(source->GetEditorScalingMode());
+		clone->SetPanelParameters(source->GetPanelParameters());
 		clone->CopyStateFrom(*source); // anything the parameter list does not cover
 
 		return clone;

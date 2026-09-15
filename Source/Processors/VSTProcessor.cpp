@@ -678,12 +678,16 @@ VstIntPtr VSTCALLBACK VSTProcessor::HostCallback(AEffect* effect, VstInt32 opcod
 			}
 			// remember this as the last touched param so "Show Auto" targets it
 			Parameter::NotifyExternalEdit(proc->mParameters[index].get());
+			proc->CapturePanelParameter(index);
 		}
 		return 1;
 	case audioMasterBeginEdit:
 		// plugin GUI started a parameter gesture: capture the value for undo
-		if (proc && index >= 0 && index < (int)proc->mParameters.size())
+		if (proc && index >= 0 && index < (int)proc->mParameters.size()) {
 			proc->mParameters[index]->BeginEditGesture();
+			// touching a control is enough to configure it onto the device panel
+			proc->CapturePanelParameter(index);
+		}
 		return 1;
 	case audioMasterEndEdit:
 		// plugin GUI finished the gesture: commit one undo entry

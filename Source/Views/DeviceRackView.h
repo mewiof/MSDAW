@@ -56,6 +56,7 @@ private:
 	void RenderChainList(const std::shared_ptr<RackProcessor>& rack, const DeviceRackOps::ChainPath& path, int deviceIndex, float width, float height);
 	void RenderMappingBrowser(const std::shared_ptr<RackProcessor>& rack);
 	void RenderTargetBrowser(const std::shared_ptr<ModulatorProcessor>& modulator);
+	void RenderParameterPanel(const std::shared_ptr<AudioProcessor>& device);
 	void RenderParameterList(const std::vector<std::unique_ptr<Parameter>>& parameters);
 	void RenderRenamePopup();
 	void RenderDeviceContextMenu(const std::shared_ptr<AudioProcessor>& device);
@@ -88,6 +89,20 @@ private:
 	// the rack whose macros are taking mappings, and the one whose mapping browser is
 	// open. weak, because the rack can be deleted while either is up
 	std::weak_ptr<RackProcessor> mMapModeRack;
+
+	// the device currently configuring its panel, and the list it had when Add was
+	// switched on. the whole session - however many controls get touched in the
+	// plugin's editor - closes as one history entry when Add goes off again
+	std::weak_ptr<AudioProcessor> mPanelCaptureDevice;
+	std::vector<int> mPanelCaptureBefore;
+	bool mPanelCaptureSeen = false;
+
+	// the one device listing every parameter it publishes rather than its panel. a
+	// look at the full list, not a configuration of it, so it is not saved with the
+	// device and only one device is ever expanded at a time
+	std::weak_ptr<AudioProcessor> mPanelShowAllDevice;
+	void BeginPanelCapture(const std::shared_ptr<AudioProcessor>& device);
+	void EndPanelCapture();
 
 	// the parameter a Map press will hand to a macro. it is remembered rather than read
 	// live from Parameter::GetSelectedParameter(): clicking the Map button is itself a

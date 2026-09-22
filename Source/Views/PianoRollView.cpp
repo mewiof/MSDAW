@@ -81,10 +81,23 @@ std::vector<PianoRollView::RollClip> PianoRollView::CollectClips(double& origin)
 	});
 
 	// the view's beat 0 is the earliest selected clip's start, so the grid and the
-	// ruler can stay in arrangement bars whichever clip currently has the focus
+	// ruler can stay in arrangement bars whichever clip currently has the focus. a
+	// cropped clip keeps the material in front of its window - the roll draws that the
+	// same way it draws the notes past a clip's end - so the head one of those reaches
+	// back to is what beat 0 becomes instead
 	origin = out.front().viewOffset;
-	for (auto& rc : out)
-		rc.viewOffset -= origin;
+	for (const auto& rc : out) {
+		ClipTimeMapping arrangement = ClipTimeMapping::For(*rc.clip);
+		for (const auto& n : rc.clip->GetNotes())
+			origin = std::min(origin, arrangement.ToOuterBeat(n.startBeat));
+	}
+	for (auto& rc : out) {
+		// from here on every beat in the roll is measured from that origin, which is
+		// all the view's own beat space is
+		ClipTimeMapping mapping = ClipTimeMapping::For(*rc.clip, origin);
+		rc.viewOffset = mapping.windowStart;
+		rc.contentOffset = mapping.contentOrigin;
+	}
 
 	// the arrangement selection may focus an audio clip (or a MIDI clip that has since
 	// gone); the roll then edits the earliest MIDI clip on show rather than nothing
@@ -101,22 +114,26 @@ std::vector<PianoRollView::RollClip> PianoRollView::CollectClips(double& origin)
 	return out;
 }
 
-void PianoRollView::CenterOnClip(MIDIClip* clip, double viewOffset, float gridW, float gridH) {
+void PianoRollView::CenterOnClip(const RollClip& rollClip, float gridW, float gridH) {
 	const float NOTE_HEIGHT = mNoteHeight * mContext.state.mainScale;
 	const float PPB = mPixelsPerBeat * mContext.state.mainScale;
 
+	// only the material the clip actually plays gets a say in where the view lands: a
+	// cropped clip carries notes on either side of its window, and pitches it never
+	// sounds have no business deciding what is on screen
+	ClipTimeMapping window = ClipTimeMapping::For(*rollClip.clip);
 	int minNote = 127, maxNote = 0;
 	double firstBeat = 0.0;
 	bool any = false;
-	if (clip) {
-		for (const auto& n : clip->GetNotes()) {
-			if (!any)
-				firstBeat = n.startBeat;
-			any = true;
-			minNote = std::min(minNote, n.noteNumber);
-			maxNote = std::max(maxNote, n.noteNumber);
-			firstBeat = std::min(firstBeat, n.startBeat);
-		}
+	for (const auto& n : rollClip.clip->GetNotes()) {
+		if (!window.PlaysContentBeat(n.startBeat))
+			continue;
+		if (!any)
+			firstBeat = n.startBeat;
+		any = true;
+		minNote = std::min(minNote, n.noteNumber);
+		maxNote = std::max(maxNote, n.noteNumber);
+		firstBeat = std::min(firstBeat, n.startBeat);
 	}
 
 	// vertical: center on the pitch midpoint, or middle C when the clip is empty
@@ -125,9 +142,11 @@ void PianoRollView::CenterOnClip(MIDIClip* clip, double viewOffset, float gridW,
 	float targetY = (127.0f - midPitch) * NOTE_HEIGHT - gridH * 0.5f;
 	targetY = std::clamp(targetY, 0.0f, std::max(0.0f, contentH - gridH));
 
-	// horizontal: bring the first note a little in from the left edge. the clip may
-	// sit anywhere along a multi-clip view, so its own offset comes along
-	float targetX = (float)((viewOffset + (any ? firstBeat : 0.0)) * PPB) - gridW * 0.2f;
+	// horizontal: bring the first note the clip plays a little in from the left edge,
+	// and the clip's own start when it plays none. the clip may sit anywhere along a
+	// multi-clip view, so its place in it comes along
+	double targetBeat = any ? rollClip.contentOffset + firstBeat : rollClip.viewOffset;
+	float targetX = (float)(targetBeat * PPB) - gridW * 0.2f;
 	if (targetX < 0.0f)
 		targetX = 0.0f;
 
@@ -176,16 +195,18 @@ void PianoRollView::Render() {
 		return;
 	}
 
-	// which clip on show holds the focus, where its own beat 0 lands in the view, and
-	// the arrangement beat it sits at. clip-local note times convert to view space with
-	// the first and to song time with the second; the two differ by the view origin.
+	// which clip on show holds the focus, where its band starts in the view, and where
+	// the material it plays begins - in view beats and in arrangement beats. a note's
+	// stored time converts to view space with the second and snaps against the third;
+	// a cropped clip has its band and its material apart by the clip's offset.
 	// re-runnable, because a toolbar chip can move the focus part-way down this function
 	// and everything after it has to be drawn from the same frame's answer
 	const RollClip* focusEntry = nullptr;
 	std::shared_ptr<MIDIClip> midiClipShared;
 	MIDIClip* mIDIClip = nullptr;
 	double focusOffset = 0.0;
-	double focusStart = 0.0;
+	double focusContent = 0.0;
+	double focusContentStart = 0.0;
 	auto resolveFocus = [&]() {
 		focusEntry = &rollClips.front();
 		for (const auto& rc : rollClips) {
@@ -195,7 +216,8 @@ void PianoRollView::Render() {
 		midiClipShared = focusEntry->clip;
 		mIDIClip = midiClipShared.get();
 		focusOffset = focusEntry->viewOffset;
-		focusStart = mIDIClip->GetStartBeat();
+		focusContent = focusEntry->contentOffset;
+		focusContentStart = ClipTimeMapping::For(*mIDIClip).contentOrigin;
 	};
 	resolveFocus();
 
@@ -367,7 +389,7 @@ void PianoRollView::Render() {
 	for (const auto& rc : rollClips) {
 		maxViewBeat = std::max(maxViewBeat, rc.viewOffset + rc.clip->GetDuration());
 		for (const auto& n : rc.clip->GetNotes())
-			maxViewBeat = std::max(maxViewBeat, rc.viewOffset + n.startBeat + n.durationBeats);
+			maxViewBeat = std::max(maxViewBeat, rc.contentOffset + n.startBeat + n.durationBeats);
 	}
 	double totalBeats = maxViewBeat + 1.0;
 
@@ -383,7 +405,7 @@ void PianoRollView::Render() {
 	// moves under it because another clip joined or left the selection
 	auto curClip = std::static_pointer_cast<Clip>(midiClipShared);
 	if (mLastCenteredClip.expired() || mLastCenteredClip.lock() != curClip || mLastCenterOrigin != viewOrigin) {
-		CenterOnClip(mIDIClip, focusOffset, gridW, gridH);
+		CenterOnClip(*focusEntry, gridW, gridH);
 		mLastCenteredClip = curClip;
 		mLastCenterOrigin = viewOrigin;
 	}
@@ -490,15 +512,16 @@ void PianoRollView::Render() {
 		double mouseViewBeat = (double)(mousePos.x - canvas.x) / PPB;
 		if (mouseViewBeat < 0)
 			mouseViewBeat = 0;
-		// note times are stored relative to their own clip, so everything the mouse
-		// says has to be brought back out of view space and into the focused clip's
-		double mouseBeat = mouseViewBeat - focusOffset;
+		// note times are stored against the material the clip plays rather than against
+		// the clip's own start, so everything the mouse says has to be brought back out
+		// of view space and onto that material - a crop moves the two apart
+		double mouseBeat = mouseViewBeat - focusContent;
 
 		// notes snap on the ARRANGEMENT grid - the one the vertical lines are drawn on.
 		// snapping clip-locally would put the notes of a clip that does not start on a
 		// grid line onto a grid of its own, invisibly offset from the lines under them
 		auto snapClipBeat = [&](double clipBeat) {
-			return std::round((clipBeat + focusStart) / snapGrid) * snapGrid - focusStart;
+			return std::round((clipBeat + focusContentStart) / snapGrid) * snapGrid - focusContentStart;
 		};
 
 		int mouseRow = (int)std::floor((mousePos.y - canvas.y) / NOTE_HEIGHT);
@@ -641,7 +664,7 @@ void PianoRollView::Render() {
 			bool hitResizeRight = false;
 			for (int i = (int)notes.size() - 1; i >= 0 && !focusTarget; --i) {
 				const auto& note = notes[i];
-				float nx = canvas.x + (float)((focusOffset + note.startBeat) * PPB);
+				float nx = canvas.x + (float)((focusContent + note.startBeat) * PPB);
 				float ny = canvas.y + ((127 - note.noteNumber) * NOTE_HEIGHT);
 				float nw = (float)(note.durationBeats * PPB);
 				if (mousePos.x >= nx && mousePos.x <= nx + nw && mousePos.y >= ny && mousePos.y <= ny + NOTE_HEIGHT) {
@@ -722,7 +745,7 @@ void PianoRollView::Render() {
 				mSelectedIndices.clear();
 			for (int i = 0; i < (int)notes.size(); ++i) {
 				const auto& note = notes[i];
-				float nx = canvas.x + (float)((focusOffset + note.startBeat) * PPB);
+				float nx = canvas.x + (float)((focusContent + note.startBeat) * PPB);
 				float ny = canvas.y + ((127 - note.noteNumber) * NOTE_HEIGHT);
 				float nw = (float)(note.durationBeats * PPB);
 				if (RectOverlap(sMin, sMax, ImVec2(nx, ny), ImVec2(nx + nw, ny + NOTE_HEIGHT))) {
@@ -770,7 +793,7 @@ void PianoRollView::Render() {
 			if (rc.focused)
 				continue;
 			for (const auto& note : rc.clip->GetNotes()) {
-				float x = canvas.x + (float)((rc.viewOffset + note.startBeat) * PPB);
+				float x = canvas.x + (float)((rc.contentOffset + note.startBeat) * PPB);
 				float w = (float)(note.durationBeats * PPB);
 				float y = canvas.y + ((127 - note.noteNumber) * NOTE_HEIGHT);
 				if (y + NOTE_HEIGHT < canvas.y + mScrollY || y > canvas.y + mScrollY + gridH)
@@ -785,7 +808,7 @@ void PianoRollView::Render() {
 		// c2. notes of the focused clip - the only ones that take edits
 		for (size_t i = 0; i < notes.size(); ++i) {
 			const auto& note = notes[i];
-			float x = canvas.x + (float)((focusOffset + note.startBeat) * PPB);
+			float x = canvas.x + (float)((focusContent + note.startBeat) * PPB);
 			float w = (float)(note.durationBeats * PPB);
 			float y = canvas.y + ((127 - note.noteNumber) * NOTE_HEIGHT);
 			// cull off-screen notes vertically / horizontally
@@ -843,7 +866,7 @@ void PianoRollView::Render() {
 			dl->AddRect(mmMin, mmMax, Theme::WithAlpha(th.textDim, 220), 3.0f);
 			for (const auto& rc : rollClips) {
 				for (const auto& n : rc.clip->GetNotes()) {
-					float fx = (float)((rc.viewOffset + n.startBeat) / totalBeats);
+					float fx = (float)((rc.contentOffset + n.startBeat) / totalBeats);
 					float fw = (float)std::max(1.0, (n.durationBeats / totalBeats) * mmW);
 					float fy = (float)((127 - n.noteNumber) / 128.0);
 					float nx = mmMin.x + fx * mmW;
@@ -975,9 +998,15 @@ void PianoRollView::Render() {
 	if (transport && transport->IsPlaying()) {
 		double currentBeat = (double)transport->GetPosition() / transport->GetSampleRate() * (transport->GetBpm() / 60.0);
 		for (const auto& rc : rollClips) {
-			double relBeat = currentBeat - rc.clip->GetStartBeat();
+			// where the clip is reading from right now. a cropped window plays neither
+			// the material in front of it nor the material past it, so a key only
+			// lights while the playhead is inside the clip itself
+			ClipTimeMapping window = ClipTimeMapping::For(*rc.clip);
+			double contentBeat = window.ToContentBeat(currentBeat);
+			if (!window.PlaysContentBeat(contentBeat))
+				continue;
 			for (const auto& n : rc.clip->GetNotes()) {
-				if (relBeat >= n.startBeat && relBeat < n.startBeat + n.durationBeats)
+				if (contentBeat >= n.startBeat && contentBeat < n.startBeat + n.durationBeats)
 					playingNotes.insert(n.noteNumber);
 			}
 		}
@@ -1070,7 +1099,7 @@ void PianoRollView::Render() {
 				int hit = -1;
 				float bestDist = 6.0f * scale;
 				for (int i = 0; i < (int)notes.size(); ++i) {
-					float dx = std::abs((gutterX + (float)((focusOffset + notes[i].startBeat) * PPB) - mScrollX) - mp.x);
+					float dx = std::abs((gutterX + (float)((focusContent + notes[i].startBeat) * PPB) - mScrollX) - mp.x);
 					if (dx < bestDist) {
 						bestDist = dx;
 						hit = i;
@@ -1101,7 +1130,7 @@ void PianoRollView::Render() {
 				if (rc.focused)
 					continue;
 				for (const auto& note : rc.clip->GetNotes()) {
-					float x = gutterX + (float)((rc.viewOffset + note.startBeat) * PPB) - mScrollX;
+					float x = gutterX + (float)((rc.contentOffset + note.startBeat) * PPB) - mScrollX;
 					if (x < gutterX - 4.0f * scale || x > vp.x + availW)
 						continue;
 					float velY = laneBot - (note.velocity / 127.0f) * (laneBot - laneTop);
@@ -1114,7 +1143,7 @@ void PianoRollView::Render() {
 			// notes stay legible instead of fat bars covering each other
 			for (size_t i = 0; i < notes.size(); ++i) {
 				const auto& note = notes[i];
-				float x = gutterX + (float)((focusOffset + note.startBeat) * PPB) - mScrollX;
+				float x = gutterX + (float)((focusContent + note.startBeat) * PPB) - mScrollX;
 				if (x < gutterX - 4.0f * scale || x > vp.x + availW)
 					continue;
 				float velY = laneBot - (note.velocity / 127.0f) * (laneBot - laneTop);

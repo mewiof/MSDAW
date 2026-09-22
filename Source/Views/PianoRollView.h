@@ -1,4 +1,5 @@
 #pragma once
+#include "ClipTime.h"
 #include "EditorContext.h"
 #include "Clips/MIDIClip.h"
 #include "Parameters/SliderParameter.h"
@@ -22,8 +23,12 @@ public:
 	// in their track color as context and can be clicked to take the focus
 	struct RollClip {
 		std::shared_ptr<MIDIClip> clip;
-		ImU32 color = 0;		 // owning track's color
-		double viewOffset = 0.0; // clip start measured from the view's beat 0
+		ImU32 color = 0; // owning track's color
+		// the clip's two beat zeros, both measured from the view's beat 0: where its
+		// band starts, and where the material it plays begins. a cropped clip has them
+		// apart by its offset, and a note is drawn from the second one - see ClipTime.h
+		double viewOffset = 0.0;
+		double contentOffset = 0.0;
 		bool focused = false;
 	};
 
@@ -119,7 +124,7 @@ private:
 	// the arrangement selection resolved into drawable clips, sorted by start beat.
 	// origin comes back as the arrangement beat the view's x=0 corresponds to
 	std::vector<RollClip> CollectClips(double& origin);
-	void CenterOnClip(MIDIClip* clip, double viewOffset, float gridW, float gridH);
+	void CenterOnClip(const RollClip& rollClip, float gridW, float gridH);
 	void BeginGesture(const std::shared_ptr<MIDIClip>& clip, const char* name);
 	void EndGesture(const std::shared_ptr<MIDIClip>& clip);
 };

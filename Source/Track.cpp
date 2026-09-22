@@ -193,6 +193,15 @@ void Track::Process(float* buffer, int numFrames, int numChannels,
 					int64_t noteOnAbs = clipStartSample + (int64_t)(adjustedStart * samplesPerBeat);
 					int64_t noteOffAbs = noteOnAbs + (int64_t)(note.durationBeats * samplesPerBeat);
 
+					// a note the clip does not reach at all: the material carries on past
+					// the window (the left half of a split still holds everything the right
+					// half plays), and the gating below would otherwise clamp its release
+					// back to the clip end and emit a note-off for a note nothing started -
+					// or, for a cut landing exactly on an onset, sound a zero-length blip of
+					// the note that belongs to the clip after it
+					if (noteOnAbs >= clipEndSample)
+						continue;
+
 					// a note may run past the clip's end. once the playhead leaves the clip
 					// the clip is skipped entirely (see the overlap test above), so a note-off
 					// out there would never be emitted and the note would sound forever. gate

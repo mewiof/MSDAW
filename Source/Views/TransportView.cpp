@@ -46,6 +46,14 @@ namespace {
 		}
 	}
 
+	// a thin upright rule between two groups of controls on the bar
+	void VerticalRule(ImU32 color) {
+		const ImVec2 pos = ImGui::GetCursorScreenPos();
+		const float height = ImGui::GetFrameHeight();
+		ImGui::Dummy(ImVec2(1.0f, height));
+		ImGui::GetWindowDrawList()->AddLine(ImVec2(pos.x, pos.y + height * 0.15f), ImVec2(pos.x, pos.y + height * 0.85f), color);
+	}
+
 } // namespace
 
 void TransportView::Render(const ImVec2& pos, float width, float height) {
@@ -116,7 +124,9 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 			ImGui::PopStyleColor(3);
 
 		ImGui::SameLine();
-		ImGui::Text("| Time: %.2f", (double)transport->GetPosition() / transport->GetSampleRate());
+		VerticalRule(th.border);
+		ImGui::SameLine();
+		ImGui::Text("Time: %.2f", (double)transport->GetPosition() / transport->GetSampleRate());
 		ImGui::SameLine();
 
 		// bpm - reuse the master track's BPM parameter so tempo edits are undoable and
@@ -182,7 +192,7 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 
 		// computer MIDI keyboard toggle
 		ImGui::SameLine();
-		ImGui::Dummy(ImVec2(20, 0)); // spacer
+		VerticalRule(th.border);
 		ImGui::SameLine();
 
 		bool mIDIKey = mContext.state.isComputerMIDIKeyboardEnabled;

@@ -24,13 +24,20 @@ Theme::Theme() {
 	bgDeviceInstrument = IM_COL32(62, 62, 69, 255); // instrument slot, heavier than an effect
 	bgDeviceRack = IM_COL32(58, 58, 65, 255);		// a rack shell, a step above the devices it holds
 	bgRackInner = IM_COL32(38, 38, 43, 255);		// recessed ground inside a rack, so its panels read as inset
-	bgPanelAlt = IM_COL32(68, 68, 75, 255);			// raised buttons, popups, group rows
-	bgHover = IM_COL32(84, 84, 92, 255);			// hovered frame/row/button
+	bgPanelAlt = IM_COL32(68, 68, 75, 255);			// raised surfaces: popups, group rows, the master row
+	bgHover = IM_COL32(84, 84, 92, 255);			// hovered frame/row
 	bgActive = IM_COL32(100, 100, 109, 255);		// selected row (neutral, never the accent)
 	bgOverlay = IM_COL32(18, 18, 22, 236);			// translucent box floating over the canvas
 	bgLane = IM_COL32(32, 32, 36, 255);				// timeline lane, same ground as the canvas
 	bgLaneSelected = IM_COL32(43, 43, 49, 255);		// selected track lane, one visible step up
 	bgLaneGroup = IM_COL32(26, 26, 30, 255);		// group lane, recessed: nothing lives here
+
+	// controls. a button rests a clear step above the highest surface it lands on (a
+	// popup, a group row or the master row, all bgPanelAlt), and lightens again under
+	// the pointer
+	button = IM_COL32(82, 82, 90, 255);
+	buttonHover = IM_COL32(98, 98, 107, 255);
+	buttonActive = IM_COL32(114, 114, 124, 255);
 
 	// lines & borders - kept a hair brighter than the surfaces they sit on so
 	// delineation comes from crisp 1px edges, not from cranking fill contrast
@@ -182,9 +189,9 @@ void Theme::ApplyImGuiStyle(float scale) const {
 	c[ImGuiCol_SliderGrab] = V(textMuted);	  // neutral at rest
 	c[ImGuiCol_SliderGrabActive] = V(accent); // amber only while dragging
 
-	c[ImGuiCol_Button] = V(bgPanelAlt);
-	c[ImGuiCol_ButtonHovered] = V(bgHover);
-	c[ImGuiCol_ButtonActive] = V(bgActive); // neutral on purpose
+	c[ImGuiCol_Button] = V(button);
+	c[ImGuiCol_ButtonHovered] = V(buttonHover);
+	c[ImGuiCol_ButtonActive] = V(buttonActive); // neutral on purpose
 
 	// Header* drive Selectable/TreeNode/MenuItem: selection gets a muted amber
 	// wash, but hover stays gray so lists/menus do not flash accent constantly

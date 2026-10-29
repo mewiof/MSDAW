@@ -1222,7 +1222,7 @@ void EQEightProcessor::DrawBandStrip(float width) {
 
 		const bool typeHovered = ImGui::IsItemHovered();
 		const ImVec2 typeEnd(slotPos.x + slotWidth, slotPos.y + rowHeight);
-		drawList->AddRectFilled(slotPos, typeEnd, typeHovered ? th.bgHover : th.bgPanelAlt, style.FrameRounding);
+		drawList->AddRectFilled(slotPos, typeEnd, typeHovered ? th.buttonHover : th.button, style.FrameRounding);
 		drawList->AddRect(slotPos, typeEnd, band == mSelectedBand ? th.accent : th.border, style.FrameRounding);
 		DrawFilterIcon(drawList, (EQFilterType)type,
 					   ImVec2(slotPos.x + 3.0f, slotPos.y + 2.0f),
@@ -1361,7 +1361,7 @@ void EQEightProcessor::DrawGlobals(float width, float height) {
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Audition: hear only the band you are editing");
 		drawList->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize, iconPos.y + iconSize),
-								audition ? th.accent : th.bgPanelAlt, style.FrameRounding);
+								audition ? th.accent : th.button, style.FrameRounding);
 		{
 			// a headphone: the band over the top, a cup on each side
 			const ImU32 glyph = audition ? th.textOnAccent : th.textMuted;
@@ -1381,7 +1381,7 @@ void EQEightProcessor::DrawGlobals(float width, float height) {
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Show the spectrum behind the curve");
 		drawList->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize, iconPos.y + iconSize),
-								mShowAnalyzer ? th.accent : th.bgPanelAlt, style.FrameRounding);
+								mShowAnalyzer ? th.accent : th.button, style.FrameRounding);
 		{
 			// four bars of a spectrum, tallest in the middle
 			const ImU32 glyph = mShowAnalyzer ? th.textOnAccent : th.textMuted;
@@ -1429,7 +1429,7 @@ void EQEightProcessor::DrawGlobals(float width, float height) {
 			ImGui::PushID(set);
 			const bool selected = set == mEditSet;
 			const bool enabled = set == 0 || mode != EQChannelMode::Stereo;
-			ImGui::PushStyleColor(ImGuiCol_Button, selected && enabled ? th.accent : th.bgPanelAlt);
+			ImGui::PushStyleColor(ImGuiCol_Button, selected && enabled ? th.accent : th.button);
 			ImGui::PushStyleColor(ImGuiCol_Text, selected && enabled ? th.textOnAccent : (enabled ? th.text : th.textDim));
 			if (ImGui::Button(kSetNames[(int)mode][set], ImVec2(halfWidth, metrics.controlHeight)) && enabled)
 				mEditSet = set;
@@ -1444,7 +1444,7 @@ void EQEightProcessor::DrawGlobals(float width, float height) {
 	{
 		nextRow("Adapt. Q");
 		const bool adaptive = pAdaptQ->value > 0.5f;
-		ImGui::PushStyleColor(ImGuiCol_Button, adaptive ? th.accent : th.bgPanelAlt);
+		ImGui::PushStyleColor(ImGuiCol_Button, adaptive ? th.accent : th.button);
 		ImGui::PushStyleColor(ImGuiCol_Text, adaptive ? th.textOnAccent : th.text);
 		if (ImGui::Button(adaptive ? "On" : "Off", ImVec2(width, metrics.controlHeight))) {
 			const float oldValue = pAdaptQ->value;

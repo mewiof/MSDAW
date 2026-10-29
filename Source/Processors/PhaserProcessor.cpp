@@ -189,7 +189,7 @@ namespace {
 		const Theme& th = Theme::Instance();
 		outMin = ImGui::GetCursorScreenPos();
 		const bool pressed = ImGui::InvisibleButton(id, size);
-		const ImU32 fill = active ? th.accent : (ImGui::IsItemHovered() ? th.bgHover : th.bgPanelAlt);
+		const ImU32 fill = active ? th.accent : (ImGui::IsItemHovered() ? th.buttonHover : th.button);
 		ImGui::GetWindowDrawList()->AddRectFilled(outMin, ImVec2(outMin.x + size.x, outMin.y + size.y),
 												  fill, ImGui::GetStyle().FrameRounding);
 		return pressed;

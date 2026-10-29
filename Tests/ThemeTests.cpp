@@ -46,3 +46,23 @@ TEST(Theme, ContrastingTextDoesNotDependOnWhichToneComesFirst) {
 	for (ImU32 fill : fills)
 		EXPECT_EQ(Theme::ContrastingText(fill, kLightText, kDarkText), Theme::ContrastingText(fill, kDarkText, kLightText));
 }
+
+// ================================================================
+// BUTTONS
+// ================================================================
+
+// the button tone was once the same as the popups, the group rows and the master row
+// it gets drawn on, so a button there was bare text until the pointer reached it. a
+// button has to stand apart from every surface the app puts one on, and from its own
+// hovered state. the floor is the rule - "plainly not the same tone" - not a look
+
+TEST(Theme, ButtonsStandApartFromEverySurfaceTheySitOn) {
+	const Theme& th = Theme::Instance();
+	const ImU32 surfaces[] = {th.bgWindow, th.bgHeader, th.bgPanel, th.bgPanelAlt, th.bgDeviceEffect,
+							  th.bgDeviceInstrument, th.bgDeviceRack, th.bgRackInner, th.bgActive};
+	for (ImU32 surface : surfaces)
+		EXPECT_GT(Theme::ContrastRatio(th.button, surface), 1.15f);
+
+	EXPECT_GT(Theme::ContrastRatio(th.buttonHover, th.button), 1.1f);
+	EXPECT_GT(Theme::ContrastRatio(th.buttonActive, th.button), 1.1f);
+}

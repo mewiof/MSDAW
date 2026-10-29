@@ -25,9 +25,9 @@ public:
 	ImU32 inputBg;			  // recessed control backgrounds (slider tracks, text boxes)
 	ImU32 bgWindow;			  // main application window
 	ImU32 bgPanel;			  // track rows, ruler, ordinary panels
-	ImU32 bgPanelAlt;		  // raised buttons, popups, group rows
+	ImU32 bgPanelAlt;		  // raised surfaces: popups, group rows, the master row
 	ImU32 bgHeader;			  // sticky header strips
-	ImU32 bgHover;			  // hovered frame/row/button
+	ImU32 bgHover;			  // hovered frame/row
 	ImU32 bgActive;			  // selected row (neutral, never the accent)
 	ImU32 bgDeviceEffect;	  // device rack slot: effect
 	ImU32 bgDeviceInstrument; // device rack slot: instrument
@@ -37,6 +37,16 @@ public:
 	ImU32 bgLane;				  // timeline lane behind an ordinary track
 	ImU32 bgLaneSelected;		  // ... behind the selected track
 	ImU32 bgLaneGroup;			  // ... behind a group, which holds no clips of its own
+
+	// ================================================================
+	// CONTROLS
+	// ================================================================
+
+	// a button sits a step above every surface it can be placed on, the raised ones
+	// (popups, group rows) included - sharing a tone with any of them makes it vanish
+	ImU32 button;
+	ImU32 buttonHover;
+	ImU32 buttonActive;		// pressed
 
 	// ================================================================
 	// LINES & BORDERS

@@ -447,6 +447,8 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	drawList->AddRect(pMin, pMax, linked ? th.clipLinked : th.clipBorder, 0.0f);
 	drawList->PushClipRect(pMin, pMax, true);
 
+	const float textPadding = 4.0f * context.state.mainScale;
+
 	// safe culling rect
 	ImVec2 clipRectMin = drawList->GetClipRectMin();
 	ImVec2 clipRectMax = drawList->GetClipRectMax();
@@ -498,9 +500,6 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	}
 
 	if (mIDIClip) {
-		ImGui::SetCursorScreenPos(ImVec2(pMin.x + 2, pMax.y - 12));
-		ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::WithAlpha(th.textOnAccent, 128)), "MIDI");
-
 		const auto& notes = mIDIClip->GetNotesEx();
 		float clipWidth = pMax.x - pMin.x;
 
@@ -509,6 +508,15 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 							  : Theme::WithAlpha(th.clipText, 160);
 		if (!enabled && customMIDIColor == 0)
 			noteColor = Theme::WithAlpha(noteColor, 70);
+
+		// the kind tag sits in the bottom-left corner, a whole text line up from the edge,
+		// and only where the clip is tall enough to keep it clear of the name along the
+		// top - a minimized lane has room for the name alone. a faded reference copy (the
+		// automation lane's) recolors its notes, and the tag recedes with them
+		const float lineHeight = ImGui::GetTextLineHeight();
+		if (pMax.y - pMin.y >= lineHeight * 2.0f + textPadding * 3.0f)
+			drawList->AddText(ImVec2(clipRectMin.x + textPadding, pMax.y - lineHeight - textPadding),
+							  customMIDIColor != 0 ? customMIDIColor : Theme::WithAlpha(th.textOnAccent, 128), "MIDI");
 
 		for (const auto& n : notes) {
 			// use effective offset for MIDI note culling/positioning
@@ -552,7 +560,6 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	// calculate text position
 	const char* clipName = clip->GetName().c_str();
 	ImVec2 textSize = ImGui::CalcTextSize(clipName);
-	float textPadding = 4.0f;
 
 	// start at the clip's visible left edge
 	float textX = clipRectMin.x + textPadding;

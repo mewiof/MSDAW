@@ -56,7 +56,9 @@ bool SliderParameter::Draw() {
 
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
 		ImU32 bgColor = ImGui::GetColorU32(isHovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
-		ImU32 fillColor = ImGui::GetColorU32(isActive ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab);
+		// the fill is a darker tone than imgui's slider grab: the number is drawn straight
+		// over it, and white on the grab's light gray was barely readable
+		ImU32 fillColor = isActive ? Theme::Instance().valueFillActive : Theme::Instance().valueFill;
 
 		drawList->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, ImGui::GetStyle().FrameRounding);
 

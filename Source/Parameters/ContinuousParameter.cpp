@@ -91,7 +91,9 @@ bool ContinuousParameter::DrawCompact(float width, const char* valueFmt, bool dr
 		drawList->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, ImGui::GetStyle().FrameRounding);
 		if (drawFill) {
 			float fraction = std::clamp(NormalizedFromValue(), 0.0f, 1.0f);
-			ImU32 fillColor = ImGui::GetColorU32(isActive ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab);
+			// the fill is a darker tone than imgui's slider grab: the number is drawn straight
+			// over it, and white on the grab's light gray was barely readable
+			ImU32 fillColor = isActive ? th.valueFillActive : th.valueFill;
 			drawList->AddRectFilled(pos, ImVec2(pos.x + fraction * size.x, pos.y + size.y), fillColor, ImGui::GetStyle().FrameRounding);
 		}
 		drawList->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), IsSelected() ? th.accent : th.border, ImGui::GetStyle().FrameRounding);

@@ -66,3 +66,16 @@ TEST(Theme, ButtonsStandApartFromEverySurfaceTheySitOn) {
 	EXPECT_GT(Theme::ContrastRatio(th.buttonHover, th.button), 1.1f);
 	EXPECT_GT(Theme::ContrastRatio(th.buttonActive, th.button), 1.1f);
 }
+
+// ================================================================
+// VALUE BOXES
+// ================================================================
+
+// a value box writes its number in the ordinary text tone straight over its level fill,
+// so the fill has to leave that number readable - the light gray it used before gave
+// about 2:1, under the 4.5:1 that text is normally held to
+TEST(Theme, ValueFillLeavesTheNumberOnItReadable) {
+	const Theme& th = Theme::Instance();
+	EXPECT_GE(Theme::ContrastRatio(th.text, th.valueFill), 4.5f);
+	EXPECT_GE(Theme::ContrastRatio(th.text, th.valueFillActive), 4.5f);
+}

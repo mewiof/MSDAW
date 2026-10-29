@@ -47,6 +47,8 @@ public:
 	ImU32 button;
 	ImU32 buttonHover;
 	ImU32 buttonActive;		// pressed
+	ImU32 valueFill;		// level fill behind a value box's number, dark enough that the number stays readable on it
+	ImU32 valueFillActive;	// ... while it is being dragged: amber, held just as dark
 
 	// ================================================================
 	// LINES & BORDERS

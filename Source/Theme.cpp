@@ -38,6 +38,11 @@ Theme::Theme() {
 	button = IM_COL32(82, 82, 90, 255);
 	buttonHover = IM_COL32(98, 98, 107, 255);
 	buttonActive = IM_COL32(114, 114, 124, 255);
+	// the level behind a value box's number: plainly a fill against the recessed box,
+	// and still dark enough to read white digits on (the old light-gray fill gave ~2:1).
+	// dragged, it takes the accent's hue at a depth the digits still read on
+	valueFill = IM_COL32(74, 74, 82, 255);
+	valueFillActive = IM_COL32(118, 90, 26, 255);
 
 	// lines & borders - kept a hair brighter than the surfaces they sit on so
 	// delineation comes from crisp 1px edges, not from cranking fill contrast

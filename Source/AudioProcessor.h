@@ -112,7 +112,7 @@ public:
 	virtual bool IsEditorOpen() const { return false; }
 
 	// called once per UI frame while open so editors that need periodic servicing
-	// (e.g. VST2 effEditIdle) can repaint. no-op by default
+	// (e.g. VST2's EffectOpcode::EditorIdle) can repaint. no-op by default
 	virtual void EditorIdle() {}
 
 	// per-plugin high-DPI override for the editor window

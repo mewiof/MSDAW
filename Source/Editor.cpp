@@ -832,7 +832,7 @@ static void IdleChainEditors(ProcessorHost& host) {
 
 void Editor::PumpPluginEditors() {
 	// give every open plugin editor a chance to service its GUI. VST2 plugins need
-	// effEditIdle to repaint smoothly; other processors no-op
+	// EffectOpcode::EditorIdle to repaint smoothly; other processors no-op
 	//
 	// deliberately NOT once per frame: an idle tick is a full repaint of the plugin's
 	// own window, and plugin GUIs are written for the ~20-30 Hz a host has always given

@@ -6,8 +6,7 @@
 #include <functional>
 #include <set>
 
-// include VST sdk
-#include "pluginterfaces/vst2.x/aeffectx.h"
+#include "VST2Types.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -41,7 +40,7 @@ public:
 	void Save(std::ostream& out) override;
 	void Load(std::istream& in) override;
 
-	static VstIntPtr VSTCALLBACK HostCallback(AEffect* effect, VstInt32 opcode, VstInt32 index, VstIntPtr value, void* ptr, float opt);
+	static intptr_t HostCallback(vst2::Effect* effect, vst2::HostOpcode opcode, int32_t index, intptr_t value, void* ptr, float opt);
 
 	// static callback to route keyboard events from VST windows back to the editor
 	static std::function<void(int virtualKey, bool isDown)> OnGlobalKeyEvent;
@@ -59,8 +58,8 @@ private:
 	void* mEditorWindow = nullptr;
 #endif
 
-	AEffect* mAEffect = nullptr;
-	VstTimeInfo mTimeInfo;
+	vst2::Effect* mEffect = nullptr;
+	vst2::TimeInfo mTimeInfo;
 
 	// parameter sync tracking
 	std::vector<float> mLastSentValues;
@@ -71,7 +70,7 @@ private:
 	std::vector<float*> mOutputPtrs;
 
 	// MIDI
-	VstEvents* mVSTEvents = nullptr;
+	vst2::Events* mVSTEvents = nullptr;
 	std::vector<uint8_t> mVSTEventBuffer;
 
 	// track active MIDI notes per channel (16 channels) to ensure note-off on reset

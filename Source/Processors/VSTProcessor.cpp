@@ -7,6 +7,7 @@
 #include <mutex>
 #include <map>
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <vector>
 #include <cmath>
@@ -97,21 +98,18 @@ static std::vector<unsigned char> Base64Decode(const std::string& encoded_string
 
 // global map to route static callbacks to instances
 static std::mutex gEffectMapMutex;
-static std::map<AEffect*, VSTProcessor*> gEffectMap;
+static std::map<vst2::Effect*, VSTProcessor*> gEffectMap;
 
 // initialize the static callback
 std::function<void(int, bool)> VSTProcessor::OnGlobalKeyEvent = nullptr;
 
-// dispatcher signature
-typedef AEffect*(VSTCALLBACK* VSTPluginMainProc)(audioMasterCallback audioMaster);
-
 VSTProcessor::VSTProcessor(const std::string& path)
 	: mPath(path) {
-	memset(&mTimeInfo, 0, sizeof(VstTimeInfo));
+	memset(&mTimeInfo, 0, sizeof(mTimeInfo));
 	mTimeInfo.sampleRate = 48000.0;
 	mTimeInfo.tempo = 120.0;
-	mTimeInfo.timeSigNumerator = 4;
-	mTimeInfo.timeSigDenominator = 4;
+	mTimeInfo.timeSignatureNumerator = 4;
+	mTimeInfo.timeSignatureDenominator = 4;
 }
 
 VSTProcessor::~VSTProcessor() {
@@ -122,13 +120,13 @@ VSTProcessor::~VSTProcessor() {
 	// thread and the UI thread both arrive here (see PluginManager::BinaryLock)
 	std::lock_guard<std::mutex> binaryLock(PluginManager::BinaryLock());
 
-	if (mAEffect) {
+	if (mEffect) {
 		{
 			std::lock_guard<std::mutex> lock(gEffectMapMutex);
-			gEffectMap.erase(mAEffect);
+			gEffectMap.erase(mEffect);
 		}
-		mAEffect->dispatcher(mAEffect, effClose, 0, 0, 0, 0.0f);
-		mAEffect = nullptr;
+		mEffect->dispatcher(mEffect, vst2::EffectOpcode::Close, 0, 0, 0, 0.0f);
+		mEffect = nullptr;
 	}
 
 #ifdef _WIN32
@@ -140,7 +138,7 @@ VSTProcessor::~VSTProcessor() {
 }
 
 bool VSTProcessor::Load() {
-	if (mAEffect)
+	if (mEffect)
 		return true;
 
 	// serialized against every other plugin binary touching the process: the scan
@@ -154,42 +152,42 @@ bool VSTProcessor::Load() {
 		return false;
 	}
 
-	VSTPluginMainProc mainProc = (VSTPluginMainProc)GetProcAddress(mLibrary, "VSTPluginMain");
+	vst2::PluginMain mainProc = (vst2::PluginMain)GetProcAddress(mLibrary, "VSTPluginMain");
 	if (!mainProc)
-		mainProc = (VSTPluginMainProc)GetProcAddress(mLibrary, "main");
+		mainProc = (vst2::PluginMain)GetProcAddress(mLibrary, "main");
 
 	if (!mainProc) {
 		std::cout << "VST Entry point not found in " << mPath << std::endl;
 		return false;
 	}
 
-	mAEffect = mainProc(&VSTProcessor::HostCallback);
-	if (!mAEffect || mAEffect->magic != kEffectMagic) {
+	mEffect = mainProc(&VSTProcessor::HostCallback);
+	if (!mEffect || mEffect->magic != vst2::kEffectMagic) {
 		std::cout << "Invalid VST magic number." << std::endl;
 		return false;
 	}
 
 	{
 		std::lock_guard<std::mutex> lock(gEffectMapMutex);
-		gEffectMap[mAEffect] = this;
+		gEffectMap[mEffect] = this;
 	}
 
-	mAEffect->dispatcher(mAEffect, effOpen, 0, 0, 0, 0.0f);
+	mEffect->dispatcher(mEffect, vst2::EffectOpcode::Open, 0, 0, 0, 0.0f);
 
 	// get name
 	char nameBuf[64] = {0};
-	mAEffect->dispatcher(mAEffect, effGetEffectName, 0, 0, nameBuf, 0.0f);
+	mEffect->dispatcher(mEffect, vst2::EffectOpcode::GetEffectName, 0, 0, nameBuf, 0.0f);
 	if (nameBuf[0])
 		mName = nameBuf;
 	else
 		mName = "VST Plugin";
 
 	// determine if this is an instrument
-	if (mAEffect->flags & effFlagsIsSynth) {
+	if (mEffect->flags & vst2::kEffectIsSynth) {
 		mIsSynth = true;
 	} else {
-		VstIntPtr category = mAEffect->dispatcher(mAEffect, effGetPlugCategory, 0, 0, 0, 0.0f);
-		if (category == kPlugCategSynth) {
+		intptr_t category = mEffect->dispatcher(mEffect, vst2::EffectOpcode::GetCategory, 0, 0, 0, 0.0f);
+		if (category == vst2::kCategorySynth) {
 			mIsSynth = true;
 		}
 	}
@@ -206,43 +204,43 @@ void VSTProcessor::InitializeParameters() {
 	mParameters.clear();
 	mLastSentValues.clear();
 
-	for (int i = 0; i < mAEffect->numParams; ++i) {
+	for (int i = 0; i < mEffect->numParameters; ++i) {
 		char paramName[64] = {0};
 		char paramDisplay[64] = {0};
 		char paramLabel[64] = {0};
 
-		mAEffect->dispatcher(mAEffect, effGetParamName, i, 0, paramName, 0.0f);
-		mAEffect->dispatcher(mAEffect, effGetParamDisplay, i, 0, paramDisplay, 0.0f);
-		mAEffect->dispatcher(mAEffect, effGetParamLabel, i, 0, paramLabel, 0.0f);
+		mEffect->dispatcher(mEffect, vst2::EffectOpcode::GetParameterName, i, 0, paramName, 0.0f);
+		mEffect->dispatcher(mEffect, vst2::EffectOpcode::GetParameterDisplay, i, 0, paramDisplay, 0.0f);
+		mEffect->dispatcher(mEffect, vst2::EffectOpcode::GetParameterLabel, i, 0, paramLabel, 0.0f);
 
 		std::string name = paramName;
 		if (name.empty())
 			name = "Param " + std::to_string(i);
 
-		float val = mAEffect->getParameter(mAEffect, i);
+		float val = mEffect->getParameter(mEffect, i);
 		AddParameter(std::make_unique<SliderParameter>(name, val, 0.0f, 1.0f));
 		mLastSentValues.push_back(val);
 	}
 }
 
 void VSTProcessor::PrepareToPlay(double sampleRate) {
-	if (!mAEffect)
+	if (!mEffect)
 		return;
 
-	mAEffect->dispatcher(mAEffect, effSetSampleRate, 0, 0, 0, (float)sampleRate);
-	mAEffect->dispatcher(mAEffect, effSetBlockSize, 0, 512, 0, 0.0f);
+	mEffect->dispatcher(mEffect, vst2::EffectOpcode::SetSampleRate, 0, 0, 0, (float)sampleRate);
+	mEffect->dispatcher(mEffect, vst2::EffectOpcode::SetBlockSize, 0, 512, 0, 0.0f);
 
 	Resume();
 }
 
 void VSTProcessor::Resume() {
-	if (mAEffect)
-		mAEffect->dispatcher(mAEffect, effMainsChanged, 0, 1, 0, 0.0f);
+	if (mEffect)
+		mEffect->dispatcher(mEffect, vst2::EffectOpcode::MainsChanged, 0, 1, 0, 0.0f);
 }
 
 void VSTProcessor::Suspend() {
-	if (mAEffect)
-		mAEffect->dispatcher(mAEffect, effMainsChanged, 0, 0, 0, 0.0f);
+	if (mEffect)
+		mEffect->dispatcher(mEffect, vst2::EffectOpcode::MainsChanged, 0, 0, 0, 0.0f);
 }
 
 void VSTProcessor::Reset() {
@@ -256,7 +254,7 @@ void VSTProcessor::AllNotesOff() {
 	mPendingPanic = true;
 }
 
-// a panic used to go out as an effProcessEvents of its own the moment the transport asked
+// a panic used to go out as a ProcessEvents dispatch of its own the moment the transport asked
 // for it. that call sits outside the process cycle the events belong to, and the one
 // Process makes a moment later can replace the queue before the plugin has read it, which
 // leaves the notes hanging. queueing it instead lets it lead the next block's own events,
@@ -274,58 +272,58 @@ void VSTProcessor::ApplyPendingPanic(std::vector<MIDIMessage>& mIDIMessages) {
 void VSTProcessor::Process(float* buffer, int numFrames, int numChannels,
 						   std::vector<MIDIMessage>& mIDIMessages,
 						   const ProcessContext& context) {
-	if (!mAEffect)
+	if (!mEffect)
 		return;
 
-	mTimeInfo.samplePos = context.currentSample;
+	mTimeInfo.samplePosition = context.currentSample;
 	mTimeInfo.sampleRate = context.sampleRate;
-	mTimeInfo.nanoSeconds = 0;
+	mTimeInfo.nanoseconds = 0;
 	double seconds = context.currentSample / context.sampleRate;
-	mTimeInfo.ppqPos = seconds * (context.bpm / 60.0);
+	mTimeInfo.ppqPosition = seconds * (context.bpm / 60.0);
 	mTimeInfo.tempo = context.bpm;
-	mTimeInfo.barStartPos = std::floor(mTimeInfo.ppqPos / context.timeSigNumerator) * context.timeSigNumerator;
-	mTimeInfo.cycleStartPos = 0;
-	mTimeInfo.cycleEndPos = 0;
-	mTimeInfo.timeSigNumerator = (VstInt32)context.timeSigNumerator;
-	mTimeInfo.timeSigDenominator = (VstInt32)context.timeSigDenominator;
+	mTimeInfo.barStartPosition = std::floor(mTimeInfo.ppqPosition / context.timeSigNumerator) * context.timeSigNumerator;
+	mTimeInfo.cycleStartPosition = 0;
+	mTimeInfo.cycleEndPosition = 0;
+	mTimeInfo.timeSignatureNumerator = (int32_t)context.timeSigNumerator;
+	mTimeInfo.timeSignatureDenominator = (int32_t)context.timeSigDenominator;
 	mTimeInfo.smpteOffset = 0;
 	mTimeInfo.smpteFrameRate = 0;
 	mTimeInfo.samplesToNextClock = 0;
 
 	mTimeInfo.flags = 0;
-	mTimeInfo.flags |= kVstTempoValid | kVstTimeSigValid | kVstPpqPosValid | kVstBarsValid;
+	mTimeInfo.flags |= vst2::kTempoValid | vst2::kTimeSignatureValid | vst2::kPPQPositionValid | vst2::kBarsValid;
 	if (context.isPlaying)
-		mTimeInfo.flags |= kVstTransportPlaying;
+		mTimeInfo.flags |= vst2::kTransportPlaying;
 
 	// 1. sync parameters (bi-directional logic)
 	if (mLastSentValues.size() < mParameters.size()) {
 		mLastSentValues.resize(mParameters.size(), -1.0f);
 	}
 
-	for (int i = 0; i < mAEffect->numParams && i < (int)mParameters.size(); ++i) {
+	for (int i = 0; i < mEffect->numParameters && i < (int)mParameters.size(); ++i) {
 		float hostVal = mParameters[i]->value;
 		float lastSent = mLastSentValues[i];
 
 		if (std::abs(hostVal - lastSent) > 0.000001f) {
-			mAEffect->setParameter(mAEffect, i, hostVal);
+			mEffect->setParameter(mEffect, i, hostVal);
 			mLastSentValues[i] = hostVal;
 		}
 		// note: if hostval == lastsent, we do nothing
 	}
 
 	// 2. prepare buffers
-	int maxChannels = max(mAEffect->numInputs, mAEffect->numOutputs);
+	int maxChannels = max(mEffect->numInputs, mEffect->numOutputs);
 	int requiredBufferSize = numFrames * maxChannels * 2;
 	if ((int)mProcessBuffer.size() < requiredBufferSize) {
 		mProcessBuffer.resize(requiredBufferSize);
 	}
 
-	if (mInputPtrs.size() != (size_t)mAEffect->numInputs)
-		mInputPtrs.resize(mAEffect->numInputs);
-	if (mOutputPtrs.size() != (size_t)mAEffect->numOutputs)
-		mOutputPtrs.resize(mAEffect->numOutputs);
+	if (mInputPtrs.size() != (size_t)mEffect->numInputs)
+		mInputPtrs.resize(mEffect->numInputs);
+	if (mOutputPtrs.size() != (size_t)mEffect->numOutputs)
+		mOutputPtrs.resize(mEffect->numOutputs);
 
-	for (int c = 0; c < mAEffect->numInputs; ++c) {
+	for (int c = 0; c < mEffect->numInputs; ++c) {
 		mInputPtrs[c] = &mProcessBuffer[c * numFrames];
 		if (c < numChannels) {
 			for (int i = 0; i < numFrames; ++i) {
@@ -336,8 +334,8 @@ void VSTProcessor::Process(float* buffer, int numFrames, int numChannels,
 		}
 	}
 
-	int outOffset = mAEffect->numInputs * numFrames;
-	for (int c = 0; c < mAEffect->numOutputs; ++c) {
+	int outOffset = mEffect->numInputs * numFrames;
+	for (int c = 0; c < mEffect->numOutputs; ++c) {
 		mOutputPtrs[c] = &mProcessBuffer[outOffset + c * numFrames];
 	}
 
@@ -363,25 +361,25 @@ void VSTProcessor::Process(float* buffer, int numFrames, int numChannels,
 		}
 
 		int numEvents = (int)mIDIMessages.size();
-		const size_t kEventsOffset = (size_t)((char*)&((VstEvents*)nullptr)->events - (char*)nullptr);
+		const size_t kEventsOffset = offsetof(vst2::Events, events);
 
-		size_t ptrArraySize = numEvents * sizeof(VstEvent*);
-		size_t dataSize = numEvents * sizeof(VstMidiEvent);
+		size_t ptrArraySize = numEvents * sizeof(vst2::Event*);
+		size_t dataSize = numEvents * sizeof(vst2::MIDIEvent);
 		size_t totalSize = kEventsOffset + ptrArraySize + dataSize;
 
 		if (mVSTEventBuffer.size() < totalSize)
 			mVSTEventBuffer.resize(totalSize);
 
-		mVSTEvents = (VstEvents*)mVSTEventBuffer.data();
+		mVSTEvents = (vst2::Events*)mVSTEventBuffer.data();
 		mVSTEvents->numEvents = numEvents;
 		mVSTEvents->reserved = 0;
 
 		uint8_t* eventDataStart = mVSTEventBuffer.data() + kEventsOffset + ptrArraySize;
 
 		for (int i = 0; i < numEvents; ++i) {
-			VstMidiEvent* vme = (VstMidiEvent*)(eventDataStart + i * sizeof(VstMidiEvent));
-			vme->type = kVstMidiType;
-			vme->byteSize = sizeof(VstMidiEvent);
+			vst2::MIDIEvent* vme = (vst2::MIDIEvent*)(eventDataStart + i * sizeof(vst2::MIDIEvent));
+			vme->type = vst2::kEventTypeMIDI;
+			vme->byteSize = sizeof(vst2::MIDIEvent);
 			vme->deltaFrames = mIDIMessages[i].frameIndex;
 			vme->flags = 0;
 			vme->noteLength = 0;
@@ -390,30 +388,30 @@ void VSTProcessor::Process(float* buffer, int numFrames, int numChannels,
 			vme->noteOffVelocity = 0;
 			vme->reserved1 = 0;
 			vme->reserved2 = 0;
-			vme->midiData[0] = mIDIMessages[i].status;
-			vme->midiData[1] = mIDIMessages[i].data1;
-			vme->midiData[2] = mIDIMessages[i].data2;
-			vme->midiData[3] = 0;
+			vme->message[0] = mIDIMessages[i].status;
+			vme->message[1] = mIDIMessages[i].data1;
+			vme->message[2] = mIDIMessages[i].data2;
+			vme->message[3] = 0;
 
-			mVSTEvents->events[i] = (VstEvent*)vme;
+			mVSTEvents->events[i] = (vst2::Event*)vme;
 		}
 
-		mAEffect->dispatcher(mAEffect, effProcessEvents, 0, 0, mVSTEvents, 0.0f);
+		mEffect->dispatcher(mEffect, vst2::EffectOpcode::ProcessEvents, 0, 0, mVSTEvents, 0.0f);
 	}
 
 	// 4. process audio
-	mAEffect->processReplacing(mAEffect,
-							   (mAEffect->numInputs > 0) ? mInputPtrs.data() : nullptr,
-							   (mAEffect->numOutputs > 0) ? mOutputPtrs.data() : nullptr,
-							   numFrames);
+	mEffect->processReplacing(mEffect,
+							  (mEffect->numInputs > 0) ? mInputPtrs.data() : nullptr,
+							  (mEffect->numOutputs > 0) ? mOutputPtrs.data() : nullptr,
+							  numFrames);
 
 	// 5. interleave output
 	for (int i = 0; i < numFrames; ++i) {
 		for (int c = 0; c < numChannels; ++c) {
 			float val = 0.0f;
-			if (c < mAEffect->numOutputs) {
+			if (c < mEffect->numOutputs) {
 				val = mOutputPtrs[c][i];
-			} else if (c == 1 && mAEffect->numOutputs == 1) {
+			} else if (c == 1 && mEffect->numOutputs == 1) {
 				val = mOutputPtrs[0][i];
 			}
 			buffer[i * numChannels + c] = val;
@@ -425,15 +423,15 @@ void VSTProcessor::Save(std::ostream& out) {
 	out << "VST_BEGIN\n";
 	out << "PATH \"" << mPath << "\"\n";
 
-	if (mAEffect) {
-		if (mAEffect->flags & effFlagsProgramChunks) {
+	if (mEffect) {
+		if (mEffect->flags & vst2::kEffectProgramChunks) {
 			void* chunkData = nullptr;
 			bool isPreset = false;
 			// request entire bank first
-			VstIntPtr len = mAEffect->dispatcher(mAEffect, effGetChunk, 0, 0, &chunkData, 0.0f);
+			intptr_t len = mEffect->dispatcher(mEffect, vst2::EffectOpcode::GetChunk, 0, 0, &chunkData, 0.0f);
 			if (len == 0 || !chunkData) {
 				// fallback: request current program
-				len = mAEffect->dispatcher(mAEffect, effGetChunk, 1, 0, &chunkData, 0.0f);
+				len = mEffect->dispatcher(mEffect, vst2::EffectOpcode::GetChunk, 1, 0, &chunkData, 0.0f);
 				isPreset = true;
 			}
 			if (len > 0 && chunkData) {
@@ -477,8 +475,8 @@ void VSTProcessor::Load(std::istream& in) {
 			bool isPreset = (line.rfind("CHUNK_PROG ", 0) == 0);
 			std::string b64 = line.substr(isPreset ? 11 : 6);
 			std::vector<unsigned char> data = Base64Decode(b64);
-			if (mAEffect && !data.empty()) {
-				mAEffect->dispatcher(mAEffect, effSetChunk, isPreset ? 1 : 0, (VstIntPtr)data.size(), data.data(), 0.0f);
+			if (mEffect && !data.empty()) {
+				mEffect->dispatcher(mEffect, vst2::EffectOpcode::SetChunk, isPreset ? 1 : 0, (intptr_t)data.size(), data.data(), 0.0f);
 				InitializeParameters(); // re-sync local values without disturbing
 				loadedChunk = true;
 			}
@@ -486,10 +484,10 @@ void VSTProcessor::Load(std::istream& in) {
 			int idx;
 			float val;
 			if (sscanf_s(line.c_str(), "P %d %f", &idx, &val) == 2) {
-				if (mAEffect && idx < mAEffect->numParams) {
+				if (mEffect && idx < mEffect->numParameters) {
 					// only push old parameters locally if we didn't just load a complete macro chunk
 					if (!loadedChunk) {
-						mAEffect->setParameter(mAEffect, idx, val);
+						mEffect->setParameter(mEffect, idx, val);
 						if (idx < (int)mParameters.size()) {
 							mParameters[idx]->value = val;
 							if (idx < (int)mLastSentValues.size())
@@ -528,7 +526,7 @@ LRESULT CALLBACK VSTProcessor::EditorWindowProc(HWND hwnd, UINT msg, WPARAM wPar
 }
 
 bool VSTProcessor::HasEditor() const {
-	return (mAEffect && (mAEffect->flags & effFlagsHasEditor));
+	return (mEffect && (mEffect->flags & vst2::kEffectHasEditor));
 }
 
 void VSTProcessor::OpenEditor(void* parentWindowHandle) {
@@ -555,8 +553,8 @@ void VSTProcessor::OpenEditor(void* parentWindowHandle) {
 	wc.hCursor = LoadCursor(NULL, IDC_ARROW);
 	RegisterClassEx(&wc);
 
-	ERect* rect = nullptr;
-	mAEffect->dispatcher(mAEffect, effEditGetRect, 0, 0, &rect, 0.0f);
+	vst2::Rect* rect = nullptr;
+	mEffect->dispatcher(mEffect, vst2::EffectOpcode::EditorGetRect, 0, 0, &rect, 0.0f);
 	int width = 400;
 	int height = 300;
 	if (rect) {
@@ -578,11 +576,11 @@ void VSTProcessor::OpenEditor(void* parentWindowHandle) {
 
 	SetWindowLongPtr(mEditorWindow, GWLP_USERDATA, (LONG_PTR)this);
 
-	mAEffect->dispatcher(mAEffect, effEditOpen, 0, 0, mEditorWindow, 0.0f);
+	mEffect->dispatcher(mEffect, vst2::EffectOpcode::EditorOpen, 0, 0, mEditorWindow, 0.0f);
 
-	// some plugins only report their true size after effEditOpen; re-query and fit
-	ERect* rect2 = nullptr;
-	mAEffect->dispatcher(mAEffect, effEditGetRect, 0, 0, &rect2, 0.0f);
+	// some plugins only report their true size after EditorOpen; re-query and fit
+	vst2::Rect* rect2 = nullptr;
+	mEffect->dispatcher(mEffect, vst2::EffectOpcode::EditorGetRect, 0, 0, &rect2, 0.0f);
 	if (rect2) {
 		int w2 = rect2->right - rect2->left;
 		int h2 = rect2->bottom - rect2->top;
@@ -603,18 +601,18 @@ void VSTProcessor::OpenEditor(void* parentWindowHandle) {
 }
 
 void VSTProcessor::EditorIdle() {
-	// VST2 GUIs expect the host to pump effEditIdle regularly; without it many only
+	// VST2 GUIs expect the host to pump EditorIdle regularly; without it many only
 	// repaint on incidental mouse messages, so knob turns show partial/stale frames
-	if (mEditorWindow && mAEffect)
-		mAEffect->dispatcher(mAEffect, effEditIdle, 0, 0, 0, 0.0f);
+	if (mEditorWindow && mEffect)
+		mEffect->dispatcher(mEffect, vst2::EffectOpcode::EditorIdle, 0, 0, 0, 0.0f);
 }
 
 void VSTProcessor::CloseEditor() {
-	if (mEditorWindow && mAEffect) {
+	if (mEditorWindow && mEffect) {
 		// hide before destroy and reactivate the owner explicitly, otherwise
 		// destroying a visible foreground owned window can minimize the main DAW
 		HWND owner = GetWindow(mEditorWindow, GW_OWNER);
-		mAEffect->dispatcher(mAEffect, effEditClose, 0, 0, 0, 0.0f);
+		mEffect->dispatcher(mEffect, vst2::EffectOpcode::EditorClose, 0, 0, 0, 0.0f);
 		ShowWindow(mEditorWindow, SW_HIDE);
 		DestroyWindow(mEditorWindow);
 		mEditorWindow = nullptr;
@@ -639,7 +637,7 @@ bool VSTProcessor::IsEditorOpen() const {
 #endif
 
 // host callback
-VstIntPtr VSTCALLBACK VSTProcessor::HostCallback(AEffect* effect, VstInt32 opcode, VstInt32 index, VstIntPtr value, void* ptr, float opt) {
+intptr_t VSTProcessor::HostCallback(vst2::Effect* effect, vst2::HostOpcode opcode, int32_t index, intptr_t value, void* ptr, float opt) {
 	VSTProcessor* proc = nullptr;
 	{
 		std::lock_guard<std::mutex> lock(gEffectMapMutex);
@@ -649,14 +647,14 @@ VstIntPtr VSTCALLBACK VSTProcessor::HostCallback(AEffect* effect, VstInt32 opcod
 	}
 
 	switch (opcode) {
-	case audioMasterVersion:
+	case vst2::HostOpcode::Version:
 		return 2400;
-	case audioMasterIdle:
+	case vst2::HostOpcode::Idle:
 		if (proc && proc->IsEditorOpen()) {
-			proc->mAEffect->dispatcher(proc->mAEffect, effEditIdle, 0, 0, 0, 0.0f);
+			proc->mEffect->dispatcher(proc->mEffect, vst2::EffectOpcode::EditorIdle, 0, 0, 0, 0.0f);
 		}
 		return 1;
-	case audioMasterSizeWindow:
+	case vst2::HostOpcode::SizeWindow:
 #ifdef _WIN32
 		if (proc && proc->IsEditorOpen()) {
 			// index = requested client width, value = client height. size the
@@ -670,7 +668,7 @@ VstIntPtr VSTCALLBACK VSTProcessor::HostCallback(AEffect* effect, VstInt32 opcod
 		}
 #endif
 		return 0;
-	case audioMasterAutomate:
+	case vst2::HostOpcode::Automate:
 		if (proc && index >= 0 && index < (int)proc->mParameters.size()) {
 			proc->mParameters[index]->value = opt;
 			if (index < (int)proc->mLastSentValues.size()) {
@@ -681,7 +679,7 @@ VstIntPtr VSTCALLBACK VSTProcessor::HostCallback(AEffect* effect, VstInt32 opcod
 			proc->CapturePanelParameter(index);
 		}
 		return 1;
-	case audioMasterBeginEdit:
+	case vst2::HostOpcode::BeginEdit:
 		// plugin GUI started a parameter gesture: capture the value for undo
 		if (proc && index >= 0 && index < (int)proc->mParameters.size()) {
 			proc->mParameters[index]->BeginEditGesture();
@@ -689,33 +687,33 @@ VstIntPtr VSTCALLBACK VSTProcessor::HostCallback(AEffect* effect, VstInt32 opcod
 			proc->CapturePanelParameter(index);
 		}
 		return 1;
-	case audioMasterEndEdit:
+	case vst2::HostOpcode::EndEdit:
 		// plugin GUI finished the gesture: commit one undo entry
 		if (proc && index >= 0 && index < (int)proc->mParameters.size())
 			proc->mParameters[index]->EndEditGesture();
 		return 1;
-	case audioMasterGetTime:
+	case vst2::HostOpcode::GetTime:
 		if (proc) {
-			return (VstIntPtr)&proc->mTimeInfo;
+			return (intptr_t)&proc->mTimeInfo;
 		}
 		return 0;
-	case audioMasterGetSampleRate:
+	case vst2::HostOpcode::GetSampleRate:
 		return 48000;
-	case audioMasterGetBlockSize:
+	case vst2::HostOpcode::GetBlockSize:
 		return 512;
-	case audioMasterGetCurrentProcessLevel:
-		return 2; // kVstProcessLevelRealtime
-	case audioMasterGetVendorString:
+	case vst2::HostOpcode::GetCurrentProcessLevel:
+		return vst2::kProcessLevelRealtime;
+	case vst2::HostOpcode::GetVendorString:
 		if (ptr)
 			strcpy_s((char*)ptr, 64, "MSDAW");
 		return 1;
-	case audioMasterGetProductString:
+	case vst2::HostOpcode::GetProductString:
 		if (ptr)
 			strcpy_s((char*)ptr, 64, "MSDAW Host");
 		return 1;
-	case audioMasterGetVendorVersion:
+	case vst2::HostOpcode::GetVendorVersion:
 		return 1000;
-	case audioMasterCanDo:
+	case vst2::HostOpcode::CanDo:
 		if (ptr) {
 			std::string canDo = (const char*)ptr;
 			if (canDo == "sendVstEvents" ||

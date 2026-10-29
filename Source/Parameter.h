@@ -62,7 +62,7 @@ public:
 	static Parameter* GetLastTouchedParameter() { return sLastTouchedParameter; }
 
 	// called when a plugin's OWN editor window reports a parameter change (VST2
-	// audioMasterAutomate / VST3 performEdit). Marks it as the last touched
+	// HostOpcode::Automate / VST3 performEdit). Marks it as the last touched
 	// parameter so "Show Auto" works for plugin knobs too. Coalesced undo for
 	// these is handled via BeginEditGesture/EndEditGesture from the plugin's
 	// begin/end-edit callbacks

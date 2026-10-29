@@ -34,7 +34,6 @@ namespace {
 	constexpr float kViewColumnWidth = 20.0f;
 	constexpr float kMinRackDevicesWidth = 160.0f; // room for the "drop devices here" hint
 	constexpr float kMinRackWidth = 210.0f;		   // the rack's own header row, panels or not
-	constexpr float kHeaderHeight = 25.0f;
 
 	// the rack a device is, or null
 	std::shared_ptr<RackProcessor> AsRack(const std::shared_ptr<AudioProcessor>& device) {
@@ -330,11 +329,12 @@ void DeviceRackView::RenderDevice(const std::shared_ptr<ProcessorHost>& host, co
 	ImGui::EndGroup();
 	const ImVec2 afterHeader = ImGui::GetCursorPos();
 
-	// the whole header strip is the hit area for selecting and dragging the device. the
-	// widgets above resolved their own clicks as they were drawn, so a click on the LED
-	// both toggles it and selects the device it belongs to
+	// the whole header strip, from the device's top edge down to the rule under the name,
+	// is the hit area for selecting and dragging the device. the widgets above resolved
+	// their own clicks as they were drawn, so a click on the LED both toggles it and
+	// selects the device it belongs to
 	ImGui::SetCursorPos(ImVec2(0, 0));
-	ImGui::InvisibleButton("##Header", ImVec2(width, kHeaderHeight * scale));
+	ImGui::InvisibleButton("##Header", ImVec2(width, afterHeader.y));
 	if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
 		ClickDevice(device);
 	if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected)

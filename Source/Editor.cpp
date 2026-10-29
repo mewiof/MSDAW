@@ -919,8 +919,6 @@ void Editor::RenderSettingsWindow() {
 	if (!mContext.state.showSettingsWindow)
 		return;
 
-	ImGui::ShowDemoWindow();
-
 	if (ImGui::Begin("Settings", &mContext.state.showSettingsWindow, ImGuiWindowFlags_AlwaysAutoResize)) {
 		if (ImGui::BeginTabBar("SettingsTabs")) {
 			if (ImGui::BeginTabItem("Audio")) {

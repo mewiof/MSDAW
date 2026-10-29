@@ -178,8 +178,8 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 	auto clip = mContext.state.selectedClip;
 
 	if (!clip) {
-		float txtW = ImGui::CalcTextSize("No Clip Selected").x;
-		ImGui::SetCursorPos(ImVec2(width * 0.5f - txtW * 0.5f, height * 0.5f - 10.0f));
+		const ImVec2 textSize = ImGui::CalcTextSize("No Clip Selected");
+		ImGui::SetCursorPos(ImVec2((width - textSize.x) * 0.5f, (height - textSize.y) * 0.5f));
 		ImGui::TextDisabled("No Clip Selected");
 		mEdit.clip = nullptr;
 		ImGui::EndChild();

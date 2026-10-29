@@ -200,7 +200,11 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 
 		ImGui::EndChild();
 	} else {
-		ImGui::TextDisabled("No Track Selected. Select a track to view devices.");
+		// centered in the strip, the way the clip view says it has nothing to show
+		const char* hint = "No Track Selected. Select a track to view devices.";
+		const ImVec2 hintSize = ImGui::CalcTextSize(hint);
+		ImGui::SetCursorPos(ImVec2(std::max((width - hintSize.x) * 0.5f, 0.0f), std::max((height - hintSize.y) * 0.5f, 0.0f)));
+		ImGui::TextDisabled("%s", hint);
 	}
 
 	RenderRenamePopup();
@@ -252,7 +256,7 @@ void DeviceRackView::RenderChain(const std::shared_ptr<ProcessorHost>& host, con
 		if (i == (int)devices.size() && devices.empty()) {
 			const char* hint = path.depth == 0 ? "Drag Instruments or Effects here from the Library"
 											   : "Drop devices here";
-			ImGui::GetWindowDrawList()->AddText(ImVec2(dropMin.x + 8.0f * scale, dropMin.y + bodyHeight * 0.5f), th.textDim, hint);
+			ImGui::GetWindowDrawList()->AddText(ImVec2(dropMin.x + 8.0f * scale, dropMin.y + (bodyHeight - ImGui::GetTextLineHeight()) * 0.5f), th.textDim, hint);
 		}
 		ImGui::PopID();
 

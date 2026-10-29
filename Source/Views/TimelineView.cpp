@@ -225,7 +225,17 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 		float trackAreaStartY = winPos.y + rulerHeight;
 		// per-track vertical bands, shared with the track-list column so collapse/fold stay in sync
 		auto rows = TrackLayout::Build(mContext);
-		float fullContentHeight = TrackLayout::TotalHeight(rows) + 200.0f;
+
+		// the master is a footer pinned over the bottom of the arrangement: its lane spans
+		// the timeline and its header sits at the foot of the track list. the scrolling
+		// tracks end at its top edge, so the content runs on past the last track by the
+		// footer's height - and a row's worth more, empty space a device or file can be
+		// dropped into to get a track of its own
+		auto master = project->GetMasterTrack();
+		float masterHeight = mContext.layout.trackRowHeight + mContext.layout.trackGap;
+		float hScrollbarSize = ImGui::GetStyle().ScrollbarSize;
+		float masterY = pos.y + height - masterHeight - hScrollbarSize;
+		float fullContentHeight = TrackLayout::TotalHeight(rows) + masterHeight + mContext.layout.trackRowHeight;
 
 		// dynamic content width calculation
 		double maxBeat = 100.0;
@@ -359,7 +369,12 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 		PendingClipMove pendingMove;
 		PendingClipDelete pendingDelete;
 
+		// cut off at the master footer exactly as the track list's headers are, so a lane
+		// never shows beside a header the footer is covering. ImGui::PushClipRect clips
+		// hit testing as well as drawing, so what is under the footer cannot be clicked
+		ImGui::PushClipRect(pos, ImVec2(pos.x + width, masterY), true);
 		TimelineTrackView::RenderTracks(mContext, mInteraction, pendingMove, pendingDelete, winPos, contentWidth - trackListW, timelineWidth, scrollX, trackAreaStartY);
+		ImGui::PopClipRect();
 
 		// a drag whose anchor clip scrolled out of view never reaches the commit inside
 		// the clip loop - that code sits behind the same culling test as the clip body -
@@ -498,21 +513,23 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 			ImGui::EndPopup();
 		}
 
-		auto master = project->GetMasterTrack();
-		float masterHeight = mContext.layout.trackRowHeight + mContext.layout.trackGap;
-		float masterPadding = (master && master->mShowAutomation) ? masterHeight + 20.0f : 20.0f;
-		float hScrollbarSize = ImGui::GetStyle().ScrollbarSize;
-		float masterY = pos.y + height - masterHeight - hScrollbarSize;
-
-		ImGui::SetCursorScreenPos(ImVec2(winPos.x, trackAreaStartY + TrackLayout::TotalHeight(rows)));
-		ImGui::Dummy(ImVec2(contentWidth, masterPadding));
-
+		// the master footer's lane. without its automation showing it holds nothing, so it
+		// takes the recessed ground a group lane does - and is still somewhere to click to
+		// pick the master, the same as its header in the track list
+		const ImVec2 masterLaneMin(pos.x, masterY);
+		const ImVec2 masterLaneMax(pos.x + timelineWidth, masterY + masterHeight);
+		const bool masterSelected = mContext.state.selectedTrackIndex == -1;
 		if (master && master->mShowAutomation) {
-			drawList->AddRectFilled(ImVec2(winPos.x, masterY), ImVec2(winPos.x + contentWidth - trackListW, masterY + masterHeight), th.bgWindow);
-			drawList->AddRect(ImVec2(winPos.x, masterY), ImVec2(winPos.x + contentWidth - trackListW, masterY + masterHeight), th.border);
-
+			drawList->AddRectFilled(masterLaneMin, masterLaneMax, masterSelected ? th.bgLaneSelected : th.bgLane);
 			TimelineAutomationRenderer::Render(mContext, mInteraction, master.get(), -1, winPos, contentWidth - trackListW, timelineWidth, scrollX, masterY);
+		} else {
+			drawList->AddRectFilled(masterLaneMin, masterLaneMax, masterSelected ? th.bgLaneSelected : th.bgLaneGroup);
+			ImGui::SetCursorScreenPos(masterLaneMin);
+			if (ImGui::InvisibleButton("##MasterLane", ImVec2(timelineWidth, masterHeight)))
+				mContext.state.SelectTrack(-1);
 		}
+		// a hard rule along the footer's top, mirroring the one that closes off the ruler
+		drawList->AddLine(ImVec2(pos.x, masterY), ImVec2(pos.x + width, masterY), th.borderStrong);
 
 		float stickyY = winPos.y + ImGui::GetScrollY();
 		ImVec2 stickyPos = ImVec2(winPos.x, stickyY);

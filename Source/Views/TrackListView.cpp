@@ -542,10 +542,12 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			mContext.state.SelectTrack(-1);
 		}
 
-		// painted after the button, so picking master lights it up on this frame
+		// painted after the button, so picking master lights it up on this frame. the rule
+		// along its top continues the one the arrangement draws over the master's lane
 		bool isMasterSelected = (mContext.state.selectedTrackIndex == -1);
 		ImU32 bgCol = isMasterSelected ? th.bgActive : th.bgPanelAlt;
 		drawList->AddRectFilled(curPos, ImVec2(curPos.x + width, curPos.y + masterHeight), bgCol);
+		drawList->AddLine(curPos, ImVec2(curPos.x + width, curPos.y), th.borderStrong);
 
 		if (ImGui::BeginDragDropTarget()) {
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("VST_PLUGIN")) {

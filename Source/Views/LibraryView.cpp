@@ -113,6 +113,10 @@ void LibraryView::RenderInternalDevices() {
 	ImGui::Separator();
 	ImGui::PopStyleColor();
 
+	// the list scrolls on its own under the header, the way the plugin list does, so the
+	// title and the collapse handle stay put however far down it is scrolled
+	ImGui::BeginChild("LibInternalList");
+
 	// bit crusher
 	ImGui::PushID("BitCrusher");
 	if (ImGui::Selectable("Bit Crusher")) {
@@ -197,6 +201,8 @@ void LibraryView::RenderInternalDevices() {
 		ImGui::EndDragDropSource();
 	}
 	ImGui::PopID();
+
+	ImGui::EndChild();
 }
 
 // ================================================================

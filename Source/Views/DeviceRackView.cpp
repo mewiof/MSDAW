@@ -304,16 +304,20 @@ void DeviceRackView::RenderDevice(const std::shared_ptr<ProcessorHost>& host, co
 	// ---- header ----
 	ImGui::BeginGroup();
 
+	// the lamp sits at the left of a hit area as tall as the name, so it stays centered
+	// on that line at any font size, and the target is wider than the lamp it lights
+	const float lineHeight = ImGui::GetTextLineHeight();
+	const float ledRadius = 5.0f * scale;
 	const ImVec2 ledPos = ImGui::GetCursorScreenPos();
-	ImGui::InvisibleButton("##Activator", ImVec2(12.0f * scale, 12.0f * scale));
+	ImGui::InvisibleButton("##Activator", ImVec2(ledRadius * 2.0f + style.ItemInnerSpacing.x, lineHeight));
 	if (ImGui::IsItemClicked()) {
 		auto targets = CommandTargets(device);
 		mDeferred.push_back([this, targets]() { DeviceRackOps::ToggleDevicesBypassed(mContext.GetProject(), mContext.undoManager, targets); });
 	}
-	ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(ledPos.x + 6.0f * scale, ledPos.y + 6.0f * scale),
-											   5.0f * scale, device->IsBypassed() ? th.border : th.accent);
+	ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(ledPos.x + ledRadius, ledPos.y + lineHeight * 0.5f),
+											   ledRadius, device->IsBypassed() ? th.border : th.accent);
 
-	ImGui::SameLine();
+	ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
 	if (selected)
 		ImGui::PushStyleColor(ImGuiCol_Text, th.accent);
 	ImGui::TextUnformatted(device->GetName());

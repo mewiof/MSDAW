@@ -955,7 +955,7 @@ void Editor::RenderSettingsWindow() {
 				PluginManager& pm = mContext.pluginManager;
 				std::vector<std::string> paths = pm.GetSearchPaths();
 				int pathToRemove = -1;
-				ImGui::BeginChild("PathList", ImVec2(400, 150), true);
+				ImGui::BeginChild("PathList", ImVec2(400, 150), ImGuiChildFlags_AlwaysUseWindowPadding);
 				for (int i = 0; i < (int)paths.size(); ++i) {
 					ImGui::Text("%s", paths[i].c_str());
 					ImGui::SameLine();
@@ -1012,10 +1012,10 @@ void Editor::RenderThirdPartyWindow() {
 		mSelectedNotice = std::clamp(mSelectedNotice, 0, noticeCount - 1);
 
 		// NOTE: the theme sets ChildBorderSize to 0, so the panes are told apart by
-		// their ground, not by an outline. the Borders flag is still what turns on the
-		// padding inside them
+		// their ground, not by an outline. with no border imgui gives a child no padding
+		// either, so each pane asks for it outright
 		ImGui::PushStyleColor(ImGuiCol_ChildBg, th.bgPanel);
-		ImGui::BeginChild("NoticeList", ImVec2(150 * scale, 0), ImGuiChildFlags_Borders);
+		ImGui::BeginChild("NoticeList", ImVec2(150 * scale, 0), ImGuiChildFlags_AlwaysUseWindowPadding);
 		for (int i = 0; i < noticeCount; ++i) {
 			if (ImGui::Selectable(kThirdPartyNotices[i].name, i == mSelectedNotice))
 				mSelectedNotice = i;
@@ -1049,7 +1049,7 @@ void Editor::RenderThirdPartyWindow() {
 
 		ImGui::Spacing();
 		ImGui::PushStyleColor(ImGuiCol_ChildBg, th.bgDeepest);
-		ImGui::BeginChild("NoticeText", ImVec2(0, 0), ImGuiChildFlags_Borders);
+		ImGui::BeginChild("NoticeText", ImVec2(0, 0), ImGuiChildFlags_AlwaysUseWindowPadding);
 		ImGui::PushTextWrapPos(0.0f); // the texts arrive hard-wrapped at ~72 columns, so this only catches a narrowed window
 		if (entry.text[0])
 			ImGui::TextUnformatted(entry.text);

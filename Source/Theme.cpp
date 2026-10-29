@@ -140,6 +140,10 @@ void Theme::ApplyImGuiStyle(float scale) const {
 	style.TabRounding = 3.0f;
 	style.PopupRounding = 3.0f;
 	style.WindowBorderSize = 1.0f;
+	// NOTE: imgui pads a child window only when it is drawn with a border or asks for
+	// padding outright. with no child borders, ImGuiChildFlags_Borders alone leaves the
+	// content flush against the child's edges - a pane that wants an inset says so with
+	// ImGuiChildFlags_AlwaysUseWindowPadding
 	style.ChildBorderSize = 0.0f;
 	style.PopupBorderSize = 1.0f;
 	style.FrameBorderSize = 0.0f;

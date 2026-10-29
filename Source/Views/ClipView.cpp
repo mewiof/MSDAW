@@ -170,9 +170,9 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 	ImGui::SetNextWindowSize(ImVec2(width, height));
 	ImGui::Begin("Clip View", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 
-	// restore padding for content
+	// restore padding for content. a borderless child only takes it when asked outright
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, defaultPadding);
-	ImGui::BeginChild("ClipContent", ImVec2(width, height), false, ImGuiWindowFlags_None);
+	ImGui::BeginChild("ClipContent", ImVec2(width, height), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_None);
 	ImGui::PopStyleVar();
 
 	auto clip = mContext.state.selectedClip;

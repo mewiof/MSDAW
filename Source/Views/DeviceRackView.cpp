@@ -282,7 +282,7 @@ void DeviceRackView::RenderDevice(const std::shared_ptr<ProcessorHost>& host, co
 	ImGui::PushID(device.get());
 	ImGui::PushStyleColor(ImGuiCol_ChildBg, background);
 
-	ImGuiChildFlags childFlags = ImGuiChildFlags_Borders;
+	ImGuiChildFlags childFlags = ImGuiChildFlags_AlwaysUseWindowPadding;
 	// only a plain device sitting straight on the track may be widened by hand: a rack
 	// is exactly as wide as the panels inside it, and a device inside one is a term in
 	// that sum

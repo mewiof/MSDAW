@@ -65,6 +65,10 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 	ImGui::SetNextWindowSize(ImVec2(width, height));
 	ImGui::Begin("Transport", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
 
+	// the bar holds one row of controls, centered top to bottom rather than hung off the
+	// window padding, which left a wider strip under the row than over it
+	ImGui::SetCursorPosY(std::max((height - ImGui::GetFrameHeight()) * 0.5f, 0.0f));
+
 	Project* project = mContext.GetProject();
 	Transport* transport = project ? &project->GetTransport() : nullptr;
 

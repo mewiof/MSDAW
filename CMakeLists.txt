@@ -160,11 +160,11 @@ file(WRITE "${MSDAW_GENERATED_PATH}/ThirdPartyNotices.h.in" "${MSDAW_NOTICE_HEAD
 configure_file("${MSDAW_GENERATED_PATH}/ThirdPartyNotices.h.in" "${MSDAW_GENERATED_PATH}/ThirdPartyNotices.h" COPYONLY)
 
 # VST 2.4 SDK
+# NOTE: headers only. a host reaches a VST2 plugin through the AEffect struct
+# and its dispatcher, declared in pluginterfaces/vst2.x. public.sdk is the
+# AudioEffectX base a plugin is written on -- nothing here derives from it, and
+# its sources pass string literals as char*, which msvc rejects outright (#1)
 set(VST2_SDK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/External/vstsdk2.4")
-file(GLOB VST2_SDK_SOURCE_FILES CONFIGURE_DEPENDS
-	"${VST2_SDK_PATH}/public.sdk/source/vst2.x/audioeffect.cpp"
-	"${VST2_SDK_PATH}/public.sdk/source/vst2.x/audioeffectx.cpp"
-)
 
 # local
 set(MSDAW_SOURCE_PATH "${CMAKE_SOURCE_DIR}/Source")
@@ -175,13 +175,6 @@ file(GLOB_RECURSE MSDAW_SOURCE_FILES CONFIGURE_DEPENDS "${MSDAW_SOURCE_PATH}/*.c
 list(REMOVE_ITEM MSDAW_SOURCE_FILES "${MSDAW_SOURCE_PATH}/Main.cpp")
 
 set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
-
-# workaround for VST2 SDK legacy code issues
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-	# -Wno-writable-strings: Allow conversion from string literal to 'char *'
-	# -Wno-c++11-narrowing: Allow narrowing conversions in initialization lists (e.g. int to char)
-	set_source_files_properties(${VST2_SDK_SOURCE_FILES} PROPERTIES COMPILE_OPTIONS "-Wno-writable-strings;-Wno-c++11-narrowing")
-endif()
 
 # ================================================================
 # MSDAWCORE
@@ -194,7 +187,6 @@ endif()
 add_library(MSDAWCore OBJECT
 	# external
 	${IMGUI_SOURCE_FILES}
-	${VST2_SDK_SOURCE_FILES}
 	# local
 	${MSDAW_SOURCE_FILES}
 )
@@ -215,7 +207,6 @@ target_include_directories(MSDAWCore
 		${SUBMODULES_PATH}/freetype/include
 		${SUBMODULES_PATH}/vst3sdk
 		${VST2_SDK_PATH}
-		${VST2_SDK_PATH}/public.sdk/source/vst2.x
 )
 
 target_link_libraries(MSDAWCore

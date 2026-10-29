@@ -20,8 +20,11 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 		const float arrowSize = ImGui::GetFrameHeight();
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
 							ImVec2(std::max((width - arrowSize) * 0.5f, 0.0f), ImGui::GetStyle().WindowPadding.y));
+		// the rail is also narrower than imgui's minimum window width, which would quietly
+		// widen it past the width the editor laid out and over the arrangement's left edge
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(1.0f, ImGui::GetStyle().WindowMinSize.y));
 		ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
-		ImGui::PopStyleVar();
+		ImGui::PopStyleVar(2);
 
 		bool expand = ImGui::ArrowButton("##ExpandLibrary", ImGuiDir_Right);
 		bool hovered = ImGui::IsItemHovered();

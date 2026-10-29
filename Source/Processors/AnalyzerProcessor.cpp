@@ -875,6 +875,7 @@ void AnalyzerProcessor::DrawFrequencyGrid(const ImVec2& pos, const ImVec2& size,
 	const Theme& th = Theme::Instance();
 	ImDrawList* dl = ImGui::GetWindowDrawList();
 	const double span = std::log(kMaxFrequency / kMinFrequency);
+	float lastLabelRight = pos.x - 1.0e6f; // nothing drawn yet
 
 	for (const GridLine& line : kGridLines) {
 		const float x = pos.x + size.x * (float)(std::log(line.frequency / kMinFrequency) / span);
@@ -884,8 +885,18 @@ void AnalyzerProcessor::DrawFrequencyGrid(const ImVec2& pos, const ImVec2& size,
 		dl->AddLine(ImVec2(x, pos.y), ImVec2(x, pos.y + size.y),
 					line.label ? th.gridBeat : th.gridSub, 1.0f);
 		if (labels && line.label) {
-			dl->AddText(ImVec2(x + 3.0f, pos.y + size.y - ImGui::GetTextLineHeight() - 2.0f),
-						th.textDim, line.label);
+			// a label reads off to the right of its line, except one that would run off
+			// the graph's edge (20k sits right on it), which turns to the line's left. one
+			// that would then land on its neighbour is left out - the line still shows
+			const float labelWidth = ImGui::CalcTextSize(line.label).x;
+			float labelX = x + 3.0f;
+			if (labelX + labelWidth > pos.x + size.x)
+				labelX = x - 3.0f - labelWidth;
+			if (labelX >= lastLabelRight + ImGui::GetStyle().ItemInnerSpacing.x) {
+				dl->AddText(ImVec2(labelX, pos.y + size.y - ImGui::GetTextLineHeight() - 2.0f),
+							th.textDim, line.label);
+				lastLabelRight = labelX + labelWidth;
+			}
 		}
 	}
 }

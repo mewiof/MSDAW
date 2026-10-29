@@ -117,14 +117,6 @@ msdaw_add_notice("VST3 SDK" "https://github.com/steinbergmedia/vst3sdk"
 	"VST3 plugin hosting" "MIT License" ""
 	"${SUBMODULES_PATH}/vst3sdk/LICENSE.txt")
 
-# NOTE: no text to embed. steinberg withdrew VST2 licensing in 2018 and the
-# agreement it shipped under never let us redistribute it, so quoting it here
-# would be claiming a grant we do not have
-msdaw_add_notice("VST 2.4 SDK" ""
-	"VST2 plugin interface logic" "Proprietary/Legacy Steinberg"
-	"Contact mewiof@gmail.com for instant removal."
-	"")
-
 msdaw_add_notice("googletest" "https://github.com/google/googletest"
 	"test suite only, never linked into the app" "BSD 3-Clause License" ""
 	"${SUBMODULES_PATH}/googletest/LICENSE")
@@ -158,13 +150,6 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${MSDAW_NOTICE_FI
 # so an ordinary reconfigure does not force Editor.cpp to rebuild
 file(WRITE "${MSDAW_GENERATED_PATH}/ThirdPartyNotices.h.in" "${MSDAW_NOTICE_HEADER}")
 configure_file("${MSDAW_GENERATED_PATH}/ThirdPartyNotices.h.in" "${MSDAW_GENERATED_PATH}/ThirdPartyNotices.h" COPYONLY)
-
-# VST 2.4 SDK
-# NOTE: headers only. a host reaches a VST2 plugin through the AEffect struct
-# and its dispatcher, declared in pluginterfaces/vst2.x. public.sdk is the
-# AudioEffectX base a plugin is written on -- nothing here derives from it, and
-# its sources pass string literals as char*, which msvc rejects outright (#1)
-set(VST2_SDK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/External/vstsdk2.4")
 
 # local
 set(MSDAW_SOURCE_PATH "${CMAKE_SOURCE_DIR}/Source")
@@ -206,7 +191,6 @@ target_include_directories(MSDAWCore
 		${SUBMODULES_PATH}/rtaudio/include
 		${SUBMODULES_PATH}/freetype/include
 		${SUBMODULES_PATH}/vst3sdk
-		${VST2_SDK_PATH}
 )
 
 target_link_libraries(MSDAWCore

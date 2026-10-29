@@ -29,6 +29,14 @@ void TimelineRuler::Render(EditorContext& context, TimelineInteractionState& int
 	int startIdx = (int)floor(startVis / grid);
 	int endIdx = (int)ceil(endVis / grid);
 
+	// a bar's tick runs from beside its number down to the bottom edge, and the shorter
+	// ticks between bars take the lower quarter. all measured off the ruler's height and
+	// the text, so the numbers keep clear of the top edge at any scale
+	const float scale = context.state.mainScale;
+	const float labelInset = 2.0f * scale;
+	const float barTickTop = std::min(labelInset + ImGui::GetTextLineHeight() * 0.5f, height * 0.5f);
+	const float beatTickTop = height * 0.72f;
+
 	// loop to draw grid lines on ruler
 	for (int i = startIdx; i <= endIdx; ++i) {
 		double b = i * grid;
@@ -43,12 +51,12 @@ void TimelineRuler::Render(EditorContext& context, TimelineInteractionState& int
 		bool isBar = std::abs(fmod(b + 0.001, 4.0)) < 0.002;
 
 		if (isBar) {
-			drawList->AddLine(ImVec2(x, winPos.y + 15), ImVec2(x, winPos.y + height), th.textMuted);
+			drawList->AddLine(ImVec2(x, winPos.y + barTickTop), ImVec2(x, winPos.y + height), th.textMuted);
 			char buf[16];
-			sprintf(buf, "%d", (int)(b / 4) + 1);
-			drawList->AddText(ImVec2(x + 2, winPos.y), th.textMuted, buf);
+			snprintf(buf, sizeof(buf), "%d", (int)(b / 4) + 1);
+			drawList->AddText(ImVec2(x + 3.0f * scale, winPos.y + labelInset), th.textMuted, buf);
 		} else {
-			drawList->AddLine(ImVec2(x, winPos.y + 25), ImVec2(x, winPos.y + height), th.textDim);
+			drawList->AddLine(ImVec2(x, winPos.y + beatTickTop), ImVec2(x, winPos.y + height), th.textDim);
 		}
 	}
 

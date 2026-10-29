@@ -579,6 +579,13 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	if (textX < pMin.x + textPadding)
 		textX = pMin.x + textPadding;
 
+	// the name sits on a plate of the clip's own body color, so a waveform or a run of
+	// notes passing under it never decides whether it can be read
+	if (clipName[0] != '\0') {
+		drawList->AddRectFilled(ImVec2(textX - textPadding * 0.5f, pMin.y + textPadding * 0.5f),
+								ImVec2(textX + textSize.x + textPadding * 0.5f, pMin.y + textPadding + textSize.y),
+								body, ImGui::GetStyle().FrameRounding);
+	}
 	drawList->AddText(ImVec2(textX, pMin.y + textPadding), enabled ? ink : th.clipTextDim, clipName);
 
 	drawList->PopClipRect();

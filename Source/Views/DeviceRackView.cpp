@@ -29,6 +29,7 @@ namespace {
 	constexpr float kDeviceWidthEQ = 620.0f;		// knob column + graph + globals, over eight bands
 	constexpr float kDeviceWidthModulator = 500.0f; // two lane panels wide enough for sixteen steps
 	constexpr float kDeviceWidthPhaser = 470.0f;	// four columns: poles, the XY field, envelope, LFO
+	constexpr float kDeviceWidthAnalyzer = 480.0f;	// five view tabs, each wide enough for its whole name
 	constexpr float kMacroCellWidth = 66.0f;
 	constexpr float kChainListWidth = 176.0f;
 	constexpr float kViewColumnWidth = 20.0f;
@@ -113,6 +114,8 @@ float DeviceRackView::DeviceWidth(const std::shared_ptr<AudioProcessor>& device)
 		return kDeviceWidthModulator * scale;
 	if (processorId == "Phaser")
 		return kDeviceWidthPhaser * scale;
+	if (processorId == "Analyzer")
+		return kDeviceWidthAnalyzer * scale;
 	return kDeviceWidth * scale;
 }
 

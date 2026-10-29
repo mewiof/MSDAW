@@ -81,6 +81,12 @@ void KnobParameter::SetValueFromNormalized(float t) {
 	}
 }
 
+float KnobParameter::FillOrigin() const {
+	const bool bipolar = variant == ImGuiKnobVariant_DecibelBipolar || variant == ImGuiKnobVariant_LinearBipolar ||
+						 variant == ImGuiKnobVariant_PercentBipolar;
+	return bipolar ? NormalizedZero() : 0.0f;
+}
+
 void KnobParameter::FormatValue(char* buffer, size_t bufferSize, const char* valueFmt) const {
 	// an explicit format still wins: a caller that asked for "%.0f" wants that
 	if (valueFmt)
@@ -192,19 +198,12 @@ bool KnobParameter::DrawSized(float radius, float width, const char* label) {
 		drawList->PathArcTo(center, radius * 0.85f, ANGLE_MIN, ANGLE_MAX, 32);
 		drawList->PathStroke(colBackgroud, 0, ringThickness);
 
-		if (variant == ImGuiKnobVariant_DecibelBipolar || variant == ImGuiKnobVariant_LinearBipolar ||
-			variant == ImGuiKnobVariant_PercentBipolar) {
-			float tZero = (0.0f - minValue) / (maxValue - minValue);
-			float angleZero = ANGLE_MIN + (ANGLE_MAX - ANGLE_MIN) * tZero;
-
-			if (std::abs(t - tZero) > 0.001f) {
-				float a1 = std::min(angle, angleZero);
-				float a2 = std::max(angle, angleZero);
-				drawList->PathArcTo(center, radius * 0.85f, a1, a2, 32);
-				drawList->PathStroke(colArc, 0, ringThickness);
-			}
-		} else if (t > 0.001f) {
-			drawList->PathArcTo(center, radius * 0.85f, ANGLE_MIN, angle, 32);
+		// the arc runs from where this parameter fills from to where it is: the bottom of
+		// the range for a level, the zero point for a bipolar variant
+		const float tOrigin = FillOrigin();
+		if (std::abs(t - tOrigin) > 0.001f) {
+			const float angleOrigin = ANGLE_MIN + (ANGLE_MAX - ANGLE_MIN) * tOrigin;
+			drawList->PathArcTo(center, radius * 0.85f, std::min(angle, angleOrigin), std::max(angle, angleOrigin), 32);
 			drawList->PathStroke(colArc, 0, ringThickness);
 		}
 

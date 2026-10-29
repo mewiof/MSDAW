@@ -56,15 +56,9 @@ bool SliderParameter::Draw() {
 
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
 		ImU32 bgColor = ImGui::GetColorU32(isHovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
-		// the fill is a darker tone than imgui's slider grab: the number is drawn straight
-		// over it, and white on the grab's light gray was barely readable
-		ImU32 fillColor = isActive ? Theme::Instance().valueFillActive : Theme::Instance().valueFill;
 
 		drawList->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, ImGui::GetStyle().FrameRounding);
-
-		float fraction = (value - minValue) / (maxValue - minValue);
-		ImVec2 fillMax = ImVec2(pos.x + fraction * size.x, pos.y + size.y);
-		drawList->AddRectFilled(pos, fillMax, fillColor, ImGui::GetStyle().FrameRounding);
+		DrawLevelFill(drawList, pos, ImVec2(pos.x + size.x, pos.y + size.y), isActive);
 
 		// always outline the track so it reads as a distinct control, not a flat patch
 		// of panel. the last-touched parameter gets the accent ring instead, so its
@@ -83,4 +77,8 @@ bool SliderParameter::Draw() {
 
 	ImGui::PopID();
 	return changed;
+}
+
+float SliderParameter::FillOrigin() const {
+	return mBipolar ? NormalizedZero() : 0.0f;
 }

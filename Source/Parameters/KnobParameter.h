@@ -51,4 +51,7 @@ protected:
 	float NormalizedFromValue() const override;
 	void SetValueFromNormalized(float t) override;
 	void FormatValue(char* buffer, size_t bufferSize, const char* valueFmt) const override;
+
+	// the bipolar variants fill out of their zero point, on the dial and in a value box
+	float FillOrigin() const override;
 };

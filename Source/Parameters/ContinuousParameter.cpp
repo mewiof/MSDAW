@@ -37,6 +37,35 @@ void ContinuousParameter::FormatValue(char* buffer, size_t bufferSize, const cha
 	snprintf(buffer, bufferSize, valueFmt ? valueFmt : "%.2f", value);
 }
 
+float ContinuousParameter::NormalizedZero() const {
+	const float range = maxValue - minValue;
+	return range != 0.0f ? std::clamp((0.0f - minValue) / range, 0.0f, 1.0f) : 0.0f;
+}
+
+void ContinuousParameter::DrawLevelFill(ImDrawList* drawList, const ImVec2& min, const ImVec2& max, bool active) const {
+	const float origin = std::clamp(FillOrigin(), 0.0f, 1.0f);
+	const float level = std::clamp(NormalizedFromValue(), 0.0f, 1.0f);
+	const float width = max.x - min.x;
+	const float x1 = min.x + width * std::min(origin, level);
+	const float x2 = min.x + width * std::max(origin, level);
+	if (x2 - x1 < 0.5f)
+		return; // sitting on its origin: nothing to fill, and a sliver would read as a level
+
+	ImDrawFlags corners = 0;
+	if (x1 <= min.x + 0.5f)
+		corners |= ImDrawFlags_RoundCornersLeft;
+	if (x2 >= max.x - 0.5f)
+		corners |= ImDrawFlags_RoundCornersRight;
+	if (corners == 0)
+		corners = ImDrawFlags_RoundCornersNone;
+
+	// the fill is a darker tone than imgui's slider grab: the number is drawn straight
+	// over it, and white on the grab's light gray was barely readable
+	const Theme& th = Theme::Instance();
+	drawList->AddRectFilled(ImVec2(x1, min.y), ImVec2(x2, max.y), active ? th.valueFillActive : th.valueFill,
+							ImGui::GetStyle().FrameRounding, corners);
+}
+
 bool ContinuousParameter::DrawCompact(float width, const char* valueFmt, bool drawFill) {
 	bool changed = false;
 	ImGui::PushID(this);
@@ -89,13 +118,8 @@ bool ContinuousParameter::DrawCompact(float width, const char* valueFmt, bool dr
 		const Theme& th = Theme::Instance();
 		ImU32 bgColor = ImGui::GetColorU32(isHovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
 		drawList->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, ImGui::GetStyle().FrameRounding);
-		if (drawFill) {
-			float fraction = std::clamp(NormalizedFromValue(), 0.0f, 1.0f);
-			// the fill is a darker tone than imgui's slider grab: the number is drawn straight
-			// over it, and white on the grab's light gray was barely readable
-			ImU32 fillColor = isActive ? th.valueFillActive : th.valueFill;
-			drawList->AddRectFilled(pos, ImVec2(pos.x + fraction * size.x, pos.y + size.y), fillColor, ImGui::GetStyle().FrameRounding);
-		}
+		if (drawFill)
+			DrawLevelFill(drawList, pos, ImVec2(pos.x + size.x, pos.y + size.y), isActive);
 		drawList->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), IsSelected() ? th.accent : th.border, ImGui::GetStyle().FrameRounding);
 
 		char valText[32];

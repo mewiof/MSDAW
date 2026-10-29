@@ -73,7 +73,7 @@ Track::Track() {
 	mId = AllocateTrackId();
 
 	mVolumeParam = std::make_unique<SliderParameter>("Volume", 0.0f, -60.0f, 6.0f);
-	mPanParam = std::make_unique<SliderParameter>("Pan", 0.0f, -1.0f, 1.0f);
+	mPanParam = std::make_unique<SliderParameter>("Pan", 0.0f, -1.0f, 1.0f, true); // bipolar: centered, it shows no fill
 	// cycle the curated on-theme palette instead of rolling muddy random grays
 	// the counter is static so successive new tracks step through distinct hues
 	static int sNextTrackColor = 0;

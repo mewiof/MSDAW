@@ -24,6 +24,18 @@ protected:
 	// or null to let the parameter pick its own units
 	virtual void FormatValue(char* buffer, size_t bufferSize, const char* valueFmt) const;
 
+	// where a level fill grows from, as a normalized position: the bottom of the range
+	// for a level, the zero point for a control that swings both ways (a pan, a gain
+	// trim). the value boxes and the dial all fill from here
+	virtual float FillOrigin() const { return 0.0f; }
+
+	// where zero falls in the range, normalized - the origin a two-way control fills from
+	float NormalizedZero() const;
+
+	// the level fill behind a value box's number, from FillOrigin to the value. only the
+	// corners that meet the box's own edges are rounded, so a fill ending mid-box ends square
+	void DrawLevelFill(ImDrawList* drawList, const ImVec2& min, const ImVec2& max, bool active) const;
+
 	// a drag carries its own normalized position for the length of the gesture instead of
 	// reading it back off the value every frame. a parameter that quantizes (a stage
 	// count) would otherwise round each pixel of travel straight back to where it started,

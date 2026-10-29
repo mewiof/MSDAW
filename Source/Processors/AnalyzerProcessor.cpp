@@ -141,6 +141,15 @@ namespace {
 		return kernel.data();
 	}
 
+	// a combo wide enough for the longest entry it can show, arrow included, so a choice
+	// is never cut short when the font is scaled up
+	float ComboWidth(const char* const* entries, int count) {
+		float widest = 0.0f;
+		for (int i = 0; i < count; ++i)
+			widest = std::max(widest, ImGui::CalcTextSize(entries[i]).x);
+		return widest + ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetFrameHeight();
+	}
+
 } // namespace
 
 // ================================================================
@@ -1366,7 +1375,7 @@ void AnalyzerProcessor::DrawControlRow(float width) {
 	const ImVec2 rowStart = ImGui::GetCursorScreenPos();
 
 	auto Combo = [&](const char* id, const char* preview, const char* const* names, int count, int& value, const char* tooltip) {
-		ImGui::SetNextItemWidth(std::min(leftWidth * 0.3f, 92.0f));
+		ImGui::SetNextItemWidth(std::min(leftWidth * 0.3f, ComboWidth(names, count)));
 		if (ImGui::BeginCombo(id, preview, ImGuiComboFlags_HeightSmall)) {
 			for (int i = 0; i < count; ++i) {
 				if (ImGui::Selectable(names[i], i == value))
@@ -1388,7 +1397,8 @@ void AnalyzerProcessor::DrawControlRow(float width) {
 
 		char tiltLabel[32];
 		snprintf(tiltLabel, sizeof(tiltLabel), "%.1f dB/oct", mTiltDbPerOctave);
-		ImGui::SetNextItemWidth(std::min(leftWidth * 0.32f, 104.0f));
+		const char* widestTilt = "0.0 dB/oct";
+		ImGui::SetNextItemWidth(std::min(leftWidth * 0.32f, ComboWidth(&widestTilt, 1)));
 		if (ImGui::BeginCombo("##Tilt", tiltLabel, ImGuiComboFlags_HeightSmall)) {
 			const float tilts[] = {0.0f, 3.0f, 4.5f, 6.0f};
 			for (float tilt : tilts) {
@@ -1414,7 +1424,8 @@ void AnalyzerProcessor::DrawControlRow(float width) {
 	case AnalyzerView::Spectrogram: {
 		char floorLabel[32];
 		snprintf(floorLabel, sizeof(floorLabel), "Floor %.0f dB", mFloorDb);
-		ImGui::SetNextItemWidth(std::min(leftWidth * 0.36f, 120.0f));
+		const char* widestFloor = "Floor -120 dB";
+		ImGui::SetNextItemWidth(std::min(leftWidth * 0.36f, ComboWidth(&widestFloor, 1)));
 		if (ImGui::BeginCombo("##Floor", floorLabel, ImGuiComboFlags_HeightSmall)) {
 			const float floors[] = {-60.0f, -72.0f, -96.0f, -120.0f};
 			for (float value : floors) {

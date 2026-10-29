@@ -3,6 +3,7 @@
 #include "Clips/AudioClip.h"
 #include "Clips/MIDIClip.h"
 #include "Project.h"
+#include "Theme.h"
 #include "Undo/Actions.h"
 #include <cmath>
 #include <string>
@@ -210,6 +211,15 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 	}
 	ImGui::Separator();
 
+	// every section opens the same way: a muted title, the way the library heads its
+	// sections, and a short gap before the controls under it
+	auto SectionHeading = [&](const char* title) {
+		ImGui::PushStyleColor(ImGuiCol_Text, Theme::Instance().textMuted);
+		ImGui::TextUnformatted(title);
+		ImGui::PopStyleColor();
+		ImGui::Dummy(ImVec2(0, 5 * mContext.state.mainScale));
+	};
+
 	auto ac = std::dynamic_pointer_cast<AudioClip>(clip);
 	// the fields read the clip through this, so it is refilled before any of them draw
 	// and emptied again the moment a MIDI clip (or nothing) is selected
@@ -264,8 +274,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 
 		// column 1: warping
 		{
-			ImGui::Text("Warping");
-			ImGui::Dummy(ImVec2(0, 5));
+			SectionHeading("Warping");
 
 			bool warping = ac->IsWarpingEnabled();
 			if (ImGui::Checkbox("Warp", &warping)) {
@@ -368,8 +377,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 
 		// column 2: pitch
 		{
-			ImGui::Text("Pitch / Transpose");
-			ImGui::Dummy(ImVec2(0, 5));
+			SectionHeading("Pitch / Transpose");
 
 			// Re-Pitch derives pitch from playback speed, so transpose is meaningless there
 			// (Ableton disables it too); grey the controls out while that mode is active
@@ -402,8 +410,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 
 		// column 3: file info
 		{
-			ImGui::TextDisabled("File Info");
-			ImGui::Dummy(ImVec2(0, 5));
+			SectionHeading("File Info");
 			ImGui::Text("Sample Rate: %.0f Hz", ac->GetSampleRate());
 			ImGui::Text("Channels: %d", ac->GetNumChannels());
 			double durSec = 0.0;
@@ -416,8 +423,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 		ImGui::Columns(1);
 	} else if (auto mc = std::dynamic_pointer_cast<MIDIClip>(clip)) {
 		// MIDI clip controls
-		ImGui::Text("MIDI Properties");
-		ImGui::Separator();
+		SectionHeading("MIDI Properties");
 		ImGui::Text("Notes: %zu", mc->GetNotes().size());
 		// placeholder for MIDI specific tools
 		ImGui::TextDisabled("Use Piano Roll to edit notes.");

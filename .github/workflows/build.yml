@@ -1,0 +1,58 @@
+name: Build
+
+# NOTE: day to day MSDAW is built with clang, so this is the only place msvc
+# ever compiles it. #1 was a vs2019 build broken by sources clang had been told
+# to let through
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# a newer push to the same branch makes the older run's answer moot
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: windows-2022
+    strategy:
+      # one compiler failing says nothing about the others
+      fail-fast: false
+      matrix:
+        # one msvc job runs Debug and the other Release, so the debug STL's
+        # checks and the optimizer each get a run of the suite
+        include:
+          # the toolchain the readme documents
+          - name: Clang
+            configure: -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
+            config: Release
+          # vs2019 16.11 is the oldest msvc with /std:c++20, and the one #1 was reported on
+          - name: MSVC v142 (VS 2019)
+            configure: -G "Visual Studio 17 2022" -A x64 -T v142
+            config: Debug
+          - name: MSVC v143 (VS 2022)
+            configure: -G "Visual Studio 17 2022" -A x64 -T v143
+            config: Release
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: cmake -S . -B build ${{ matrix.configure }}
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }} --parallel
+
+      - name: Test
+        run: ctest --test-dir build --build-config ${{ matrix.config }} --output-on-failure

@@ -220,11 +220,6 @@ void LibraryView::RenderPlugins() {
 
 	const auto& plugins = mContext.pluginManager.GetKnownPlugins();
 
-	if (plugins.empty()) {
-		ImGui::TextDisabled("No plugins found.");
-		ImGui::TextDisabled("Check Settings.");
-	}
-
 	// filter / list
 	static ImGuiTextFilter filter;
 	// drive the filter through a hinted input rather than ImGuiTextFilter::Draw: its label
@@ -254,6 +249,12 @@ void LibraryView::RenderPlugins() {
 	ImGui::SetNextWindowContentSize(ImVec2(0.0f, listHeight));
 
 	ImGui::BeginChild("LibList");
+	// said where the list would be, under the search field, rather than between the
+	// section title and a search box with nothing to search
+	if (plugins.empty()) {
+		ImGui::TextDisabled("No plugins found.");
+		ImGui::TextDisabled("Check Settings.");
+	}
 	for (const auto& plugin : plugins) {
 		if (!filter.PassFilter(plugin.name.c_str()))
 			continue;

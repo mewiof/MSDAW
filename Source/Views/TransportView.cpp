@@ -248,8 +248,14 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 				ImGui::SetTooltip("Show automation for the last edited parameter\n(edit a knob or slider first)");
 		}
 	}
-	ImGui::SameLine(ImGui::GetWindowWidth() - 150 * scale);
-	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(mContext.engine.IsStreamRunning() ? th.success : th.danger),
-					   mContext.engine.IsStreamRunning() ? "Audio: ON" : "Audio: OFF");
+	// the stream state is pinned to the bar's right edge, lined up under the cpu/ram readout
+	// in the menu bar. a window too narrow for that leaves it just after the controls
+	const bool streamRunning = mContext.engine.IsStreamRunning();
+	const char* streamLabel = streamRunning ? "Audio: ON" : "Audio: OFF";
+	const float streamX = ImGui::GetWindowWidth() - style.WindowPadding.x - ImGui::CalcTextSize(streamLabel).x;
+	const float afterControlsX = transport ? ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + style.ItemSpacing.x : 0.0f;
+	ImGui::SameLine(std::max(streamX, afterControlsX));
+	ImGui::AlignTextToFramePadding();
+	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(streamRunning ? th.success : th.danger), "%s", streamLabel);
 	ImGui::End();
 }

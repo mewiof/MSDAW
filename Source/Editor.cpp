@@ -919,6 +919,9 @@ void Editor::RenderSettingsWindow() {
 	if (!mContext.state.showSettingsWindow)
 		return;
 
+	const Theme& th = Theme::Instance();
+	const float scale = mContext.state.mainScale;
+
 	if (ImGui::Begin("Settings", &mContext.state.showSettingsWindow, ImGuiWindowFlags_AlwaysAutoResize)) {
 		if (ImGui::BeginTabBar("SettingsTabs")) {
 			if (ImGui::BeginTabItem("Audio")) {
@@ -943,7 +946,7 @@ void Editor::RenderSettingsWindow() {
 					AppConfig::Instance().pluginEditorsNative = native;
 					AppConfig::Instance().Save();
 				}
-				ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::Instance().textMuted),
+				ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(th.textMuted),
 								   "Off = let Windows scale plugin windows to match the DAW (may blur).\n"
 								   "Right-click a device in the rack to override this per plugin.");
 				ImGui::Separator();
@@ -953,7 +956,9 @@ void Editor::RenderSettingsWindow() {
 				PluginManager& pm = mContext.pluginManager;
 				std::vector<std::string> paths = pm.GetSearchPaths();
 				int pathToRemove = -1;
-				ImGui::BeginChild("PathList", ImVec2(400, 150), ImGuiChildFlags_AlwaysUseWindowPadding);
+				// a recessed well, like any other list a value is picked out of
+				ImGui::PushStyleColor(ImGuiCol_ChildBg, th.inputBg);
+				ImGui::BeginChild("PathList", ImVec2(400 * scale, 150 * scale), ImGuiChildFlags_AlwaysUseWindowPadding);
 				for (int i = 0; i < (int)paths.size(); ++i) {
 					ImGui::Text("%s", paths[i].c_str());
 					ImGui::SameLine();
@@ -961,6 +966,7 @@ void Editor::RenderSettingsWindow() {
 						pathToRemove = i;
 				}
 				ImGui::EndChild();
+				ImGui::PopStyleColor();
 				if (pathToRemove != -1)
 					pm.RemoveSearchPath(pathToRemove);
 				static char newPathBuf[256] = "";
@@ -977,11 +983,11 @@ void Editor::RenderSettingsWindow() {
 				// queued, so a live button would just look broken
 				const bool scanning = pm.IsScanning();
 				ImGui::BeginDisabled(scanning);
-				if (ImGui::Button(scanning ? "Scanning..." : "Scan Plugins", ImVec2(120, 30)))
+				if (ImGui::Button(scanning ? "Scanning..." : "Scan Plugins", ImVec2(120 * scale, 0)))
 					pm.ScanPlugins();
 				ImGui::EndDisabled();
 				ImGui::SameLine();
-				ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Theme::Instance().textMuted), "Found: %d", (int)pm.GetKnownPlugins().size());
+				ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(th.textMuted), "Found: %d", (int)pm.GetKnownPlugins().size());
 				ImGui::EndTabItem();
 			}
 			ImGui::EndTabBar();

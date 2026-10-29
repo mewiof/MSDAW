@@ -313,7 +313,8 @@ void PianoRollView::Render() {
 			ImU32 fill = chipFocused ? chip.color : Theme::WithAlpha(chip.color, chip.hovered ? 160 : 90);
 			chipDrawList->AddRectFilled(chip.min, chip.max, fill, 3.0f * scale);
 			chipDrawList->AddText(ImVec2(chip.min.x + chipPadX, chip.min.y + 1.0f * scale),
-								  chipFocused ? th.clipText : th.textMuted, chip.clip->GetName().c_str());
+								  chipFocused ? Theme::ContrastingText(chip.color, th.clipText, th.textOnAccent) : th.textMuted,
+								  chip.clip->GetName().c_str());
 			if (chip.clip->IsSequenceShared()) {
 				const float badgeHeight = (chip.max.y - chip.min.y) * 0.62f;
 				TimelineUtils::DrawLinkBadge(chipDrawList,

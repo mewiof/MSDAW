@@ -1,5 +1,6 @@
 #include "PrecompHeader.h"
 #include "Theme.h"
+#include <cmath>
 
 Theme& Theme::Instance() {
 	static Theme instance;
@@ -251,6 +252,26 @@ ImU32 Theme::Lerp(ImU32 a, ImU32 b, float t) {
 	int bl = mix(ch(a, IM_COL32_B_SHIFT), ch(b, IM_COL32_B_SHIFT));
 	int al = mix(ch(a, IM_COL32_A_SHIFT), ch(b, IM_COL32_A_SHIFT));
 	return IM_COL32(r, g, bl, al);
+}
+
+// relative luminance by the WCAG definition: each sRGB channel back to linear light,
+// weighted by how bright the eye takes it to be. 0 is black, 1 is white
+static float RelativeLuminance(ImU32 color) {
+	auto linear = [color](int shift) {
+		const float c = (float)((color >> shift) & 0xFF) / 255.0f;
+		return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+	};
+	return 0.2126f * linear(IM_COL32_R_SHIFT) + 0.7152f * linear(IM_COL32_G_SHIFT) + 0.0722f * linear(IM_COL32_B_SHIFT);
+}
+
+float Theme::ContrastRatio(ImU32 a, ImU32 b) {
+	const float la = RelativeLuminance(a);
+	const float lb = RelativeLuminance(b);
+	return (std::max(la, lb) + 0.05f) / (std::min(la, lb) + 0.05f);
+}
+
+ImU32 Theme::ContrastingText(ImU32 fill, ImU32 light, ImU32 dark) {
+	return ContrastRatio(fill, dark) > ContrastRatio(fill, light) ? dark : light;
 }
 
 ImU32 Theme::HeatColor(float t) const {

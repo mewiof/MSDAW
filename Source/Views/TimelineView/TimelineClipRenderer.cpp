@@ -447,6 +447,12 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	drawList->AddRect(pMin, pMax, linked ? th.clipLinked : th.clipBorder, 0.0f);
 	drawList->PushClipRect(pMin, pMax, true);
 
+	// a clip takes its track's color, and a light one - more so selected, which brightens
+	// it - left white names and notes unreadable. what is written on the clip picks
+	// whichever tone stands out from the body as it lands on the lane
+	const ImU32 body = Theme::Lerp(th.bgLane, Theme::WithAlpha(baseColor, 255),
+								   (float)((baseColor >> IM_COL32_A_SHIFT) & 0xFF) / 255.0f);
+	const ImU32 ink = Theme::ContrastingText(body, th.clipText, th.textOnAccent);
 	const float textPadding = 4.0f * context.state.mainScale;
 
 	// safe culling rect
@@ -505,7 +511,7 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 
 		ImU32 noteColor = customMIDIColor != 0
 							  ? customMIDIColor
-							  : Theme::WithAlpha(th.clipText, 160);
+							  : Theme::WithAlpha(ink, 160);
 		if (!enabled && customMIDIColor == 0)
 			noteColor = Theme::WithAlpha(noteColor, 70);
 
@@ -516,7 +522,7 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 		const float lineHeight = ImGui::GetTextLineHeight();
 		if (pMax.y - pMin.y >= lineHeight * 2.0f + textPadding * 3.0f)
 			drawList->AddText(ImVec2(clipRectMin.x + textPadding, pMax.y - lineHeight - textPadding),
-							  customMIDIColor != 0 ? customMIDIColor : Theme::WithAlpha(th.textOnAccent, 128), "MIDI");
+							  customMIDIColor != 0 ? customMIDIColor : Theme::WithAlpha(ink, 128), "MIDI");
 
 		for (const auto& n : notes) {
 			// use effective offset for MIDI note culling/positioning
@@ -573,7 +579,7 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	if (textX < pMin.x + textPadding)
 		textX = pMin.x + textPadding;
 
-	drawList->AddText(ImVec2(textX, pMin.y + textPadding), enabled ? th.clipText : th.clipTextDim, clipName);
+	drawList->AddText(ImVec2(textX, pMin.y + textPadding), enabled ? ink : th.clipTextDim, clipName);
 
 	drawList->PopClipRect();
 }

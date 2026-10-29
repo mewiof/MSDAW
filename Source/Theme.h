@@ -155,6 +155,12 @@ public:
 	static ImU32 WithAlpha(ImU32 color, int alpha);
 	// straight rgba lerp between two packed colors, t in 0..1
 	static ImU32 Lerp(ImU32 a, ImU32 b, float t);
+	// the WCAG contrast ratio between two colors' rgb, alpha ignored: 1 for the same
+	// lightness, up to 21 for black against white. symmetric in its arguments
+	static float ContrastRatio(ImU32 a, ImU32 b);
+	// whichever of two text tones has the higher contrast against an opaque fill - for
+	// text drawn on a color the user picked, which can land anywhere from dark to light
+	static ImU32 ContrastingText(ImU32 fill, ImU32 light, ImU32 dark);
 
 	// green -> yellow -> red ramp for the cpu/ram meter. 0 = good, 1 = pegged
 	ImU32 HeatColor(float t) const;

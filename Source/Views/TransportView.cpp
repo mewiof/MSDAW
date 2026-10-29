@@ -7,6 +7,7 @@
 #include "Theme.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace {
 
@@ -58,6 +59,7 @@ namespace {
 
 void TransportView::Render(const ImVec2& pos, float width, float height) {
 	const Theme& th = Theme::Instance();
+	const ImGuiStyle& style = ImGui::GetStyle();
 	const float scale = mContext.state.mainScale;
 	ImGui::SetNextWindowPos(pos);
 	ImGui::SetNextWindowSize(ImVec2(width, height));
@@ -126,7 +128,22 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 		ImGui::SameLine();
 		VerticalRule(th.border);
 		ImGui::SameLine();
-		ImGui::Text("Time: %.2f", (double)transport->GetPosition() / transport->GetSampleRate());
+
+		// a recessed read-only display of a fixed width, digits right-aligned like a counter,
+		// so everything after it on the bar stays put as the seconds tick past another digit.
+		// unlike the BPM box beside it, it has no outline: nothing here takes input
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextUnformatted("Time");
+		ImGui::SameLine();
+		char timeText[32];
+		snprintf(timeText, sizeof(timeText), "%.2f", (double)transport->GetPosition() / transport->GetSampleRate());
+		const float timeTextWidth = ImGui::CalcTextSize(timeText).x;
+		const ImVec2 timeSize(std::max(ImGui::CalcTextSize("0000.00").x, timeTextWidth) + style.FramePadding.x * 2.0f, ImGui::GetFrameHeight());
+		const ImVec2 timePos = ImGui::GetCursorScreenPos();
+		ImGui::Dummy(timeSize);
+		ImDrawList* timeDrawList = ImGui::GetWindowDrawList();
+		timeDrawList->AddRectFilled(timePos, ImVec2(timePos.x + timeSize.x, timePos.y + timeSize.y), th.inputBg, style.FrameRounding);
+		timeDrawList->AddText(ImVec2(timePos.x + timeSize.x - style.FramePadding.x - timeTextWidth, timePos.y + style.FramePadding.y), th.text, timeText);
 		ImGui::SameLine();
 
 		// bpm - reuse the master track's BPM parameter so tempo edits are undoable and

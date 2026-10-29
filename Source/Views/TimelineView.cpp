@@ -221,7 +221,8 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 			}
 		}
 
-		float rulerHeight = 34.0f * mContext.state.mainScale;
+		const float scale = mContext.state.mainScale;
+		float rulerHeight = 34.0f * scale;
 		float trackAreaStartY = winPos.y + rulerHeight;
 		// per-track vertical bands, shared with the track-list column so collapse/fold stay in sync
 		auto rows = TrackLayout::Build(mContext);
@@ -465,15 +466,15 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 					float ghostH = rows[trackIndex].height;
 
 					// vertical line
-					drawList->AddLine(ImVec2(ghostX, ghostY), ImVec2(ghostX, ghostY + ghostH), th.dropLine, 4.0f);
+					drawList->AddLine(ImVec2(ghostX, ghostY), ImVec2(ghostX, ghostY + ghostH), th.dropLine, 4.0f * scale);
 
 					// label
 					const char* label = "Insert File";
 					ImVec2 textSize = ImGui::CalcTextSize(label);
-					ImVec2 boxMin(ghostX + 5, ghostY + 5);
-					ImVec2 boxMax(ghostX + 5 + textSize.x + 4, ghostY + 5 + textSize.y + 4);
+					ImVec2 boxMin(ghostX + 5 * scale, ghostY + 5 * scale);
+					ImVec2 boxMax(ghostX + 5 * scale + textSize.x + 4 * scale, ghostY + 5 * scale + textSize.y + 4 * scale);
 					drawList->AddRectFilled(boxMin, boxMax, th.bgOverlay, 2.0f);
-					drawList->AddText(ImVec2(ghostX + 7, ghostY + 7), th.text, label);
+					drawList->AddText(ImVec2(ghostX + 7 * scale, ghostY + 7 * scale), th.text, label);
 				}
 			}
 		}
@@ -493,7 +494,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 			bool enterPressed = ImGui::InputText("##Name", mInteraction.renameBuffer, sizeof(mInteraction.renameBuffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
 			ImGui::Separator();
 
-			if (ImGui::Button("Set", ImVec2(120, 0)) || enterPressed) {
+			if (ImGui::Button("Set", ImVec2(120 * scale, 0)) || enterPressed) {
 				// renaming one member of a selection names the whole block: a duplicated
 				// run of clips gets relabelled in one pass instead of one dialog each
 				if (mInteraction.clipToRename && mContext.state.IsClipSelected(mInteraction.clipToRename)) {
@@ -506,7 +507,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::SameLine();
-			if (ImGui::Button("Cancel", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+			if (ImGui::Button("Cancel", ImVec2(120 * scale, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
 				mInteraction.clipToRename = nullptr;
 				ImGui::CloseCurrentPopup();
 			}
@@ -546,7 +547,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 		float insertX = winPos.x + (float)(mContext.state.selectionStart * mContext.state.pixelsPerBeat);
 		if (insertX >= pos.x && insertX <= pos.x + timelineWidth) {
 			drawList->AddLine(ImVec2(insertX, stickyY), ImVec2(insertX, stickyY + height), Theme::WithAlpha(th.marker, 200), 1.0f);
-			drawList->AddTriangleFilled(ImVec2(insertX - 4, stickyY), ImVec2(insertX + 4, stickyY), ImVec2(insertX, stickyY + 6), th.marker);
+			drawList->AddTriangleFilled(ImVec2(insertX - 4 * scale, stickyY), ImVec2(insertX + 4 * scale, stickyY), ImVec2(insertX, stickyY + 6 * scale), th.marker);
 		}
 
 		// playhead
@@ -555,7 +556,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 
 			if (playheadX >= pos.x - 2.0f && playheadX <= pos.x + timelineWidth + 2.0f) {
 				drawList->AddLine(ImVec2(playheadX, stickyY), ImVec2(playheadX, stickyY + height), th.playhead, 1.5f);
-				drawList->AddTriangleFilled(ImVec2(playheadX - 6, stickyY), ImVec2(playheadX + 6, stickyY), ImVec2(playheadX, stickyY + 10), th.playhead);
+				drawList->AddTriangleFilled(ImVec2(playheadX - 6 * scale, stickyY), ImVec2(playheadX + 6 * scale, stickyY), ImVec2(playheadX, stickyY + 10 * scale), th.playhead);
 			}
 		}
 

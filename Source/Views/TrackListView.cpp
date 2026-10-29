@@ -101,6 +101,57 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		return std::clamp(norm, 0.0f, 1.0f);
 	};
 
+	// ---- full-height row layout, shared by the tracks and the master ----
+	// the master is laid out by the same code as the tracks above it, so its name, its
+	// buttons and its faders sit in the same columns rather than in a near-copy that
+	// drifts out of line with them
+	const float s = mContext.state.mainScale;
+	const float frmH = ImGui::GetFrameHeight();
+	const float meterW = 6 * s;
+	const float meterX = fixedPos.x + width - meterW - 4 * s;
+
+	// the name, the button row and the mixer row, top to bottom. the row's spare height
+	// is shared evenly above, between and below them, so the stack sits centered in the
+	// row at any font size instead of hanging off fixed offsets from its top
+	struct RowBands {
+		float yName;
+		float yButtons;
+		float yMixer;
+	};
+	auto LayoutBands = [&](float rowTop, float rowH) -> RowBands {
+		const float gap = std::max(rowH - txtH * 2.0f - frmH, 0.0f) * 0.25f;
+		return {rowTop + gap, rowTop + gap * 2.0f + txtH, rowTop + gap * 3.0f + txtH * 2.0f};
+	};
+
+	// volume + pan on one compact row: an inline label plus a single-height value box
+	// (with a level fill), sized to fill the span between the content column and the meter
+	auto DrawMixer = [&](Track* t, float contentX, float yMixer) {
+		const float mixerW = (meterX - 6 * s) - contentX;
+		const float mixerGap = 8 * s;
+		const float mixerHalfW = (mixerW - mixerGap) * 0.5f;
+		const float labelY = yMixer + (frmH - txtH) * 0.5f;
+
+		auto DrawLabeledParam = [&](const char* label, Parameter* p, float x) {
+			float labelW = ImGui::CalcTextSize(label).x;
+			float sliderW = std::max(mixerHalfW - labelW - 4 * s, 20 * s);
+			drawList->AddText(ImVec2(x, labelY), th.textMuted, label);
+			ImGui::SetCursorScreenPos(ImVec2(x + labelW + 4 * s, yMixer));
+			p->DrawCompact(sliderW, "%.2f", true);
+		};
+
+		DrawLabeledParam("Vol", t->GetVolumeParameter(), contentX);
+		DrawLabeledParam("Pan", t->GetPanParameter(), contentX + mixerHalfW + mixerGap);
+	};
+
+	// a stereo peak meter down the row's right edge
+	auto DrawMeter = [&](Track* t, float meterTop, float meterH) {
+		float normL = LinToNorm(t->GetPeakL());
+		float normR = LinToNorm(t->GetPeakR());
+		drawList->AddRectFilled(ImVec2(meterX, meterTop), ImVec2(meterX + meterW, meterTop + meterH), th.meterBg);
+		drawList->AddRectFilled(ImVec2(meterX, meterTop + meterH - normL * meterH), ImVec2(meterX + meterW * 0.5f, meterTop + meterH), th.MeterColor(normL));
+		drawList->AddRectFilled(ImVec2(meterX + meterW * 0.5f, meterTop + meterH - normR * meterH), ImVec2(meterX + meterW, meterTop + meterH), th.MeterColor(normR));
+	};
+
 	int trackToProcess = -1;
 	enum Action { None,
 				  Delete,
@@ -146,8 +197,6 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			ImGui::EndDragDropTarget();
 		}
 
-		float s = mContext.state.mainScale;
-
 		float indent = 0.0f;
 		if (track->GetParent()) {
 			indent = 15.0f * s;
@@ -161,9 +210,6 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		bool minimized = track->mIsCollapsed && !track->IsGroup();
 
 		// ---- shared row surface: background, colour strip, selection + drag/drop ----
-		float meterW = 6 * s;
-		float meterX = fixedPos.x + width - meterW - 4 * s;
-
 		ImGui::SetCursorScreenPos(ImVec2(fixedPos.x + indent, curY));
 		ImGui::SetNextItemAllowOverlap();
 
@@ -333,39 +379,25 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			DrawMuteSolo(track);
 
 			// slim level meter on the right edge
-			float meterTop = curY + 3 * s;
-			float meterH = rowH - 6 * s;
-			float normL = LinToNorm(track->GetPeakL());
-			float normR = LinToNorm(track->GetPeakR());
-			drawList->AddRectFilled(ImVec2(meterX, meterTop), ImVec2(meterX + meterW, meterTop + meterH), th.meterBg);
-			drawList->AddRectFilled(ImVec2(meterX, meterTop + meterH - normL * meterH), ImVec2(meterX + meterW * 0.5f, meterTop + meterH), th.MeterColor(normL));
-			drawList->AddRectFilled(ImVec2(meterX + meterW * 0.5f, meterTop + meterH - normR * meterH), ImVec2(meterX + meterW, meterTop + meterH), th.MeterColor(normR));
+			DrawMeter(track.get(), curY + 3 * s, rowH - 6 * s);
 
 			ImGui::PopID();
 			continue;
 		}
 
-		// ---- full row: three stacked bands that fit inside trackRowHeight ----
-		ImVec2 curPos = ImVec2(fixedPos.x, curY + 4.0f);
+		// ---- full row: name, buttons and mixer stacked inside the row ----
+		const RowBands bands = LayoutBands(curY, rowH);
+		const float yName = bands.yName;
 
-		float frmH = ImGui::GetFrameHeight();
+		float contentX = fixedPos.x + indent + 22 * s; // right of the colour strip + caret column
 
-		float contentX = curPos.x + indent + 22 * s; // right of the colour strip + caret column
-
-		float meterTop = curPos.y + 4 * s;
-		float meterH = mContext.layout.trackRowHeight - 8 * s;
-
-		// close button in the top-right corner, just left of the meter
+		// close button at the end of the name line, just left of the meter
 		float closeSz = 15 * s;
 		float closeX = meterX - closeSz - 6 * s;
-		float closeY = curPos.y + 4 * s;
-
-		float yName = curPos.y + 6 * s;
-		float yButtons = curPos.y + 29 * s;
-		float yMixer = curPos.y + 52 * s;
+		float closeY = yName + (txtH - closeSz) * 0.5f;
 
 		// fold/minimize caret in the reserved column left of the name
-		if (DrawCaret("##Caret", curPos.x + indent + 6 * s, yName, 14 * s, txtH, !track->mIsCollapsed))
+		if (DrawCaret("##Caret", fixedPos.x + indent + 6 * s, yName, 14 * s, txtH, !track->mIsCollapsed))
 			track->mIsCollapsed = !track->mIsCollapsed;
 
 		ImGui::SetCursorScreenPos(ImVec2(contentX, yName));
@@ -401,7 +433,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			}
 		}
 
-		ImGui::SetCursorScreenPos(ImVec2(contentX, yButtons));
+		ImGui::SetCursorScreenPos(ImVec2(contentX, bands.yButtons));
 
 		DrawMuteSolo(track);
 
@@ -415,35 +447,8 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		if (showAuto)
 			ImGui::PopStyleColor();
 
-		// volume + pan on one compact row: an inline label plus a single-height value box
-		// (with a level fill), sized to fill the span between the strip and the meter
-		float mixerX = contentX;
-		float mixerW = (meterX - 6 * s) - mixerX;
-		float mixerGap = 8 * s;
-		float mixerHalfW = (mixerW - mixerGap) * 0.5f;
-		float labelY = yMixer + (frmH - txtH) * 0.5f;
-
-		auto DrawLabeledParam = [&](const char* label, Parameter* p, float x) {
-			float labelW = ImGui::CalcTextSize(label).x;
-			float sliderW = mixerHalfW - labelW - 4 * s;
-			if (sliderW < 20 * s)
-				sliderW = 20 * s;
-			drawList->AddText(ImVec2(x, labelY), th.textMuted, label);
-			ImGui::SetCursorScreenPos(ImVec2(x + labelW + 4 * s, yMixer));
-			p->DrawCompact(sliderW, "%.2f", true);
-		};
-
-		DrawLabeledParam("Vol", track->GetVolumeParameter(), mixerX);
-		DrawLabeledParam("Pan", track->GetPanParameter(), mixerX + mixerHalfW + mixerGap);
-
-		float normL = LinToNorm(track->GetPeakL());
-		float normR = LinToNorm(track->GetPeakR());
-		float hL = normL * meterH;
-		float hR = normR * meterH;
-
-		drawList->AddRectFilled(ImVec2(meterX, meterTop), ImVec2(meterX + meterW, meterTop + meterH), th.meterBg);
-		drawList->AddRectFilled(ImVec2(meterX, meterTop + meterH - hL), ImVec2(meterX + meterW * 0.5f, meterTop + meterH), th.MeterColor(normL));
-		drawList->AddRectFilled(ImVec2(meterX + meterW * 0.5f, meterTop + meterH - hR), ImVec2(meterX + meterW, meterTop + meterH), th.MeterColor(normR));
+		DrawMixer(track.get(), contentX, bands.yMixer);
+		DrawMeter(track.get(), curY + 4 * s, rowH - 8 * s);
 
 		ImGui::SetCursorScreenPos(ImVec2(closeX, closeY));
 		if (ImGui::Button("X", ImVec2(closeSz, closeSz))) {
@@ -582,24 +587,15 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			ImGui::EndDragDropTarget();
 		}
 
-		// mirror the per-track band layout so master lines up with the tracks above it
-		float s = mContext.state.mainScale;
-		float frmH = ImGui::GetFrameHeight();
+		// laid out by the same code as the track rows, in the tracks' name column: the
+		// master has no caret, but its name starts where theirs do
+		const RowBands bands = LayoutBands(curPos.y, masterHeight);
+		const float contentX = curPos.x + 22 * s;
 
-		float contentX = curPos.x + 12 * s;
-		float meterW = 6 * s;
-		float meterX = curPos.x + width - meterW - 4 * s;
-		float meterTop = curPos.y + 4 * s;
-		float meterH = masterHeight - 8 * s;
-
-		float yName = curPos.y + 6 * s;
-		float yButtons = curPos.y + 29 * s;
-		float yMixer = curPos.y + 52 * s;
-
-		ImGui::SetCursorScreenPos(ImVec2(contentX, yName));
+		ImGui::SetCursorScreenPos(ImVec2(contentX, bands.yName));
 		ImGui::Text("MASTER");
 
-		ImGui::SetCursorScreenPos(ImVec2(contentX, yButtons));
+		ImGui::SetCursorScreenPos(ImVec2(contentX, bands.yButtons));
 		bool showAuto = master->mShowAutomation;
 		if (showAuto)
 			ImGui::PushStyleColor(ImGuiCol_Button, th.danger);
@@ -608,33 +604,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		if (showAuto)
 			ImGui::PopStyleColor();
 
-		// volume + pan: inline label + compact value box each, same as the tracks
-		float mixerX = contentX;
-		float mixerW = (meterX - 6 * s) - mixerX;
-		float mixerGap = 8 * s;
-		float mixerHalfW = (mixerW - mixerGap) * 0.5f;
-		float labelY = yMixer + (frmH - txtH) * 0.5f;
-
-		auto DrawLabeledParam = [&](const char* label, Parameter* p, float x) {
-			float labelW = ImGui::CalcTextSize(label).x;
-			float sliderW = mixerHalfW - labelW - 4 * s;
-			if (sliderW < 20 * s)
-				sliderW = 20 * s;
-			drawList->AddText(ImVec2(x, labelY), th.textMuted, label);
-			ImGui::SetCursorScreenPos(ImVec2(x + labelW + 4 * s, yMixer));
-			p->DrawCompact(sliderW, "%.2f", true);
-		};
-
-		DrawLabeledParam("Vol", master->GetVolumeParameter(), mixerX);
-		DrawLabeledParam("Pan", master->GetPanParameter(), mixerX + mixerHalfW + mixerGap);
-
-		float normL = LinToNorm(master->GetPeakL());
-		float normR = LinToNorm(master->GetPeakR());
-		float hL = normL * meterH;
-		float hR = normR * meterH;
-
-		drawList->AddRectFilled(ImVec2(meterX, meterTop), ImVec2(meterX + meterW, meterTop + meterH), th.meterBg);
-		drawList->AddRectFilled(ImVec2(meterX, meterTop + meterH - hL), ImVec2(meterX + meterW * 0.5f, meterTop + meterH), th.MeterColor(normL));
-		drawList->AddRectFilled(ImVec2(meterX + meterW * 0.5f, meterTop + meterH - hR), ImVec2(meterX + meterW, meterTop + meterH), th.MeterColor(normR));
+		DrawMixer(master.get(), contentX, bands.yMixer);
+		DrawMeter(master.get(), curPos.y + 4 * s, masterHeight - 8 * s);
 	}
 }

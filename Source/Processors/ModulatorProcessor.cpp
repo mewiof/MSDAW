@@ -39,6 +39,15 @@ namespace {
 	constexpr int kNumDivisions = 11;
 	constexpr int kDefaultDivision = 5; // 1/4
 
+	// the widest of a set of names, so a box sized from it holds every one of them -
+	// guessing which name is longest goes wrong as soon as the font or a name changes
+	float WidestName(const char* const* names, int count) {
+		float widest = 0.0f;
+		for (int i = 0; i < count; ++i)
+			widest = std::max(widest, ImGui::CalcTextSize(names[i]).x);
+		return widest;
+	}
+
 	constexpr float kTwoPi = 6.28318530718f;
 	constexpr float kPi = 3.14159265359f;
 
@@ -928,7 +937,7 @@ void ModulatorProcessor::RenderHeaderRow() {
 			ImGui::SetTooltip("%s", tooltip);
 	};
 
-	const float modeWidth = ImGui::CalcTextSize("Performer").x + style.FramePadding.x * 4.0f;
+	const float modeWidth = WidestName(kModeNames, kNumModes) + style.FramePadding.x * 4.0f;
 	comboParam("##ModMode", pMode, kModeNames, kNumModes, modeWidth,
 			   "LFO: a waveform per lane\n"
 			   "Performer: every step plays a curve\n"
@@ -941,7 +950,7 @@ void ModulatorProcessor::RenderHeaderRow() {
 		ImGui::SetTooltip("Lock the cycle to the project tempo");
 
 	ImGui::SameLine();
-	const float rateWidth = ImGui::CalcTextSize("8 Bars").x + style.FramePadding.x * 4.0f;
+	const float rateWidth = WidestName(kDivisionNames, kNumDivisions) + style.FramePadding.x * 4.0f;
 	if (synced)
 		comboParam("##ModDivision", pDivision, kDivisionNames, kNumDivisions, rateWidth, "Length of one cycle");
 	else
@@ -955,7 +964,7 @@ void ModulatorProcessor::RenderHeaderRow() {
 		ImGui::SetTooltip("Put the cycle back to its start on play, on a seek and on every note");
 
 	if (mode == ModeLFO) {
-		const float shapeWidth = ImGui::CalcTextSize("Triangle").x + style.FramePadding.x * 4.0f;
+		const float shapeWidth = WidestName(kShapeNames, kNumShapes) + style.FramePadding.x * 4.0f;
 		ImGui::SameLine();
 		comboParam("##ModShapeA", pShapeA, kShapeNames, kNumShapes, shapeWidth, "Waveform of the upper lane");
 		ImGui::SameLine();

@@ -5,10 +5,52 @@
 #include "GridScale.h"
 #include "Parameter.h"
 #include "Theme.h"
+#include <algorithm>
 #include <cmath>
+
+namespace {
+
+	enum class TransportIcon {
+		Play,
+		Pause,
+		Stop
+	};
+
+	// a transport symbol painted onto the button just drawn. the font atlas holds no
+	// transport glyphs, and a typed ">" or "||" reads as text rather than as a control.
+	// sized off the text height, so it scales with the labels on the buttons beside it
+	void DrawTransportIcon(TransportIcon icon) {
+		const ImVec2 min = ImGui::GetItemRectMin();
+		const ImVec2 max = ImGui::GetItemRectMax();
+		const ImVec2 center(std::floor((min.x + max.x) * 0.5f), std::floor((min.y + max.y) * 0.5f));
+		const float half = std::floor(ImGui::GetTextLineHeight() * 0.3f);
+		const ImU32 color = ImGui::GetColorU32(ImGuiCol_Text);
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+		switch (icon) {
+		case TransportIcon::Play:
+			// shifted right of its bounding box's center: centered by its box, a play
+			// triangle's weight sits on its flat back edge and it reads as left of center
+			drawList->AddTriangleFilled(ImVec2(center.x - half * 0.7f, center.y - half), ImVec2(center.x - half * 0.7f, center.y + half),
+										ImVec2(center.x + half, center.y), color);
+			break;
+		case TransportIcon::Pause: {
+			const float bar = std::max(std::floor(half * 0.6f), 2.0f);
+			drawList->AddRectFilled(ImVec2(center.x - half * 0.8f, center.y - half), ImVec2(center.x - half * 0.8f + bar, center.y + half), color);
+			drawList->AddRectFilled(ImVec2(center.x + half * 0.8f - bar, center.y - half), ImVec2(center.x + half * 0.8f, center.y + half), color);
+			break;
+		}
+		case TransportIcon::Stop:
+			drawList->AddRectFilled(ImVec2(center.x - half * 0.85f, center.y - half * 0.85f), ImVec2(center.x + half * 0.85f, center.y + half * 0.85f), color);
+			break;
+		}
+	}
+
+} // namespace
 
 void TransportView::Render(const ImVec2& pos, float width, float height) {
 	const Theme& th = Theme::Instance();
+	const float scale = mContext.state.mainScale;
 	ImGui::SetNextWindowPos(pos);
 	ImGui::SetNextWindowSize(ImVec2(width, height));
 	ImGui::Begin("Transport", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
@@ -18,7 +60,11 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 
 	if (transport) {
 		bool isPlaying = transport->IsPlaying();
-		if (ImGui::Button(isPlaying ? " || " : " > ", ImVec2(40 * mContext.state.mainScale, 0))) {
+		bool playPressed = ImGui::Button("##PlayPause", ImVec2(40 * scale, 0));
+		DrawTransportIcon(isPlaying ? TransportIcon::Pause : TransportIcon::Play);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip(isPlaying ? "Pause (Space)" : "Play from the marker (Space)");
+		if (playPressed) {
 			if (isPlaying) {
 				// pause logic (ableton style): stop and return to insert marker
 				transport->Pause();
@@ -34,8 +80,11 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 			}
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Stop", ImVec2(40 * mContext.state.mainScale, 0)))
+		if (ImGui::Button("##Stop", ImVec2(40 * scale, 0)))
 			transport->Stop(); // resets to 0
+		DrawTransportIcon(TransportIcon::Stop);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Stop and return to the start");
 		ImGui::SameLine();
 
 		// loop toggle
@@ -45,7 +94,7 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, th.accentHover);
 			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
 		}
-		if (ImGui::Button("Loop", ImVec2(40 * mContext.state.mainScale, 0))) {
+		if (ImGui::Button("Loop", ImVec2(40 * scale, 0))) {
 			transport->SetLoopEnabled(!isLooping);
 		}
 		if (isLooping)
@@ -60,7 +109,7 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, th.accentHover);
 			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
 		}
-		if (ImGui::Button("Follow", ImVec2(50 * mContext.state.mainScale, 0))) {
+		if (ImGui::Button("Follow", ImVec2(50 * scale, 0))) {
 			mContext.state.followPlayback = !follow;
 		}
 		if (follow)
@@ -77,7 +126,7 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 		ImGui::SameLine();
 		if (std::shared_ptr<Track> master = project->GetMasterTrack())
 			if (Parameter* bpmParam = master->GetBpmParameter())
-				bpmParam->DrawCompact(58 * mContext.state.mainScale, "%.1f");
+				bpmParam->DrawCompact(58 * scale, "%.1f");
 
 		ImGui::SameLine();
 		ImGui::AlignTextToFramePadding();
@@ -96,12 +145,12 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 				ImGui::Text("1 / %g", 1.0 / std::max(cell, 0.000001));
 			ImGui::EndDisabled();
 		} else {
-			mGridNumParam->DrawCompact(30 * mContext.state.mainScale, "%.0f");
+			mGridNumParam->DrawCompact(30 * scale, "%.0f");
 			ImGui::SameLine();
 			ImGui::AlignTextToFramePadding();
 			ImGui::Text("/");
 			ImGui::SameLine();
-			mGridDenParam->DrawCompact(30 * mContext.state.mainScale, "%.0f");
+			mGridDenParam->DrawCompact(30 * scale, "%.0f");
 		}
 
 		// derive the snap ratio from the (integer) grid fields every frame so undo/redo of
@@ -124,7 +173,7 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, th.accent);
 			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
 		}
-		if (ImGui::Button("Auto", ImVec2(44 * mContext.state.mainScale, 0)))
+		if (ImGui::Button("Auto", ImVec2(44 * scale, 0)))
 			mContext.state.timelineGridAuto = !gridAuto;
 		if (gridAuto)
 			ImGui::PopStyleColor(3);
@@ -144,7 +193,7 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
 		}
 
-		if (ImGui::Button("KEY", ImVec2(40 * mContext.state.mainScale, 0))) {
+		if (ImGui::Button("KEY", ImVec2(40 * scale, 0))) {
 			mContext.state.isComputerMIDIKeyboardEnabled = !mIDIKey;
 		}
 
@@ -162,7 +211,7 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 		ImGui::SameLine();
 		Parameter* lastParam = Parameter::GetLastTouchedParameter();
 		ImGui::BeginDisabled(lastParam == nullptr);
-		if (ImGui::Button("Show Auto", ImVec2(80 * mContext.state.mainScale, 0)) && lastParam)
+		if (ImGui::Button("Show Auto", ImVec2(80 * scale, 0)) && lastParam)
 			Parameter::RequestAutomation(lastParam);
 		ImGui::EndDisabled();
 		if (ImGui::IsItemHovered()) {
@@ -172,7 +221,7 @@ void TransportView::Render(const ImVec2& pos, float width, float height) {
 				ImGui::SetTooltip("Show automation for the last edited parameter\n(edit a knob or slider first)");
 		}
 	}
-	ImGui::SameLine(ImGui::GetWindowWidth() - 150 * mContext.state.mainScale);
+	ImGui::SameLine(ImGui::GetWindowWidth() - 150 * scale);
 	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(mContext.engine.IsStreamRunning() ? th.success : th.danger),
 					   mContext.engine.IsStreamRunning() ? "Audio: ON" : "Audio: OFF");
 	ImGui::End();

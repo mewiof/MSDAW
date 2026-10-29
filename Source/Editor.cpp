@@ -1100,7 +1100,10 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 	AppConfig& config = AppConfig::Instance();
 
 	float transportH = mContext.layout.transportHeight;
-	float tabHeight = 28.0f * mContext.state.mainScale;
+	// the tab strip is exactly what it holds: its top padding and one row of tabs, which
+	// sit flush on its bottom edge. a fixed height left the row a pixel or two taller
+	// than the strip
+	float tabHeight = ImGui::GetStyle().WindowPadding.y + ImGui::GetFrameHeight();
 	// a folded panel keeps only the strip that unfolds it again, and hands everything
 	// else back to the arrangement.
 	// NOTE: the fold state is sampled ONCE here and every panel below is laid out from
@@ -1127,7 +1130,12 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 	// bottom tab panel
 	ImGui::SetNextWindowPos(ImVec2(workPos.x, workPos.y + workSize.y - bottomH));
 	ImGui::SetNextWindowSize(ImVec2(workSize.x, tabHeight));
+	// the strip is shorter than imgui's minimum window height, which would quietly stretch
+	// it down over the top of the panel below - its bottom border then drew a second line
+	// under the tabs, a few pixels below the first
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(ImGui::GetStyle().WindowMinSize.x, 1.0f));
 	ImGui::Begin("BottomTabs", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBringToFrontOnFocus);
+	ImGui::PopStyleVar();
 
 	int previousTab = mActiveBottomTab;
 	if (ImGui::BeginTabBar("MainTabs")) {

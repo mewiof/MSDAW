@@ -759,7 +759,9 @@ void DeviceRackView::RenderChainList(const std::shared_ptr<RackProcessor>& rack,
 		const bool isSelected = (rack->GetSelectedChainIndex() == i);
 		const ImU32 color = chain->GetColor() != 0 ? chain->GetColor() : (rack->GetColor() != 0 ? rack->GetColor() : th.accentMuted);
 
-		if (ImGui::Selectable("##ChainRow", isSelected, ImGuiSelectableFlags_AllowOverlap, ImVec2(nameWidth, 0)))
+		// as tall as the buttons beside it, so the row reads as one band with the name on
+		// the same center line as M, S and the volume
+		if (ImGui::Selectable("##ChainRow", isSelected, ImGuiSelectableFlags_AllowOverlap, ImVec2(nameWidth, ImGui::GetFrameHeight())))
 			rack->SetSelectedChainIndex(i);
 
 		// a device dropped on a chain row joins the end of that chain: the only way to
@@ -798,7 +800,10 @@ void DeviceRackView::RenderChainList(const std::shared_ptr<RackProcessor>& rack,
 		const ImVec2 rowMax = ImGui::GetItemRectMax();
 		ImGui::GetWindowDrawList()->AddRectFilled(rowMin, ImVec2(rowMin.x + 4.0f * scale, rowMax.y), color);
 		const std::string label = chain->GetName().empty() ? ("Chain " + std::to_string(i + 1)) : chain->GetName();
-		ImGui::GetWindowDrawList()->AddText(ImVec2(rowMin.x + 8.0f * scale, rowMin.y), th.text, label.c_str());
+		const float labelY = rowMin.y + (rowMax.y - rowMin.y - ImGui::GetTextLineHeight()) * 0.5f;
+		ImGui::PushClipRect(rowMin, rowMax, true);
+		ImGui::GetWindowDrawList()->AddText(ImVec2(rowMin.x + 8.0f * scale, labelY), th.text, label.c_str());
+		ImGui::PopClipRect();
 
 		ImGui::SameLine();
 		if (ToggleButton("M", chain->GetMute(), ImVec2(buttonWidth, 0), th.danger)) {

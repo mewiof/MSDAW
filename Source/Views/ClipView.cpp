@@ -169,7 +169,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 
 	ImGui::SetNextWindowPos(pos);
 	ImGui::SetNextWindowSize(ImVec2(width, height));
-	ImGui::Begin("Clip View", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+	ImGui::Begin("Clip View", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
 
 	// restore padding for content. a borderless child only takes it when asked outright
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, defaultPadding);

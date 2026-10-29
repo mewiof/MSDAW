@@ -23,7 +23,7 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 		// the rail is also narrower than imgui's minimum window width, which would quietly
 		// widen it past the width the editor laid out and over the arrangement's left edge
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(1.0f, ImGui::GetStyle().WindowMinSize.y));
-		ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+		ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
 		ImGui::PopStyleVar(2);
 
 		bool expand = ImGui::ArrowButton("##ExpandLibrary", ImGuiDir_Right);
@@ -45,7 +45,7 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 		return;
 	}
 
-	ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+	ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
 
 	// all three sections are lists that can be arbitrarily long, so none of them gets
 	// to size itself off its contents - a splitter under each of the first two lets the

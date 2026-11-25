@@ -86,8 +86,12 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 	ImGui::SetNextWindowPos(pos);
 	ImGui::SetNextWindowSize(ImVec2(width, height));
 
+	// the canvas under the lanes is the dark ground, so the space past the last track
+	// reads as empty rather than as one more lane
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, th.bgWindow);
 	ImGui::Begin("Arrangement", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_NoBringToFrontOnFocus);
+	ImGui::PopStyleColor();
 	ImGui::PopStyleVar();
 
 	mHoveredLastFrame = ImGui::IsWindowHovered();
@@ -466,7 +470,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 					float ghostH = rows[trackIndex].height;
 
 					// vertical line
-					drawList->AddLine(ImVec2(ghostX, ghostY), ImVec2(ghostX, ghostY + ghostH), th.dropLine, 4.0f * scale);
+					drawList->AddLine(ImVec2(ghostX, ghostY), ImVec2(ghostX, ghostY + ghostH), th.dropLine, 2.0f * scale);
 
 					// label
 					const char* label = "Insert File";
@@ -530,7 +534,7 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 				mContext.state.SelectTrack(-1);
 		}
 		// a hard rule along the footer's top, mirroring the one that closes off the ruler
-		drawList->AddLine(ImVec2(pos.x, masterY), ImVec2(pos.x + width, masterY), th.borderStrong);
+		drawList->AddRectFilled(ImVec2(pos.x, masterY), ImVec2(pos.x + width, masterY + 1.0f), th.divider);
 
 		float stickyY = winPos.y + ImGui::GetScrollY();
 		ImVec2 stickyPos = ImVec2(winPos.x, stickyY);
@@ -543,20 +547,23 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 
 		TimelineRuler::Render(mContext, mInteraction, stickyPos, contentWidth - trackListW, timelineWidth, rulerHeight, scrollX);
 
-		// insert marker
+		// insert marker: a hairline in the accent, its flag hung off the ruler's top edge.
+		// lines sit on whole pixels so they stay one pixel wide
 		float insertX = winPos.x + (float)(mContext.state.selectionStart * mContext.state.pixelsPerBeat);
 		if (insertX >= pos.x && insertX <= pos.x + timelineWidth) {
-			drawList->AddLine(ImVec2(insertX, stickyY), ImVec2(insertX, stickyY + height), Theme::WithAlpha(th.marker, 200), 1.0f);
-			drawList->AddTriangleFilled(ImVec2(insertX - 4 * scale, stickyY), ImVec2(insertX + 4 * scale, stickyY), ImVec2(insertX, stickyY + 6 * scale), th.marker);
+			const float lineX = std::floor(insertX) + 0.5f;
+			drawList->AddLine(ImVec2(lineX, stickyY), ImVec2(lineX, stickyY + height), Theme::WithAlpha(th.marker, 200), 1.0f);
+			drawList->AddTriangleFilled(ImVec2(lineX - 4 * scale, stickyY), ImVec2(lineX + 4 * scale, stickyY), ImVec2(lineX, stickyY + 5 * scale), th.marker);
 		}
 
-		// playhead
+		// playhead: the brightest line on the canvas, with a flag on the ruler
 		if (transport) {
 			float playheadX = winPos.x + (float)(playbackBeat * mContext.state.pixelsPerBeat);
 
 			if (playheadX >= pos.x - 2.0f && playheadX <= pos.x + timelineWidth + 2.0f) {
-				drawList->AddLine(ImVec2(playheadX, stickyY), ImVec2(playheadX, stickyY + height), th.playhead, 1.5f);
-				drawList->AddTriangleFilled(ImVec2(playheadX - 6 * scale, stickyY), ImVec2(playheadX + 6 * scale, stickyY), ImVec2(playheadX, stickyY + 10 * scale), th.playhead);
+				const float lineX = std::floor(playheadX) + 0.5f;
+				drawList->AddLine(ImVec2(lineX, stickyY), ImVec2(lineX, stickyY + height), th.playhead, 1.0f);
+				drawList->AddTriangleFilled(ImVec2(lineX - 5 * scale, stickyY), ImVec2(lineX + 5 * scale, stickyY), ImVec2(lineX, stickyY + 7 * scale), th.playhead);
 			}
 		}
 
@@ -580,10 +587,10 @@ void TimelineView::Render(const ImVec2& pos, float width, float height, TrackLis
 				ImVec2(trackListFixedPos.x, pos.y),
 				ImVec2(trackListFixedPos.x + trackListContentW, pos.y + height - hScrollbarSize),
 				th.bgHeader);
-			drawList->AddLine(
-				ImVec2(trackListFixedPos.x, pos.y),
+			drawList->AddRectFilled(
+				ImVec2(trackListFixedPos.x - 1.0f, pos.y),
 				ImVec2(trackListFixedPos.x, pos.y + height - hScrollbarSize),
-				th.divider, 2.0f);
+				th.divider);
 
 			trackListView->Render(trackListFixedPos, trackListContentW, height, trackAreaStartY, stickyY, masterY);
 		}

@@ -36,6 +36,11 @@ protected:
 	// corners that meet the box's own edges are rounded, so a fill ending mid-box ends square
 	void DrawLevelFill(ImDrawList* drawList, const ImVec2& min, const ImVec2& max, bool active) const;
 
+	// the face every value box shares - the compact box and the slider's bar - so the two
+	// cannot drift apart in how they look
+	void DrawValueBox(ImDrawList* drawList, const ImVec2& pos, const ImVec2& size, const char* valueFmt,
+					  bool drawFill, bool hovered, bool active) const;
+
 	// a drag carries its own normalized position for the length of the gesture instead of
 	// reading it back off the value every frame. a parameter that quantizes (a stage
 	// count) would otherwise round each pixel of travel straight back to where it started,

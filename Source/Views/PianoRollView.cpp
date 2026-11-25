@@ -5,6 +5,7 @@
 #include "Project.h"
 #include "Undo/Actions.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include "GridScale.h"
 #include "Views/TimelineView/TimelineUtils.h"
 #include <algorithm>
@@ -228,7 +229,7 @@ void PianoRollView::Render() {
 	const float scale = mContext.state.mainScale;
 
 	ImGui::SetNextWindowSize(ImVec2(720 * scale, 500 * scale), ImGuiCond_FirstUseEver);
-	bool windowOpen = ImGui::Begin("Piano Roll", nullptr);
+	bool windowOpen = Widgets::BeginFloatingWindow("Piano Roll");
 	if (!windowOpen) {
 		StopPreview();
 		mPanning = false;
@@ -278,8 +279,19 @@ void PianoRollView::Render() {
 	bool focusSwitched = false;
 	float chipPadX = ImGui::GetStyle().FramePadding.x;
 
-	ImGui::AlignTextToFramePadding();
-	ImGui::Text("Editing");
+	// the toolbar's captions are set small and quiet, like the transport's: the chips and
+	// fields beside them are what is read
+	auto Caption = [&](const char* caption) {
+		Widgets::PushSmallFont();
+		const float rowHeight = ImGui::GetFrameHeight();
+		const ImVec2 pos = ImGui::GetCursorScreenPos();
+		const ImVec2 size = ImGui::CalcTextSize(caption);
+		ImGui::GetWindowDrawList()->AddText(ImVec2(pos.x, pos.y + (rowHeight - size.y) * 0.5f), th.textMuted, caption);
+		ImGui::Dummy(ImVec2(size.x, rowHeight));
+		ImGui::PopFont();
+	};
+
+	Caption("Editing");
 	for (const auto& rc : rollClips) {
 		ImGui::SameLine();
 		ImGui::PushID(rc.clip.get());
@@ -311,7 +323,7 @@ void PianoRollView::Render() {
 		for (const auto& chip : chipRects) {
 			bool chipFocused = (mContext.state.selectedClip == chip.clip);
 			ImU32 fill = chipFocused ? chip.color : Theme::WithAlpha(chip.color, chip.hovered ? 160 : 90);
-			chipDrawList->AddRectFilled(chip.min, chip.max, fill, 3.0f * scale);
+			chipDrawList->AddRectFilled(chip.min, chip.max, fill, ImGui::GetStyle().FrameRounding);
 			chipDrawList->AddText(ImVec2(chip.min.x + chipPadX, chip.min.y + 1.0f * scale),
 								  chipFocused ? Theme::ContrastingText(chip.color, th.clipText, th.textOnAccent) : th.textMuted,
 								  chip.clip->GetName().c_str());
@@ -328,9 +340,8 @@ void PianoRollView::Render() {
 	ImGui::SameLine();
 	ImGui::Dummy(ImVec2(10 * scale, 0));
 	ImGui::SameLine();
-	ImGui::AlignTextToFramePadding();
-	ImGui::Text("Grid");
-	ImGui::SameLine();
+	Caption("Grid");
+	ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
 
 	// per-clip snap grid, edited with the same custom parameter widget as the timeline
 	// grid (drag / type-to-enter / click-away deselect) instead of a bare DragInt. the
@@ -354,10 +365,10 @@ void PianoRollView::Render() {
 		ImGui::EndDisabled();
 	} else {
 		mGridNumParam->DrawCompact(30 * scale, "%.0f");
-		ImGui::SameLine();
+		ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
 		ImGui::AlignTextToFramePadding();
-		ImGui::Text("/");
-		ImGui::SameLine();
+		ImGui::TextDisabled("/");
+		ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
 		mGridDenParam->DrawCompact(30 * scale, "%.0f");
 	}
 
@@ -373,14 +384,16 @@ void PianoRollView::Render() {
 	ImGui::SameLine();
 	ImGui::Dummy(ImVec2(10 * scale, 0));
 	ImGui::SameLine();
-	ImGui::Checkbox("Velocity", &mVelocityLaneOpen);
-	ImGui::SameLine();
-	ImGui::Checkbox("Minimap", &mMinimapEnabled);
+	if (Widgets::TextToggle("Velocity", mVelocityLaneOpen, ImVec2(0.0f, 0.0f), 0, "Show the velocity lane under the grid"))
+		mVelocityLaneOpen = !mVelocityLaneOpen;
+	ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+	if (Widgets::TextToggle("Minimap", mMinimapEnabled, ImVec2(0.0f, 0.0f), 0, "Show the overview of every clip in the corner"))
+		mMinimapEnabled = !mMinimapEnabled;
 
 	ImGui::SameLine();
 	ImGui::Dummy(ImVec2(10 * scale, 0));
 	ImGui::SameLine();
-	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(th.textMuted), "(Ctrl+A select | Del remove | Arrows move | Shift+Up/Down octave | Ctrl+Wheel zoom | click a clip to edit it)");
+	Caption("Ctrl+A select  |  Del remove  |  Arrows move  |  Shift+Up/Down octave  |  Ctrl+Wheel zoom  |  click a clip to edit it");
 
 	ImGui::Separator();
 

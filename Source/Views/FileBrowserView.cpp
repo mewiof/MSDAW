@@ -7,6 +7,7 @@
 #include "Project.h"
 #include "Theme.h"
 #include "Undo/Actions.h"
+#include "Widgets.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -25,18 +26,41 @@ namespace {
 		return name.empty() ? path : name;
 	}
 
-	// a MIDI file reads cool, the way an instrument does in the plugin list above;
-	// everything else is ordinary text. the accent stays reserved for selection
+	// a row's glyph says what kind of file it is, so its name stays in the ordinary text
+	// tone. a project is the one kind set back a step: it opens, it is never dropped
 	ImU32 KindColor(FileKind kind) {
 		const Theme& th = Theme::Instance();
+		return kind == FileKind::Project ? th.textMuted : th.text;
+	}
+
+	Icon KindIcon(FileKind kind) {
 		switch (kind) {
+			case FileKind::Folder:
+				return Icon::Folder;
+			case FileKind::Audio:
+				return Icon::AudioFile;
 			case FileKind::MIDI:
-				return th.graphCurveCool;
+				return Icon::MIDIFile;
 			case FileKind::Project:
-				return th.textMuted;
+				return Icon::ProjectFile;
 			default:
-				return th.text;
+				return Icon::ProjectFile;
 		}
+	}
+
+	// a tree node submitted with a hidden label, its glyph and name then painted where
+	// imgui would have put the label: past the arrow. the arrow is muted, the name not
+	bool TreeRow(const char* id, const std::string& name, ImGuiTreeNodeFlags flags) {
+		const ImGuiStyle& style = ImGui::GetStyle();
+		const Theme& th = Theme::Instance();
+		const ImVec2 origin = ImGui::GetCursorScreenPos();
+		ImGui::PushStyleColor(ImGuiCol_Text, th.textDim);
+		const bool open = ImGui::TreeNodeEx(id, flags);
+		ImGui::PopStyleColor();
+		const float labelX = origin.x + ImGui::GetFontSize() + style.FramePadding.x * 2.0f;
+		Widgets::ListRowFace(ImVec2(labelX, origin.y), ImGui::GetItemRectMax().x - style.ItemSpacing.x * 0.5f, Icon::Folder,
+							 name.c_str(), th.text, th.textMuted);
+		return open;
 	}
 
 	void ShowInFileManager(const std::string& path, bool isFolder) {
@@ -156,12 +180,7 @@ void FileBrowserView::Render(const ImVec2& panelMin, const ImVec2& panelMax) {
 // ================================================================
 
 void FileBrowserView::RenderToolbar() {
-	const Theme& th = Theme::Instance();
-
-	ImGui::PushStyleColor(ImGuiCol_Text, th.textMuted);
-	ImGui::AlignTextToFramePadding();
-	ImGui::TextUnformatted("FILES");
-	ImGui::PopStyleColor();
+	Widgets::Caption("FILES", Icon::Folder);
 
 	// the add button is pinned to the right edge rather than following the label:
 	// this column is narrow enough that a button floating mid-row reads as clutter
@@ -170,10 +189,9 @@ void FileBrowserView::RenderToolbar() {
 	ImGui::SameLine();
 	if (buttonX > ImGui::GetCursorPosX())
 		ImGui::SetCursorPosX(buttonX);
-	if (ImGui::Button("+", ImVec2(buttonSize, buttonSize)))
+	if (Widgets::IconButton("##AddFolder", Icon::Plus, ImVec2(buttonSize, buttonSize), Widgets::Frame::Ghost,
+							"Add a folder to the library"))
 		AddFolder();
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Add a folder to the library");
 
 	ImGui::Separator();
 }
@@ -185,8 +203,8 @@ void FileBrowserView::RenderSearchField() {
 	// searching sweeps every root recursively, so it starts on the return key rather
 	// than on each letter - one keystroke would otherwise cancel and restart a walk
 	// of the whole sample drive
-	if (ImGui::InputTextWithHint("##fileSearch", "Search files", mSearchBuffer, IM_ARRAYSIZE(mSearchBuffer),
-								 ImGuiInputTextFlags_EnterReturnsTrue)) {
+	if (Widgets::SearchField("##fileSearch", mSearchBuffer, IM_ARRAYSIZE(mSearchBuffer), "Search files",
+							 ImGuiInputTextFlags_EnterReturnsTrue)) {
 		if (mSearchBuffer[0] == '\0')
 			browser.CancelSearch();
 		else
@@ -229,7 +247,7 @@ void FileBrowserView::RenderTree() {
 			rootFlags |= ImGuiTreeNodeFlags_Selected;
 		ApplyKeyboardState(root);
 
-		const bool open = ImGui::TreeNodeEx(rootRow.name.c_str(), rootFlags);
+		const bool open = TreeRow("##Root", rootRow.name, rootFlags);
 		if (ImGui::IsItemClicked())
 			mSelectedPath = root;
 		if (ImGui::IsItemHovered())
@@ -288,7 +306,7 @@ void FileBrowserView::RenderDirectory(const std::string& directory) {
 			folderFlags |= ImGuiTreeNodeFlags_Selected;
 		ApplyKeyboardState(entry.path);
 
-		const bool open = ImGui::TreeNodeEx(entry.name.c_str(), folderFlags);
+		const bool open = TreeRow("##Folder", entry.name, folderFlags);
 		if (ImGui::IsItemClicked())
 			mSelectedPath = entry.path;
 		if (ImGui::BeginPopupContextItem("##FolderMenu")) {
@@ -313,14 +331,19 @@ void FileBrowserView::RenderFile(const FileEntry& entry) {
 	const bool auditioning = preview.IsPlaying() && preview.PlayingPath() == entry.path;
 
 	ImGui::PushID(entry.path.c_str());
-	// the file being auditioned is the one row here that is happening rather than
-	// merely selected, which is what the accent is for
-	ImGui::PushStyleColor(ImGuiCol_Text, auditioning ? Theme::Instance().accent : KindColor(entry.kind));
 	ApplyKeyboardState(entry.path);
 
-	// a leaf sits where a folder's label would, so the indent guide reads straight
-	// down a mixed listing instead of stepping in at every file
-	if (ImGui::Selectable(entry.name.c_str(), mSelectedPath == entry.path, ImGuiSelectableFlags_AllowDoubleClick)) {
+	// the file being auditioned is the one row here that is happening rather than
+	// merely selected, which is what the accent is for. its glyph sits in the column a
+	// folder's does - past where a sibling folder's arrow is - so the names line up
+	const Theme& th = Theme::Instance();
+	const ImGuiStyle& style = ImGui::GetStyle();
+	const ImVec2 origin = ImGui::GetCursorScreenPos();
+	const bool clicked = ImGui::Selectable("##File", mSelectedPath == entry.path, ImGuiSelectableFlags_AllowDoubleClick);
+	const float labelX = origin.x + ImGui::GetFontSize() + style.FramePadding.x * 2.0f;
+	Widgets::ListRowFace(ImVec2(labelX, origin.y), ImGui::GetItemRectMax().x - style.ItemSpacing.x * 0.5f, KindIcon(entry.kind),
+						 entry.name.c_str(), auditioning ? th.accent : KindColor(entry.kind), auditioning ? th.accent : th.textMuted);
+	if (clicked) {
 		mSelectedPath = entry.path;
 		// a double-click arrives as a click first, so the audition it started is
 		// stopped again on the way past - the file is about to be on a track anyway
@@ -331,7 +354,6 @@ void FileBrowserView::RenderFile(const FileEntry& entry) {
 			TogglePreview(entry);
 		}
 	}
-	ImGui::PopStyleColor();
 
 	// a project is opened, never dropped on a track, so it is not a drag source
 	if (entry.kind != FileKind::Project && ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {

@@ -10,6 +10,7 @@
 #include "Project.h"
 #include "SidechainHub.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include "Track.h"
 
 #include <algorithm>
@@ -241,19 +242,6 @@ namespace {
 	// ================================================================
 	// UI HELPERS
 	// ================================================================
-
-	bool ToggleButton(const char* label, bool active, const ImVec2& size = ImVec2(0, 0)) {
-		const Theme& th = Theme::Instance();
-		if (active) {
-			ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, th.accent);
-			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
-		}
-		const bool pressed = ImGui::Button(label, size);
-		if (active)
-			ImGui::PopStyleColor(3);
-		return pressed;
-	}
 
 	// where a curve sits inside its cell at `t`. the inset is per axis because a palette
 	// swatch wants breathing room on both, while a step in the lane must span its cell
@@ -926,7 +914,7 @@ void ModulatorProcessor::RenderHeaderRow() {
 	auto comboParam = [&](const char* id, Parameter* parameter, const char* const* names, int count, float width, const char* tooltip) {
 		const int current = std::clamp((int)std::lround(parameter->value), 0, count - 1);
 		ImGui::SetNextItemWidth(width);
-		if (ImGui::BeginCombo(id, names[current], ImGuiComboFlags_NoArrowButton)) {
+		if (Widgets::BeginCombo(id, names[current], ImGuiComboFlags_NoArrowButton)) {
 			for (int i = 0; i < count; ++i) {
 				if (ImGui::Selectable(names[i], i == current))
 					commit(parameter, (float)i);
@@ -944,10 +932,8 @@ void ModulatorProcessor::RenderHeaderRow() {
 			   "Stepper: every step holds a level");
 
 	ImGui::SameLine();
-	if (ToggleButton("Sync", synced))
+	if (Widgets::TextToggle("Sync", synced, ImVec2(0.0f, 0.0f), 0, "Lock the cycle to the project tempo"))
 		commit(pSync, synced ? 0.0f : 1.0f);
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Lock the cycle to the project tempo");
 
 	ImGui::SameLine();
 	const float rateWidth = WidestName(kDivisionNames, kNumDivisions) + style.FramePadding.x * 4.0f;
@@ -958,10 +944,8 @@ void ModulatorProcessor::RenderHeaderRow() {
 
 	ImGui::SameLine();
 	const bool restart = pRestart->value >= 0.5f;
-	if (ToggleButton("Restart", restart))
+	if (Widgets::TextToggle("Restart", restart, ImVec2(0.0f, 0.0f), 0, "Put the cycle back to its start on play, on a seek and on every note"))
 		commit(pRestart, restart ? 0.0f : 1.0f);
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Put the cycle back to its start on play, on a seek and on every note");
 
 	if (mode == ModeLFO) {
 		const float shapeWidth = WidestName(kShapeNames, kNumShapes) + style.FramePadding.x * 4.0f;
@@ -978,17 +962,14 @@ void ModulatorProcessor::RenderHeaderRow() {
 
 	if (mode != ModeLFO) {
 		ImGui::SameLine();
-		if (ToggleButton("Snap", mSnapToGrid))
+		if (Widgets::TextToggle("Snap", mSnapToGrid, ImVec2(0.0f, 0.0f), 0, "Quantize a dragged step height to eighths"))
 			mSnapToGrid = !mSnapToGrid;
-		if (ImGui::IsItemHovered())
-			ImGui::SetTooltip("Quantize a dragged step height to eighths");
 	}
 
 	ImGui::SameLine();
-	if (ImGui::Button("Rnd"))
+	const float diceSize = ImGui::GetFrameHeight();
+	if (Widgets::IconButton("##Randomize", Icon::Dice, ImVec2(diceSize, diceSize), Widgets::Frame::Boxed, "Roll a new pattern for both lanes"))
 		RandomizePattern();
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Roll a new pattern for both lanes");
 }
 
 void ModulatorProcessor::RandomizePattern() {

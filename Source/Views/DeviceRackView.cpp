@@ -13,7 +13,9 @@
 #include "Theme.h"
 #include "Track.h"
 #include "Undo/Actions.h"
+#include "Widgets.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <mutex>
 
@@ -46,21 +48,6 @@ namespace {
 		return std::dynamic_pointer_cast<ModulatorProcessor>(device);
 	}
 
-	// a two-state toggle drawn as a button, used for the rack's view column and for a
-	// chain's mute / solo
-	bool ToggleButton(const char* label, bool active, const ImVec2& size, ImU32 activeColor) {
-		const Theme& th = Theme::Instance();
-		if (active) {
-			ImGui::PushStyleColor(ImGuiCol_Button, activeColor);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, activeColor);
-			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
-		}
-		const bool pressed = ImGui::Button(label, size);
-		if (active)
-			ImGui::PopStyleColor(3);
-		return pressed;
-	}
-
 	// the curated palette, offered as swatches beside a free picker so a rack, a chain
 	// or a macro can be colored to match a track without hunting for the value
 	bool ColorMenu(const char* id, ImU32& color) {
@@ -71,7 +58,8 @@ namespace {
 		for (int i = 0; i < 12; ++i) {
 			const ImU32 swatch = th.TrackColor(i);
 			ImGui::PushID(i);
-			if (ImGui::ColorButton("##Swatch", ImGui::ColorConvertU32ToFloat4(swatch), ImGuiColorEditFlags_NoTooltip, ImVec2(18, 18))) {
+			const float swatchSize = ImGui::GetFrameHeight();
+			if (ImGui::ColorButton("##Swatch", ImGui::ColorConvertU32ToFloat4(swatch), ImGuiColorEditFlags_NoTooltip, ImVec2(swatchSize, swatchSize))) {
 				color = swatch;
 				changed = true;
 			}
@@ -169,9 +157,12 @@ void DeviceRackView::Render(const ImVec2& pos, float width, float height) {
 	// prevent double-padding issues with full-size children
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
+	// the strip is the dark ground the devices sit on as cards
 	ImGui::SetNextWindowPos(pos);
 	ImGui::SetNextWindowSize(ImVec2(width, height));
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, Theme::Instance().bgWindow);
 	ImGui::Begin("Device Rack", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBringToFrontOnFocus);
+	ImGui::PopStyleColor();
 
 	Project* project = mContext.GetProject();
 	mTrack = DeviceRackOps::ResolveTrack(project, mContext.state.selectedTrackIndex);
@@ -274,7 +265,6 @@ void DeviceRackView::RenderDevice(const std::shared_ptr<ProcessorHost>& host, co
 	auto rack = AsRack(device);
 	const Theme& th = Theme::Instance();
 	const ImGuiStyle& style = ImGui::GetStyle();
-	const float scale = mContext.state.mainScale;
 	const bool selected = mContext.state.IsDeviceSelected(device);
 
 	ImU32 background = rack ? th.bgDeviceRack : (device->IsInstrument() ? th.bgDeviceInstrument : th.bgDeviceEffect);
@@ -297,48 +287,58 @@ void DeviceRackView::RenderDevice(const std::shared_ptr<ProcessorHost>& host, co
 
 	ImGui::BeginChild("DeviceBody", ImVec2(width, bodyHeight), childFlags, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-	// the selection outline is drawn from inside the device, over the top of its own
-	// border: a child window paints its frame after the parent has drawn, so an outline
-	// laid down out there comes back with its edges painted over
-	if (selected) {
-		const ImVec2 bodyMin = ImGui::GetWindowPos();
-		const ImVec2 bodySize = ImGui::GetWindowSize();
-		ImGui::GetWindowDrawList()->AddRect(ImVec2(bodyMin.x + 1.0f, bodyMin.y + 1.0f),
-											ImVec2(bodyMin.x + bodySize.x - 1.0f, bodyMin.y + bodySize.y - 1.0f),
-											th.accent, style.ChildRounding, 0, 2.0f * scale);
-	}
+	// ---- title strip ----
+	// a band a little taller than the name, lighter than the body, carrying the lamp, the
+	// name and the editor button. it is painted first so the header widgets land on it
+	ImDrawList* frameDrawList = ImGui::GetWindowDrawList();
+	const ImVec2 bodyMin = ImGui::GetWindowPos();
+	const ImVec2 bodySize = ImGui::GetWindowSize();
+	const float lineHeight = ImGui::GetTextLineHeight();
+	const float titleHeight = std::floor(style.WindowPadding.y * 2.0f + lineHeight);
+	if (!device->IsBypassed())
+		frameDrawList->AddRectFilled(bodyMin, ImVec2(bodyMin.x + bodySize.x, bodyMin.y + titleHeight), selected ? th.deviceTitleSelected : th.deviceTitle);
+	frameDrawList->AddRectFilled(ImVec2(bodyMin.x, bodyMin.y + titleHeight - 1.0f), ImVec2(bodyMin.x + bodySize.x, bodyMin.y + titleHeight), th.border);
 
 	// ---- header ----
+	ImGui::SetCursorPosY(std::floor((titleHeight - lineHeight) * 0.5f));
 	ImGui::BeginGroup();
 
-	// the lamp sits at the left of a hit area as tall as the name, so it stays centered
-	// on that line at any font size, and the target is wider than the lamp it lights
-	const float lineHeight = ImGui::GetTextLineHeight();
-	const float ledRadius = 5.0f * scale;
+	// the activator is the reference product's lamp: a filled disc in the accent while the
+	// device runs, an empty ring once it is switched off. it sits at the left of a hit area
+	// as tall as the name, so it stays centered on that line at any font size, and the
+	// target is wider than the lamp it lights
+	const float ledRadius = std::floor(lineHeight * 0.36f);
 	const ImVec2 ledPos = ImGui::GetCursorScreenPos();
 	ImGui::InvisibleButton("##Activator", ImVec2(ledRadius * 2.0f + style.ItemInnerSpacing.x, lineHeight));
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip(device->IsBypassed() ? "Activate (0)" : "Deactivate (0)");
 	if (ImGui::IsItemClicked()) {
 		auto targets = CommandTargets(device);
 		mDeferred.push_back([this, targets]() { DeviceRackOps::ToggleDevicesBypassed(mContext.GetProject(), mContext.undoManager, targets); });
 	}
-	ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(ledPos.x + ledRadius, ledPos.y + lineHeight * 0.5f),
-											   ledRadius, device->IsBypassed() ? th.border : th.accent);
+	const ImVec2 ledCenter(std::floor(ledPos.x + ledRadius) + 0.5f, std::floor(ledPos.y + lineHeight * 0.5f) + 0.5f);
+	if (device->IsBypassed()) {
+		frameDrawList->AddCircle(ledCenter, ledRadius - 0.5f, th.textDim, 0, 1.5f);
+	} else {
+		frameDrawList->AddCircleFilled(ledCenter, ledRadius, th.accent);
+		frameDrawList->AddCircle(ledCenter, ledRadius, Theme::WithAlpha(th.bgDeepest, 120), 0, 1.0f);
+	}
 
 	ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
-	if (selected)
-		ImGui::PushStyleColor(ImGuiCol_Text, th.accent);
+	Widgets::PushStrongFont();
+	ImGui::PushStyleColor(ImGuiCol_Text, device->IsBypassed() ? th.textDim : th.text);
 	ImGui::TextUnformatted(device->GetName());
-	if (selected)
-		ImGui::PopStyleColor();
+	ImGui::PopStyleColor();
+	ImGui::PopFont();
 
 	if (device->HasEditor()) {
-		ImGui::SameLine();
-		if (ImGui::SmallButton("Edit"))
+		ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
+		if (Widgets::IconButton("##OpenEditor", Icon::Window, ImVec2(lineHeight, lineHeight), Widgets::Frame::Ghost, "Show the plugin's own window"))
 			device->OpenEditor(mContext.nativeWindowHandle);
 	}
 
 	ImGui::EndGroup();
-	const ImVec2 afterHeader = ImGui::GetCursorPos();
+	const ImVec2 afterHeader(ImGui::GetCursorPosX(), titleHeight);
 
 	// the whole header strip, from the device's top edge down to the rule under the name,
 	// is the hit area for selecting and dragging the device. the widgets above resolved
@@ -363,8 +363,7 @@ void DeviceRackView::RenderDevice(const std::shared_ptr<ProcessorHost>& host, co
 	}
 	RenderDeviceContextMenu(device);
 
-	ImGui::SetCursorPos(afterHeader);
-	ImGui::Separator();
+	ImGui::SetCursorPos(ImVec2(afterHeader.x, afterHeader.y + style.ItemSpacing.y));
 
 	// ---- body ----
 	// what is left once the header strip is out of the way, and the one height every
@@ -382,6 +381,15 @@ void DeviceRackView::RenderDevice(const std::shared_ptr<ProcessorHost>& host, co
 		// scrollbar, not spread across a device ten columns wide
 		RenderParameterPanel(device);
 	}
+
+	// the card's edge and the selection outline are drawn from inside the device, over
+	// everything in it: a child window paints its frame after the parent has drawn, so an
+	// outline laid down out there comes back with its edges painted over
+	ImDrawList* edgeDrawList = ImGui::GetWindowDrawList();
+	edgeDrawList->PushClipRect(bodyMin, ImVec2(bodyMin.x + bodySize.x, bodyMin.y + bodySize.y), false);
+	edgeDrawList->AddRect(bodyMin, ImVec2(bodyMin.x + bodySize.x, bodyMin.y + bodySize.y), selected ? th.accent : th.border,
+						  style.ChildRounding, 0, 1.0f);
+	edgeDrawList->PopClipRect();
 
 	ImGui::EndChild();
 	ImGui::PopStyleColor();
@@ -427,7 +435,6 @@ void DeviceRackView::EndPanelCapture() {
 // plugin's own editor is a click away - so it starts empty and gets configured, with
 // All there for the times the full list really is what is wanted
 void DeviceRackView::RenderParameterPanel(const std::shared_ptr<AudioProcessor>& device) {
-	const Theme& th = Theme::Instance();
 	const auto& parameters = device->GetParameters();
 	const std::vector<int>& panel = device->GetPanelParameters();
 	const bool capturing = device->IsPanelCapturing();
@@ -438,7 +445,7 @@ void DeviceRackView::RenderParameterPanel(const std::shared_ptr<AudioProcessor>&
 		mPanelCaptureSeen = true;
 
 	if (configurable) {
-		if (ToggleButton("Add", capturing, ImVec2(0, 0), th.accent)) {
+		if (Widgets::TextToggle("Add", capturing)) {
 			if (capturing)
 				mDeferred.push_back([this]() { EndPanelCapture(); });
 			else
@@ -449,12 +456,12 @@ void DeviceRackView::RenderParameterPanel(const std::shared_ptr<AudioProcessor>&
 
 		ImGui::SameLine();
 		if (panel.empty()) {
-			if (ToggleButton("All", showAll, ImVec2(0, 0), th.accent))
+			if (Widgets::TextToggle("All", showAll))
 				mPanelShowAllDevice = showAll ? std::weak_ptr<AudioProcessor>() : std::weak_ptr<AudioProcessor>(device);
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("List every parameter the plugin publishes");
 		} else {
-			if (ImGui::SmallButton("Clear")) {
+			if (Widgets::TextToggle("Clear", false)) {
 				mDeferred.push_back([this, device]() {
 					EndPanelCapture();
 					std::vector<int> before = device->GetPanelParameters();
@@ -480,7 +487,9 @@ void DeviceRackView::RenderParameterPanel(const std::shared_ptr<AudioProcessor>&
 
 			ImGui::PushID(index);
 			if (capturing) {
-				if (ImGui::SmallButton("-")) {
+				const float removeSize = ImGui::GetFrameHeight();
+				if (Widgets::IconButton("##RemoveFromPanel", Icon::Minus, ImVec2(removeSize, removeSize), Widgets::Frame::Boxed,
+										"Take this control off the panel")) {
 					mDeferred.push_back([device, index]() {
 						std::vector<int> next = device->GetPanelParameters();
 						next.erase(std::remove(next.begin(), next.end(), index), next.end());
@@ -542,22 +551,23 @@ void DeviceRackView::RenderRackBody(const std::shared_ptr<RackProcessor>& rack, 
 		if (Parameter* clicked = Parameter::GetSelectedParameter())
 			mMapCandidate = clicked;
 	}
-	if (ToggleButton("Map", mapMode, ImVec2(0, 0), th.accent))
+	if (Widgets::TextToggle("Map", mapMode, ImVec2(0.0f, 0.0f), 0, "Click a device parameter, then Map on the macro that should drive it"))
 		mMapModeRack = mapMode ? std::weak_ptr<RackProcessor>() : std::weak_ptr<RackProcessor>(rack);
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Click a device parameter, then Map on the macro that should drive it");
 
+	// the macro count, stepped by a glyph pair around the number it sets
+	const float stepSize = ImGui::GetFrameHeight();
 	ImGui::SameLine();
-	if (ImGui::SmallButton("-")) {
+	if (Widgets::IconButton("##FewerMacros", Icon::Minus, ImVec2(stepSize, stepSize), Widgets::Frame::Ghost, "Show fewer macros")) {
 		const int count = rack->GetVisibleMacroCount() - 1;
 		mDeferred.push_back([this, rack, count]() {
 			DeviceRackOps::EditRack(mContext.GetProject(), mContext.undoManager, rack, "Macro count", [rack, count]() { rack->SetVisibleMacroCount(count); });
 		});
 	}
-	ImGui::SameLine();
+	ImGui::SameLine(0.0f, 0.0f);
+	ImGui::AlignTextToFramePadding();
 	ImGui::Text("%d", rack->GetVisibleMacroCount());
-	ImGui::SameLine();
-	if (ImGui::SmallButton("+")) {
+	ImGui::SameLine(0.0f, 0.0f);
+	if (Widgets::IconButton("##MoreMacros", Icon::Plus, ImVec2(stepSize, stepSize), Widgets::Frame::Ghost, "Show more macros")) {
 		const int count = rack->GetVisibleMacroCount() + 1;
 		mDeferred.push_back([this, rack, count]() {
 			DeviceRackOps::EditRack(mContext.GetProject(), mContext.undoManager, rack, "Macro count", [rack, count]() { rack->SetVisibleMacroCount(count); });
@@ -575,7 +585,7 @@ void DeviceRackView::RenderRackBody(const std::shared_ptr<RackProcessor>& rack, 
 	}
 
 	ImGui::SameLine();
-	if (ImGui::SmallButton("Mappings")) {
+	if (Widgets::IconButton("##Mappings", Icon::List, ImVec2(stepSize, stepSize), Widgets::Frame::Ghost, "Every mapping this rack's macros hold")) {
 		mBrowserRack = rack;
 		mOpenBrowserPopup = true;
 	}
@@ -593,12 +603,15 @@ void DeviceRackView::RenderRackBody(const std::shared_ptr<RackProcessor>& rack, 
 	// ---- view column ----
 	ImGui::PushStyleColor(ImGuiCol_ChildBg, th.bgRackInner);
 	ImGui::BeginChild("ViewColumn", ImVec2(layout.viewColumn, columnHeight), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
-	const ImVec2 toggleSize(layout.viewColumn - 2.0f * scale, columnHeight / 3.0f - 2.0f * scale);
-	if (ToggleButton("M", rack->mShowMacros, toggleSize, th.accentMuted))
+	// one square glyph toggle per panel, stacked at the top of the column the way the
+	// reference product stacks its rack's view buttons
+	const float viewToggle = std::floor(layout.viewColumn - 2.0f * scale);
+	const ImVec2 toggleSize(viewToggle, viewToggle);
+	if (Widgets::IconToggle("##ShowMacros", Icon::Knob, rack->mShowMacros, toggleSize, th.accent, Widgets::Frame::Ghost, "Macros"))
 		rack->mShowMacros = !rack->mShowMacros;
-	if (ToggleButton("C", rack->mShowChains, toggleSize, th.accentMuted))
+	if (Widgets::IconToggle("##ShowChains", Icon::List, rack->mShowChains, toggleSize, th.accent, Widgets::Frame::Ghost, "Chain list"))
 		rack->mShowChains = !rack->mShowChains;
-	if (ToggleButton("D", rack->mShowDevices, toggleSize, th.accentMuted))
+	if (Widgets::IconToggle("##ShowDevices", Icon::Devices, rack->mShowDevices, toggleSize, th.accent, Widgets::Frame::Ghost, "Devices"))
 		rack->mShowDevices = !rack->mShowDevices;
 	ImGui::EndChild();
 	ImGui::PopStyleColor();
@@ -669,7 +682,9 @@ void DeviceRackView::RenderMacroPanel(const std::shared_ptr<RackProcessor>& rack
 				continue;
 
 			const RackProcessor::Macro& macro = rack->GetMacro(index);
-			const ImU32 color = macro.color != 0 ? macro.color : th.accent;
+			// a macro is gray like every other control until the user gives it a color
+			const ImU32 color = macro.color != 0 ? macro.color : th.knobValue;
+			const ImU32 titleColor = macro.color != 0 ? macro.color : th.textMuted;
 			const std::string title = macro.title.empty() ? macroParam->name : macro.title;
 
 			ImGui::PushID(index);
@@ -712,7 +727,7 @@ void DeviceRackView::RenderMacroPanel(const std::shared_ptr<RackProcessor>& rack
 
 			const ImVec2 titleSize = ImGui::CalcTextSize(title.c_str());
 			ImGui::GetWindowDrawList()->AddText(ImVec2(titlePos.x + (cellWidth - titleSize.x) * 0.5f, titlePos.y),
-												color, title.c_str());
+												titleColor, title.c_str());
 
 			ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImGui::ColorConvertU32ToFloat4(color));
 			if (radius > 0.0f) {
@@ -752,7 +767,7 @@ void DeviceRackView::RenderChainList(const std::shared_ptr<RackProcessor>& rack,
 	(void)height;
 
 	auto& chains = rack->GetChains();
-	const float buttonWidth = 18.0f * scale;
+	const float buttonWidth = std::floor(ImGui::GetFrameHeight() * 1.1f);
 	const float volumeWidth = 46.0f * scale;
 	const float nameWidth = std::max(width - buttonWidth * 2.0f - volumeWidth - style.ItemSpacing.x * 4.0f - style.ScrollbarSize, 40.0f);
 
@@ -761,7 +776,7 @@ void DeviceRackView::RenderChainList(const std::shared_ptr<RackProcessor>& rack,
 		ImGui::PushID(i);
 
 		const bool isSelected = (rack->GetSelectedChainIndex() == i);
-		const ImU32 color = chain->GetColor() != 0 ? chain->GetColor() : (rack->GetColor() != 0 ? rack->GetColor() : th.accentMuted);
+		const ImU32 color = chain->GetColor() != 0 ? chain->GetColor() : (rack->GetColor() != 0 ? rack->GetColor() : th.textDim);
 
 		// as tall as the buttons beside it, so the row reads as one band with the name on
 		// the same center line as M, S and the volume
@@ -810,13 +825,14 @@ void DeviceRackView::RenderChainList(const std::shared_ptr<RackProcessor>& rack,
 		ImGui::PopClipRect();
 
 		ImGui::SameLine();
-		if (ToggleButton("M", chain->GetMute(), ImVec2(buttonWidth, 0), th.danger)) {
+		const ImVec2 chainToggle(buttonWidth, ImGui::GetFrameHeight());
+		if (Widgets::IconToggle("##MuteChain", chain->GetMute() ? Icon::SpeakerOff : Icon::Speaker, chain->GetMute(), chainToggle, th.muteActive)) {
 			mDeferred.push_back([this, rack, chain]() {
 				DeviceRackOps::EditRack(mContext.GetProject(), mContext.undoManager, rack, "Mute chain", [chain]() { chain->SetMute(!chain->GetMute()); });
 			});
 		}
 		ImGui::SameLine();
-		if (ToggleButton("S", chain->GetSolo(), ImVec2(buttonWidth, 0), th.accent)) {
+		if (Widgets::IconToggle("##SoloChain", Icon::Headphones, chain->GetSolo(), chainToggle, th.soloActive)) {
 			mDeferred.push_back([this, rack, chain]() {
 				DeviceRackOps::EditRack(mContext.GetProject(), mContext.undoManager, rack, "Solo chain", [chain]() { chain->SetSolo(!chain->GetSolo()); });
 			});
@@ -827,7 +843,7 @@ void DeviceRackView::RenderChainList(const std::shared_ptr<RackProcessor>& rack,
 		ImGui::PopID();
 	}
 
-	if (ImGui::Button("+ Chain", ImVec2(width - style.ItemSpacing.x * 2.0f, 0))) {
+	if (Widgets::IconTextButton("Chain##AddChain", Icon::Plus, ImVec2(width - style.ItemSpacing.x * 2.0f, 0), "Add a parallel chain")) {
 		mDeferred.push_back([this, rack]() {
 			DeviceRackOps::EditRack(mContext.GetProject(), mContext.undoManager, rack, "Add chain", [rack]() {
 				rack->AddChain("Chain " + std::to_string(rack->GetChains().size() + 1));
@@ -845,7 +861,7 @@ void DeviceRackView::RenderMappingBrowser(const std::shared_ptr<RackProcessor>& 
 	if (!ImGui::BeginPopup("MacroMappings"))
 		return;
 
-	ImGui::TextDisabled("MACRO MAPPINGS");
+	Widgets::Caption("MACRO MAPPINGS", Icon::Knob);
 	ImGui::Separator();
 
 	bool anyMapping = false;
@@ -888,7 +904,8 @@ void DeviceRackView::RenderMappingBrowser(const std::shared_ptr<RackProcessor>& 
 				mRangeEditBefore = rack->CaptureState();
 			}
 			ImGui::SameLine();
-			if (ImGui::SmallButton("x")) {
+			const float removeSize = ImGui::GetFrameHeight();
+			if (Widgets::IconButton("##Unmap", Icon::Close, ImVec2(removeSize, removeSize), Widgets::Frame::Ghost, "Remove this mapping")) {
 				mDeferred.push_back([this, rack, macroIndex, mappingIndex]() {
 					DeviceRackOps::EditRack(mContext.GetProject(), mContext.undoManager, rack, "Unmap macro",
 											[rack, macroIndex, mappingIndex]() { rack->UnmapMacro(macroIndex, mappingIndex); });
@@ -930,16 +947,16 @@ void DeviceRackView::RenderModulatorBody(const std::shared_ptr<ModulatorProcesso
 		if (Parameter* clicked = Parameter::GetSelectedParameter())
 			mMapCandidate = clicked;
 	}
-	if (ToggleButton("Map", mapMode, ImVec2(0, 0), th.accent))
+	if (Widgets::TextToggle("Map", mapMode, ImVec2(0.0f, 0.0f), 0,
+							"Click a parameter anywhere - a rack macro, a plugin knob, a fader -\n"
+							"then press + to drive it from here"))
 		mMapModeModulator = mapMode ? std::weak_ptr<ModulatorProcessor>() : std::weak_ptr<ModulatorProcessor>(modulator);
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Click a parameter anywhere - a rack macro, a plugin knob, a fader -\n"
-						  "then press + to drive it from here");
 
 	if (mapMode) {
 		ImGui::SameLine();
 		ImGui::BeginDisabled(mMapCandidate == nullptr);
-		if (ImGui::Button("+")) {
+		const float addSize = ImGui::GetFrameHeight();
+		if (Widgets::IconButton("##AddTarget", Icon::Plus, ImVec2(addSize, addSize), Widgets::Frame::Boxed)) {
 			Parameter* candidate = mMapCandidate;
 			mDeferred.push_back([this, modulator, candidate]() {
 				Project* project = mContext.GetProject();
@@ -957,7 +974,7 @@ void DeviceRackView::RenderModulatorBody(const std::shared_ptr<ModulatorProcesso
 	}
 
 	ImGui::SameLine();
-	if (ImGui::SmallButton("Targets"))
+	if (Widgets::IconTextButton("Targets", Icon::Target, ImVec2(0.0f, 0.0f), "Everything this modulator drives"))
 		mOpenTargetPopup = true;
 	// the popup is opened here whoever asked for it: OpenPopup names an id relative to
 	// the current stack (see the rack's mapping browser for the same dance)
@@ -966,7 +983,8 @@ void DeviceRackView::RenderModulatorBody(const std::shared_ptr<ModulatorProcesso
 		mOpenTargetPopup = false;
 		ImGui::OpenPopup("ModulationTargets");
 	}
-	ImGui::SameLine();
+	ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+	ImGui::AlignTextToFramePadding();
 	ImGui::TextDisabled("%d", (int)modulator->GetTargets().size());
 	RenderTargetBrowser(modulator);
 
@@ -995,7 +1013,7 @@ void DeviceRackView::RenderTargetBrowser(const std::shared_ptr<ModulatorProcesso
 	if (!ImGui::BeginPopup("ModulationTargets"))
 		return;
 
-	ImGui::TextDisabled("MODULATION TARGETS");
+	Widgets::Caption("MODULATION TARGETS", Icon::Target);
 	ImGui::Separator();
 
 	auto& targets = modulator->GetTargetsMutable();
@@ -1049,7 +1067,8 @@ void DeviceRackView::RenderTargetBrowser(const std::shared_ptr<ModulatorProcesso
 		}
 
 		ImGui::SameLine();
-		if (ImGui::SmallButton("x")) {
+		const float removeSize = ImGui::GetFrameHeight();
+		if (Widgets::IconButton("##DropTarget", Icon::Close, ImVec2(removeSize, removeSize), Widgets::Frame::Ghost, "Stop driving this parameter")) {
 			mDeferred.push_back([this, modulator, i]() {
 				DeviceRackOps::EditModulator(mContext.GetProject(), mContext.undoManager, modulator, "Drop target",
 											 [modulator, i]() { modulator->RemoveTarget(i); });

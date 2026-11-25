@@ -8,6 +8,7 @@
 #include "AutomationEdits.h"
 #include "Undo/Actions.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include <algorithm>
 #include <cmath>
 
@@ -66,7 +67,7 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 			ImU32 ghostMIDIColor = th.automationGhost;
 
 			TimelineClipRenderer::DrawClipContent(drawList, clip, pMin, pMax, winPos, viewWidth,
-												  context, ghostBgColor, -1.0, -1.0, -1.0,
+												  context, ghostBgColor, false, -1.0, -1.0, -1.0,
 												  ghostWaveColor, ghostMIDIColor);
 		}
 	}
@@ -102,7 +103,7 @@ void TimelineAutomationRenderer::Render(EditorContext& context, TimelineInteract
 	ImGui::SetCursorScreenPos(ImVec2(winPos.x + 5 + scrollX, yPos + 2));
 	ImGui::PushItemWidth(120);
 	std::string comboLabel = t->mSelectedAutomationParam ? t->mSelectedAutomationParam->name : "None";
-	if (ImGui::BeginCombo(("##AutoParam" + std::to_string(trackIndex)).c_str(), comboLabel.c_str())) {
+	if (Widgets::BeginCombo(("##AutoParam" + std::to_string(trackIndex)).c_str(), comboLabel.c_str())) {
 		// a plugin device lists nothing here until its panel is configured, so this is
 		// the way through to the rest of what it publishes
 		ImGui::Checkbox("All parameters", &t->mAutomationListsAllParams);

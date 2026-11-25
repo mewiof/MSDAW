@@ -2,6 +2,7 @@
 #include "Editor.h"
 #include "AppConfig.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include "Processors/VSTProcessor.h"
 #include "Processors/VST3Processor.h"
 #include "Undo/Actions.h"
@@ -442,41 +443,40 @@ static float MetricHeat(float value, float good, float bad) {
 
 void Editor::DrawMeterCell(const char* id, const char* label, float fraction, float heat, const char* valueText, const char* tooltip) {
 	const Theme& th = Theme::Instance();
+	const ImGuiStyle& style = ImGui::GetStyle();
 	float scale = mContext.state.mainScale;
-	float barW = 46.0f * scale;
-	float lineH = ImGui::GetTextLineHeight();
-	// the menu bar aligns text to frame padding (BeginMenuBar calls AlignTextToFramePadding),
-	// so the label/value sit centered in the full frame height, not the bare text line. size
-	// and center the bar against that same height or it floats above the text
+	float barW = 40.0f * scale;
+	// the cell is one frame-height line of the menu bar: a caption, a hairline gauge and
+	// the reading, all in the caption size and centered on that line. the gauge's color
+	// carries the severity, so the numbers stay in the quiet tone beside it
 	float frameH = ImGui::GetFrameHeight();
-	float barH = lineH * 0.66f;
+	float barH = std::max(3.0f, std::floor(4.0f * scale));
 	ImU32 heatCol = th.HeatColor(heat);
 
-	ImGui::TextUnformatted(label);
-	ImGui::SameLine();
+	Widgets::PushSmallFont();
+	const ImVec2 labelSize = ImGui::CalcTextSize(label);
+	const ImVec2 valueSize = ImGui::CalcTextSize(valueText);
+	const float cellW = labelSize.x + style.ItemInnerSpacing.x + barW + style.ItemInnerSpacing.x + valueSize.x;
 
-	// reserve the bar's footprint with an invisible item so layout advances and we
-	// get a hover rect for the tooltip, then paint the bar into that rect by hand
+	// reserve the cell's footprint with an invisible item so layout advances and we get a
+	// hover rect for the tooltip, then paint into that rect by hand
 	ImVec2 p = ImGui::GetCursorScreenPos();
-	ImGui::InvisibleButton(id, ImVec2(barW, frameH));
+	ImGui::InvisibleButton(id, ImVec2(cellW, frameH));
 	bool hovered = ImGui::IsItemHovered();
 
 	ImDrawList* dl = ImGui::GetWindowDrawList();
-	float yOff = (frameH - barH) * 0.5f; // center the bar in the frame-padded line so it lines up with the text
-	ImVec2 bmin(p.x, p.y + yOff);
-	ImVec2 bmax(p.x + barW, p.y + yOff + barH);
-	float rounding = 2.0f * scale;
+	const float middle = p.y + frameH * 0.5f;
+	dl->AddText(ImVec2(p.x, middle - labelSize.y * 0.5f), th.textDim, label);
 
+	ImVec2 bmin(p.x + labelSize.x + style.ItemInnerSpacing.x, std::floor(middle - barH * 0.5f));
+	ImVec2 bmax(bmin.x + barW, bmin.y + barH);
 	float f = fraction < 0.0f ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
-	dl->AddRectFilled(bmin, bmax, Theme::WithAlpha(th.text, 25), rounding); // track
-	if (f > 0.005f) {
-		ImVec2 fmax(bmin.x + barW * f, bmax.y);
-		dl->AddRectFilled(bmin, fmax, heatCol, rounding); // fill
-	}
-	dl->AddRect(bmin, bmax, Theme::WithAlpha(th.text, 45), rounding); // frame
+	dl->AddRectFilled(bmin, bmax, th.bgHeader); // track
+	if (f > 0.005f)
+		dl->AddRectFilled(bmin, ImVec2(bmin.x + std::max(barW * f, 1.0f), bmax.y), heatCol); // fill
 
-	ImGui::SameLine();
-	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(heatCol), "%s", valueText);
+	dl->AddText(ImVec2(bmax.x + style.ItemInnerSpacing.x, middle - valueSize.y * 0.5f), th.textMuted, valueText);
+	ImGui::PopFont();
 
 	if (hovered && tooltip && tooltip[0])
 		ImGui::SetTooltip("%s", tooltip);
@@ -485,7 +485,7 @@ void Editor::DrawMeterCell(const char* id, const char* label, float fraction, fl
 void Editor::RenderResourceMeter() {
 	ImGuiStyle& style = ImGui::GetStyle();
 	float scale = mContext.state.mainScale;
-	float barW = 46.0f * scale;
+	float barW = 40.0f * scale;
 
 	float cpu = mSystemMonitor.GetCpuPercent();
 	float ramMB = mSystemMonitor.GetRamUsedMB();
@@ -499,10 +499,14 @@ void Editor::RenderResourceMeter() {
 	else
 		snprintf(ramVal, sizeof(ramVal), "%.0f MB", ramMB);
 
-	// measure the whole widget so we can pin it to the right edge of the bar
-	float sp = style.ItemSpacing.x;
-	float cpuCellW = ImGui::CalcTextSize("CPU").x + sp + barW + sp + ImGui::CalcTextSize(cpuVal).x;
-	float ramCellW = ImGui::CalcTextSize("RAM").x + sp + barW + sp + ImGui::CalcTextSize(ramVal).x;
+	// measure the whole widget so we can pin it to the right edge of the bar, in the
+	// caption size the cells are drawn in
+	float sp = style.ItemSpacing.x * 2.0f;
+	float inner = style.ItemInnerSpacing.x;
+	Widgets::PushSmallFont();
+	float cpuCellW = ImGui::CalcTextSize("CPU").x + inner + barW + inner + ImGui::CalcTextSize(cpuVal).x;
+	float ramCellW = ImGui::CalcTextSize("RAM").x + inner + barW + inner + ImGui::CalcTextSize(ramVal).x;
+	ImGui::PopFont();
 	float totalW = cpuCellW + sp + ramCellW;
 
 	// right-align without fighting imgui's coordinate origins: stay on the menu
@@ -520,7 +524,7 @@ void Editor::RenderResourceMeter() {
 			 ramVal, ramFrac * 100.0f, mSystemMonitor.GetTotalRamMB() / 1024.0f, mSystemMonitor.GetSystemRamLoad());
 
 	DrawMeterCell("##cpuMeter", "CPU", cpu / 100.0f, MetricHeat(cpu, 40.0f, 85.0f), cpuVal, cpuTip);
-	ImGui::SameLine();
+	ImGui::SameLine(0.0f, sp);
 	DrawMeterCell("##ramMeter", "RAM", ramFrac, MetricHeat(ramFrac * 100.0f, 40.0f, 80.0f), ramVal, ramTip);
 }
 
@@ -865,7 +869,7 @@ void Editor::RenderHistoryWindow() {
 	UndoManager& undo = mContext.undoManager;
 
 	ImGui::SetNextWindowSize(ImVec2(240 * mContext.state.mainScale, 320 * mContext.state.mainScale), ImGuiCond_FirstUseEver);
-	if (ImGui::Begin("History", &mContext.state.showHistoryWindow)) {
+	if (Widgets::BeginFloatingWindow("History", &mContext.state.showHistoryWindow)) {
 		std::vector<std::string> labels = undo.GetHistory();
 		int applied = (int)undo.GetAppliedCount();
 
@@ -922,8 +926,9 @@ void Editor::RenderSettingsWindow() {
 	const Theme& th = Theme::Instance();
 	const float scale = mContext.state.mainScale;
 
-	if (ImGui::Begin("Settings", &mContext.state.showSettingsWindow, ImGuiWindowFlags_AlwaysAutoResize)) {
-		if (ImGui::BeginTabBar("SettingsTabs")) {
+	if (Widgets::BeginFloatingWindow("Settings", &mContext.state.showSettingsWindow, ImGuiWindowFlags_AlwaysAutoResize)) {
+		// the open tab carries the accent's line, the mark every tab in the app is opened by
+		if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_DrawSelectedOverline)) {
 			if (ImGui::BeginTabItem("Audio")) {
 				ImGui::Text("Device: Default Output");
 				ImGui::Text("Sample Rate: 48000 Hz");
@@ -960,10 +965,14 @@ void Editor::RenderSettingsWindow() {
 				ImGui::PushStyleColor(ImGuiCol_ChildBg, th.inputBg);
 				ImGui::BeginChild("PathList", ImVec2(400 * scale, 150 * scale), ImGuiChildFlags_AlwaysUseWindowPadding);
 				for (int i = 0; i < (int)paths.size(); ++i) {
-					ImGui::Text("%s", paths[i].c_str());
-					ImGui::SameLine();
-					if (ImGui::SmallButton(("X##" + std::to_string(i)).c_str()))
+					ImGui::PushID(i);
+					const float removeSize = ImGui::GetTextLineHeight();
+					if (Widgets::IconButton("##RemovePath", Icon::Close, ImVec2(removeSize, removeSize), Widgets::Frame::Ghost,
+											"Stop searching this folder"))
 						pathToRemove = i;
+					ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+					ImGui::TextUnformatted(paths[i].c_str());
+					ImGui::PopID();
 				}
 				ImGui::EndChild();
 				ImGui::PopStyleColor();
@@ -1006,7 +1015,7 @@ void Editor::RenderThirdPartyWindow() {
 	const int noticeCount = IM_ARRAYSIZE(kThirdPartyNotices);
 
 	ImGui::SetNextWindowSize(ImVec2(820 * scale, 480 * scale), ImGuiCond_FirstUseEver);
-	if (ImGui::Begin("Third Party", &mContext.state.showThirdPartyWindow)) {
+	if (Widgets::BeginFloatingWindow("Third Party", &mContext.state.showThirdPartyWindow)) {
 		// NOTE: a single-exe build ships no license files beside it, so this window is
 		// the documentation those licenses require the notices to appear in - which is
 		// why it carries the texts in full rather than only naming them
@@ -1128,41 +1137,73 @@ void Editor::Render(const ImVec2& fullWorkPos, const ImVec2& fullWorkSize) {
 	mTimelineView->Render(ImVec2(workPos.x + libraryW, workPos.y + transportH), workSize.x - libraryW, middleHeight, mTrackListView.get(), trackListW);
 
 	// bottom tab panel
+	const Theme& th = Theme::Instance();
+	const ImGuiStyle& style = ImGui::GetStyle();
 	ImGui::SetNextWindowPos(ImVec2(workPos.x, workPos.y + workSize.y - bottomH));
 	ImGui::SetNextWindowSize(ImVec2(workSize.x, tabHeight));
 	// the strip is shorter than imgui's minimum window height, which would quietly stretch
 	// it down over the top of the panel below - its bottom border then drew a second line
 	// under the tabs, a few pixels below the first
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(ImGui::GetStyle().WindowMinSize.x, 1.0f));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(style.WindowMinSize.x, 1.0f));
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, th.bgHeader);
 	ImGui::Begin("BottomTabs", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBringToFrontOnFocus);
+	ImGui::PopStyleColor();
 	ImGui::PopStyleVar();
 
+	// the two views as flat tabs, a glyph and a name each, the one on screen lit and
+	// underlined in the accent. drawn by hand rather than as an imgui tab bar, whose
+	// rounded tabs were the most stock-looking thing on screen. every tab takes its click
+	// before any is drawn, so a click lights the new tab and darkens the old one together
 	int previousTab = mActiveBottomTab;
-	if (ImGui::BeginTabBar("MainTabs")) {
-		if (ImGui::BeginTabItem("Device View")) {
-			mActiveBottomTab = 0;
-			ImGui::EndTabItem();
-		}
-		if (ImGui::BeginTabItem("Clip View")) {
-			mActiveBottomTab = 1;
-			ImGui::EndTabItem();
-		}
-		ImGui::EndTabBar();
+	struct BottomTab {
+		const char* name;
+		Icon icon;
+	};
+	const BottomTab tabs[] = {{"Device View", Icon::Device}, {"Clip View", Icon::Clip}};
+	constexpr int kTabCount = (int)(sizeof(tabs) / sizeof(tabs[0]));
+	const float tabGlyph = std::floor(ImGui::GetTextLineHeight() * 0.8f);
+	ImVec2 tabMin[kTabCount];
+	ImVec2 tabMax[kTabCount];
+	bool tabHovered[kTabCount];
+	float tabX = style.WindowPadding.x;
+	for (int i = 0; i < kTabCount; ++i) {
+		const ImVec2 tabSize(style.FramePadding.x * 2.0f + tabGlyph + style.ItemInnerSpacing.x + ImGui::CalcTextSize(tabs[i].name).x,
+							 ImGui::GetFrameHeight());
+		ImGui::SetCursorPos(ImVec2(tabX, style.WindowPadding.y));
+		ImGui::PushID(i);
+		if (ImGui::InvisibleButton("##BottomTab", tabSize))
+			mActiveBottomTab = i;
+		ImGui::PopID();
+		tabMin[i] = ImGui::GetItemRectMin();
+		tabMax[i] = ImGui::GetItemRectMax();
+		tabHovered[i] = ImGui::IsItemHovered();
+		tabX += tabSize.x + style.ItemInnerSpacing.x;
+	}
+	ImDrawList* tabDrawList = ImGui::GetWindowDrawList();
+	const float underline = std::max(2.0f, std::floor(2.0f * mContext.state.mainScale));
+	for (int i = 0; i < kTabCount; ++i) {
+		const bool selected = mActiveBottomTab == i;
+		if (tabHovered[i] && !selected)
+			tabDrawList->AddRectFilled(tabMin[i], tabMax[i], th.ghostHover, style.FrameRounding);
+		const ImU32 ink = (selected || tabHovered[i]) ? th.text : th.textMuted;
+		const float middle = (tabMin[i].y + tabMax[i].y) * 0.5f;
+		Icons::Draw(tabDrawList, tabs[i].icon, ImVec2(tabMin[i].x + style.FramePadding.x + tabGlyph * 0.5f, middle), tabGlyph,
+					selected ? th.accent : ink);
+		tabDrawList->AddText(ImVec2(tabMin[i].x + style.FramePadding.x + tabGlyph + style.ItemInnerSpacing.x, middle - ImGui::GetTextLineHeight() * 0.5f),
+							 ink, tabs[i].name);
+		if (selected)
+			tabDrawList->AddRectFilled(ImVec2(tabMin[i].x, tabMax[i].y - underline), tabMax[i], th.accent);
 	}
 
-	// collapse handle at the right end of the tab strip, placed absolutely rather than
-	// with SameLine: EndTabBar moves the cursor without closing a line, so there is no
-	// previous line for SameLine to put this back onto. ArrowButton draws its triangle
-	// rather than taking it from the font, whose atlas holds no arrow glyph
-	const ImGuiStyle& style = ImGui::GetStyle();
+	// collapse handle at the right end of the tab strip, placed absolutely: the tabs are
+	// laid out by hand, so there is no line of theirs for SameLine to continue
 	float arrowW = ImGui::GetFrameHeight();
 	ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth() - arrowW - style.WindowPadding.x, style.WindowPadding.y));
-	if (ImGui::ArrowButton("##BottomCollapse", bottomCollapsed ? ImGuiDir_Up : ImGuiDir_Down)) {
+	if (Widgets::IconButton("##BottomCollapse", bottomCollapsed ? Icon::ChevronUp : Icon::ChevronDown, ImVec2(arrowW, arrowW),
+							Widgets::Frame::Ghost, bottomCollapsed ? "Show the panel below" : "Hide the panel below")) {
 		config.bottomPanelCollapsed = !bottomCollapsed;
 		config.Save();
 	}
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip(bottomCollapsed ? "Show the panel below" : "Hide the panel below");
 
 	// picking the other tab while the panel is folded away means the user wants to see
 	// it, not to switch between two things they cannot look at

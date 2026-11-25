@@ -1,135 +1,189 @@
 #include "PrecompHeader.h"
 #include "Theme.h"
 #include <cmath>
+#include <cstdio>
 
 Theme& Theme::Instance() {
 	static Theme instance;
 	return instance;
 }
 
-// the concrete default palette. neutral dark gray (no blue tint), Ableton-like,
-// with a single amber/gold accent. this is the ONE place the numbers live
+// the concrete default palette: exact neutral grays with a single orange accent. this
+// is the ONE place the numbers live
 Theme::Theme() {
-	// surfaces, darkest -> lightest. stepped by roughly even *perceptual* (CIE L*)
-	// distance rather than even rgb: near black a few rgb apart already separates,
-	// higher up you need a wider gap for the same visible jump. the old ladder was
-	// even in rgb, so header/deviceEffect/panel sat ~1.7 L* apart and melted into
-	// one gray wash. the canvas stays deep while panels read as raised cards on it
-	bgDeepest = IM_COL32(15, 15, 17, 255);			// wells, plot interiors, bypassed device
-	inputBg = IM_COL32(24, 24, 27, 255);			// recessed control backgrounds
-	bgWindow = IM_COL32(32, 32, 36, 255);			// main window + timeline canvas
-	bgHeader = IM_COL32(40, 40, 45, 255);			// sticky header strips (a step under panel)
-	bgDeviceEffect = IM_COL32(46, 46, 51, 255);		// effect device slot, a raised card on the canvas
-	bgPanel = IM_COL32(52, 52, 58, 255);			// track rows, ruler, ordinary panels
-	bgDeviceInstrument = IM_COL32(62, 62, 69, 255); // instrument slot, heavier than an effect
-	bgDeviceRack = IM_COL32(58, 58, 65, 255);		// a rack shell, a step above the devices it holds
-	bgRackInner = IM_COL32(38, 38, 43, 255);		// recessed ground inside a rack, so its panels read as inset
-	bgPanelAlt = IM_COL32(68, 68, 75, 255);			// raised surfaces: popups, group rows, the master row
-	bgHover = IM_COL32(84, 84, 92, 255);			// hovered frame/row
-	bgActive = IM_COL32(100, 100, 109, 255);		// selected row (neutral, never the accent)
-	bgOverlay = IM_COL32(18, 18, 22, 236);			// translucent box floating over the canvas
-	bgLane = IM_COL32(32, 32, 36, 255);				// timeline lane, same ground as the canvas
-	bgLaneSelected = IM_COL32(43, 43, 49, 255);		// selected track lane, one visible step up
-	bgLaneGroup = IM_COL32(26, 26, 30, 255);		// group lane, recessed: nothing lives here
+	// every surface is a pure gray - equal red, green and blue - so nothing on screen
+	// carries a tint of its own and the few colors that mean something (the accent, a
+	// track's color, a meter going red) are the only hues there are
+	auto Gray = [](int level) { return IM_COL32(level, level, level, 255); };
+
+	// surfaces, in the reference product's tonal order rather than its exact values: the
+	// chrome and the bars are darker than the panels they frame, a device's title strip
+	// is lighter than its body, and graphs sit in near-black wells. stepped by roughly
+	// even perceptual distance, since near black a few levels apart already separate
+	bgDeepest = Gray(24);			// wells, plot interiors, bypassed device
+	bgChrome = Gray(30);			// menu bar, the gaps between windows
+	inputBg = Gray(36);				// recessed control backgrounds
+	bgWindow = Gray(42);			// device strip ground, arrangement canvas
+	bgRackInner = Gray(48);			// recessed ground inside a rack, so its panels read as inset
+	bgLaneGroup = Gray(47);			// group lane, recessed: nothing lives here
+	bgHeader = Gray(50);			// transport, tab strip, ruler, section heads
+	bgLane = Gray(55);				// timeline lane, a step above the canvas under it
+	bgPanel = Gray(58);				// library, clip view, track rows, floating windows
+	bgDeviceEffect = Gray(60);		// effect device body, a raised card on the strip
+	bgLaneSelected = Gray(64);		// selected track lane, one visible step up
+	bgDeviceInstrument = Gray(64);	// instrument body, heavier than an effect
+	bgPanelAlt = Gray(66);			// raised surfaces: popups, group rows, the master row
+	bgDeviceRack = Gray(68);		// a rack shell, a step above the devices it holds
+	deviceTitle = Gray(74);			// a device's name strip, lighter than its body
+	bgHover = Gray(78);				// hovered frame/row
+	bgActive = Gray(96);			// selected row (neutral, never the accent)
+	deviceTitleSelected = Gray(98); // the selected device's name strip
+	bgOverlay = IM_COL32(20, 20, 20, 236);
 
 	// controls. a button rests a clear step above the highest surface it lands on (a
-	// popup, a group row or the master row, all bgPanelAlt), and lightens again under
-	// the pointer
-	button = IM_COL32(82, 82, 90, 255);
-	buttonHover = IM_COL32(98, 98, 107, 255);
-	buttonActive = IM_COL32(114, 114, 124, 255);
+	// popup, a group row or the master row) and below a selected row, and lightens
+	// again under the pointer. an unboxed icon button has no tone of its own at rest,
+	// only a wash of the text color once the pointer finds it
+	button = Gray(84);
+	buttonHover = Gray(98);
+	buttonActive = Gray(112);
+	ghostHover = IM_COL32(255, 255, 255, 22);
+	ghostPress = IM_COL32(255, 255, 255, 40);
 	// the level behind a value box's number: plainly a fill against the recessed box,
-	// and still dark enough to read white digits on (the old light-gray fill gave ~2:1).
-	// dragged, it takes the accent's hue at a depth the digits still read on
-	valueFill = IM_COL32(74, 74, 82, 255);
-	valueFillActive = IM_COL32(118, 90, 26, 255);
+	// and still dark enough to read white digits on. dragged, it takes the accent's hue
+	// at a depth the digits still read on
+	valueFill = Gray(88);
+	valueFillActive = IM_COL32(128, 84, 28, 255);
+	// a dial is a dark groove with a light value arc, so it reads at rest without
+	// borrowing the accent the touched control is marked with
+	knobTrack = Gray(32);
+	knobValue = Gray(196);
 
-	// lines & borders - kept a hair brighter than the surfaces they sit on so
-	// delineation comes from crisp 1px edges, not from cranking fill contrast
-	border = IM_COL32(78, 78, 86, 255);
-	borderStrong = IM_COL32(104, 104, 114, 255);
-	divider = IM_COL32(14, 14, 16, 255); // near-black grout between rows/sections
+	muteActive = IM_COL32(232, 150, 52, 255);
+	soloActive = IM_COL32(94, 148, 212, 255);
+	automationActive = IM_COL32(220, 92, 78, 255);
 
-	// grid - the old bar line landed ~20 L* over the canvas and read as a hard
-	// fence competing with the clips. these sit only a few L* above the background:
-	// present as structure, never louder than what is drawn on top. sub < beat < bar
-	gridSub = IM_COL32(105, 105, 116, 28);
-	gridBeat = IM_COL32(114, 114, 126, 55);
-	gridBar = IM_COL32(122, 122, 136, 78);
+	// lines & borders. structure comes from dark grooves - a control sunk into its panel,
+	// a panel set into the chrome - and the light rule is kept for the few lines that must
+	// read over a dark ground and a mid one alike
+	border = Gray(28);
+	borderStrong = Gray(104);
+	divider = Gray(22); // near-black grout between rows/sections
 
-	// text
-	text = IM_COL32(230, 230, 230, 255);
-	textMuted = IM_COL32(168, 168, 172, 255);
-	textDim = IM_COL32(110, 110, 116, 255);
-	textOnAccent = IM_COL32(20, 16, 0, 255);
+	// grid - white at low opacity, so the same three lines lighten whatever lane, graph or
+	// piano-roll row they cross by the same visible step. present as structure, never
+	// louder than what is drawn on top of it. sub < beat < bar
+	gridSub = IM_COL32(255, 255, 255, 9);
+	gridBeat = IM_COL32(255, 255, 255, 18);
+	gridBar = IM_COL32(255, 255, 255, 34);
 
-	// accent - amber/gold, used sparingly
-	accent = IM_COL32(224, 162, 48, 255);
-	accentHover = IM_COL32(240, 184, 72, 255);
-	accentActive = IM_COL32(200, 138, 32, 255);
-	accentMuted = IM_COL32(138, 106, 30, 255);
-	accentTranslucent = IM_COL32(224, 162, 48, 40);
+	// text. the primary tone stops short of white, which glares at this size on gray
+	text = Gray(224);
+	textMuted = Gray(156);
+	textDim = Gray(106);
+	textOnAccent = Gray(20);
 
-	// status & semantic
-	playhead = IM_COL32(240, 70, 60, 255);
-	recording = IM_COL32(235, 64, 52, 255);
-	marker = IM_COL32(96, 196, 112, 255);
-	selectionFill = IM_COL32(224, 162, 48, 32);
-	selectionStroke = IM_COL32(240, 200, 110, 220);
-	dropLine = IM_COL32(224, 162, 48, 255);
-	ghost = IM_COL32(180, 180, 190, 200);
-	success = IM_COL32(96, 196, 112, 255);
-	danger = IM_COL32(224, 80, 72, 255);
-	graphCurve = IM_COL32(235, 180, 70, 255);
-	graphCurveCool = IM_COL32(96, 176, 232, 255);
-	spectrumFill = IM_COL32(150, 152, 165, 46);
-	spectrumEdge = IM_COL32(168, 170, 184, 110);
-	spectrumFillAlt = IM_COL32(96, 176, 232, 40);
-	spectrumEdgeAlt = IM_COL32(110, 186, 240, 120);
+	// accent - orange, used sparingly
+	accent = IM_COL32(232, 150, 52, 255);
+	accentHover = IM_COL32(246, 172, 80, 255);
+	accentActive = IM_COL32(204, 126, 36, 255);
+	accentMuted = IM_COL32(138, 94, 42, 255);
+	accentTranslucent = IM_COL32(232, 150, 52, 44);
+
+	// status & semantic. the playhead is the brightest line on the canvas rather than a
+	// color: it is the one thing that moves, so it needs no hue to be found
+	playhead = Gray(236);
+	recording = IM_COL32(226, 70, 60, 255);
+	marker = IM_COL32(232, 150, 52, 255);
+	selectionFill = IM_COL32(255, 255, 255, 20);
+	selectionStroke = IM_COL32(220, 220, 220, 210);
+	dropLine = IM_COL32(232, 150, 52, 255);
+	ghost = IM_COL32(190, 190, 190, 190);
+	success = IM_COL32(104, 190, 112, 255);
+	danger = IM_COL32(222, 88, 76, 255);
+	graphCurve = IM_COL32(236, 166, 72, 255);
+	graphCurveCool = IM_COL32(124, 170, 210, 255);
+	spectrumFill = IM_COL32(160, 160, 160, 44);
+	spectrumEdge = IM_COL32(176, 176, 176, 110);
+	spectrumFillAlt = IM_COL32(124, 170, 210, 40);
+	spectrumEdgeAlt = IM_COL32(136, 180, 218, 120);
 
 	// the spectrogram ramp climbs out of the panel background rather than out of
 	// black, so a quiet passage reads as empty instead of as a hole in the panel
-	spectrogramFloor = IM_COL32(16, 16, 18, 255);
-	spectrogramMid = IM_COL32(58, 84, 128, 255);
-	spectrogramPeak = IM_COL32(240, 196, 110, 255);
+	spectrogramFloor = Gray(20);
+	spectrogramMid = IM_COL32(64, 86, 120, 255);
+	spectrogramPeak = IM_COL32(240, 196, 120, 255);
 
 	// meters (peak level ramp)
-	meterBg = IM_COL32(20, 20, 22, 255);
-	meterLow = IM_COL32(96, 196, 112, 255);
-	meterMid = IM_COL32(224, 196, 64, 255);
-	meterHigh = IM_COL32(224, 80, 72, 255);
+	meterBg = Gray(20);
+	meterLow = IM_COL32(92, 186, 104, 255);
+	meterMid = IM_COL32(214, 192, 72, 255);
+	meterHigh = IM_COL32(222, 84, 70, 255);
 
-	// clips & waveforms
-	clipText = IM_COL32(240, 240, 240, 255);
-	clipTextDim = IM_COL32(160, 160, 165, 255);
-	clipBorder = IM_COL32(255, 255, 255, 80);
-	clipDisabled = IM_COL32(74, 76, 82, 210);
-	clipLinked = IM_COL32(120, 205, 235, 235);
-	waveform = IM_COL32(230, 230, 235, 200);
-	waveBgMono = IM_COL32(0, 0, 0, 200);
+	// clips & waveforms. a clip's edge is a dark line, so two clips butted against each
+	// other still read as two
+	clipText = Gray(236);
+	clipTextDim = Gray(150);
+	clipBorder = IM_COL32(0, 0, 0, 120);
+	clipDisabled = Gray(86);
+	clipLinked = IM_COL32(120, 200, 230, 235);
+	waveform = IM_COL32(230, 230, 230, 210);
 	waveBgMid = IM_COL32(30, 70, 30, 180);
+	clipBodyTint = 0.36f;
+	clipBodyTintSelected = 0.56f;
 
 	// piano roll
-	keyWhite = IM_COL32(230, 230, 230, 255);
-	keyBlack = IM_COL32(50, 50, 50, 255);
-	keyText = IM_COL32(0, 0, 0, 255);
-	keyPressed = IM_COL32(224, 162, 48, 255);
-	rowWhite = IM_COL32(60, 60, 66, 255);
-	rowBlack = IM_COL32(38, 38, 43, 255);
-	noteFill = IM_COL32(222, 158, 74, 235);
-	noteFillSelected = IM_COL32(245, 205, 130, 255);
-	noteBorder = IM_COL32(255, 255, 255, 120);
+	keyWhite = Gray(212);
+	keyBlack = Gray(38);
+	keyText = Gray(40);
+	keyPressed = IM_COL32(232, 150, 52, 255);
+	rowWhite = Gray(58);
+	rowBlack = Gray(48);
+	noteFill = IM_COL32(226, 156, 72, 235);
+	noteFillSelected = IM_COL32(246, 206, 140, 255);
+	noteBorder = IM_COL32(0, 0, 0, 110);
 	noteBorderSelected = IM_COL32(255, 255, 255, 255);
-	veloStem = IM_COL32(170, 110, 70, 160);
-	veloStemSelected = IM_COL32(255, 200, 120, 200);
-	veloDot = IM_COL32(235, 150, 90, 255);
-	veloDotSelected = IM_COL32(255, 215, 140, 255);
+	veloStem = IM_COL32(176, 116, 64, 170);
+	veloStemSelected = IM_COL32(250, 200, 120, 210);
+	veloDot = IM_COL32(232, 150, 80, 255);
+	veloDotSelected = IM_COL32(255, 214, 140, 255);
 
 	// automation
-	automationLine = IM_COL32(232, 116, 84, 210);
-	automationPoint = IM_COL32(240, 200, 90, 255);
+	automationLine = IM_COL32(226, 104, 84, 220);
+	automationPoint = IM_COL32(236, 190, 96, 255);
 	automationPointSelected = IM_COL32(255, 255, 255, 255);
-	automationGhost = IM_COL32(200, 200, 200, 50);
+	automationGhost = IM_COL32(220, 220, 220, 46);
+}
+
+// ================================================================
+// TYPOGRAPHY
+// ================================================================
+
+void Theme::LoadFonts(float scale) {
+	ImGuiIO& io = ImGui::GetIO();
+
+	// 13 px is the size that puts the face's capitals at the height the reference
+	// product sets its own at, at every display scale
+	fontSize = 13.0f * scale;
+	fontSizeSmall = 11.0f * scale;
+
+	// the system face, in its regular and semibold cuts. a machine without them falls
+	// back to imgui's own font for both, which keeps every label legible if plainer
+	auto load = [&](const char* path) -> ImFont* {
+		FILE* file = fopen(path, "rb");
+		if (!file)
+			return nullptr;
+		fclose(file);
+		return io.Fonts->AddFontFromFileTTF(path, fontSize);
+	};
+
+	// the first font added is the one every window starts out in
+	fontRegular = load("C:\\Windows\\Fonts\\segoeui.ttf");
+	if (!fontRegular)
+		fontRegular = io.Fonts->AddFontDefault();
+	fontStrong = load("C:\\Windows\\Fonts\\seguisb.ttf");
+	if (!fontStrong)
+		fontStrong = fontRegular;
 }
 
 // ================================================================
@@ -142,16 +196,33 @@ void Theme::ApplyImGuiStyle(float scale) const {
 	ImGui::StyleColorsDark();
 
 	ImGuiStyle& style = ImGui::GetStyle();
-	style.ScaleAllSizes(scale);
+
+	// metrics, unscaled - ScaleAllSizes below takes them to the display scale. the
+	// controls are compact: a frame is the text plus a few pixels, the way a dense
+	// desktop tool lays them out, rather than a touch target
+	style.WindowPadding = ImVec2(8.0f, 6.0f);
+	style.FramePadding = ImVec2(6.0f, 3.0f);
+	style.ItemSpacing = ImVec2(6.0f, 4.0f);
+	style.ItemInnerSpacing = ImVec2(4.0f, 4.0f);
+	style.CellPadding = ImVec2(4.0f, 2.0f);
+	style.IndentSpacing = 14.0f;
+	style.ScrollbarSize = 10.0f;
+	style.GrabMinSize = 10.0f;
+
 	// square windows: the panels are docked edge-to-edge, and rounded corners left
-	// wedge-shaped gaps of the app background where neighboring panels meet. popups and
-	// tooltips keep their own rounding (PopupRounding below)
+	// wedge-shaped gaps of the app background where neighboring panels meet. controls
+	// keep the barest rounding, enough to soften an edge without reading as a pill
 	style.WindowRounding = 0.0f;
-	style.FrameRounding = 3.0f;
+	style.ChildRounding = 0.0f;
+	style.FrameRounding = 2.0f;
 	style.GrabRounding = 2.0f;
-	style.ScrollbarRounding = 3.0f;
-	style.TabRounding = 3.0f;
+	style.ScrollbarRounding = 2.0f;
+	style.TabRounding = 2.0f;
 	style.PopupRounding = 3.0f;
+
+	style.ScaleAllSizes(scale);
+
+	// border widths stay one pixel at every scale - a hairline is a hairline
 	style.WindowBorderSize = 1.0f;
 	// NOTE: imgui pads a child window only when it is drawn with a border or asks for
 	// padding outright. with no child borders, ImGuiChildFlags_Borders alone leaves the
@@ -160,6 +231,10 @@ void Theme::ApplyImGuiStyle(float scale) const {
 	style.ChildBorderSize = 0.0f;
 	style.PopupBorderSize = 1.0f;
 	style.FrameBorderSize = 0.0f;
+	style.TabBorderSize = 0.0f;
+	style.TabBarBorderSize = 1.0f;
+	style.TabBarOverlineSize = 2.0f;
+	style.SeparatorTextBorderSize = 1.0f;
 
 	// local shorthands: V unpacks a packed color into the ImVec4 the style array
 	// wants; T is a fully transparent slot
@@ -169,67 +244,74 @@ void Theme::ApplyImGuiStyle(float scale) const {
 
 	c[ImGuiCol_Text] = V(text);
 	c[ImGuiCol_TextDisabled] = V(textDim);
-	c[ImGuiCol_WindowBg] = V(bgWindow);
+	// a window that does not say otherwise is a panel. the dark grounds - the device
+	// strip and the arrangement canvas - ask for theirs when they open
+	c[ImGuiCol_WindowBg] = V(bgPanel);
 	c[ImGuiCol_ChildBg] = T; // panels paint their own backgrounds
 	c[ImGuiCol_PopupBg] = V(bgPanelAlt);
-	c[ImGuiCol_Border] = V(border);
+	// a window's edge is the dark grout between it and its neighbor
+	c[ImGuiCol_Border] = V(divider);
 	c[ImGuiCol_BorderShadow] = T;
 
 	c[ImGuiCol_FrameBg] = V(inputBg); // recessed, so a control never blends into its panel
-	c[ImGuiCol_FrameBgHovered] = V(Lerp(inputBg, bgHover, 0.45f));
-	c[ImGuiCol_FrameBgActive] = V(Lerp(inputBg, bgActive, 0.55f)); // neutral on purpose (reserved accent)
+	c[ImGuiCol_FrameBgHovered] = V(Lerp(inputBg, bgHover, 0.35f));
+	c[ImGuiCol_FrameBgActive] = V(Lerp(inputBg, bgActive, 0.4f)); // neutral on purpose (reserved accent)
 
-	c[ImGuiCol_TitleBg] = V(bgHeader);
-	c[ImGuiCol_TitleBgActive] = V(bgPanelAlt);
-	c[ImGuiCol_TitleBgCollapsed] = V(bgHeader);
-	c[ImGuiCol_MenuBarBg] = V(bgHeader);
+	c[ImGuiCol_TitleBg] = V(bgChrome);
+	c[ImGuiCol_TitleBgActive] = V(bgHeader);
+	c[ImGuiCol_TitleBgCollapsed] = V(bgChrome);
+	c[ImGuiCol_MenuBarBg] = V(bgChrome);
 
-	c[ImGuiCol_ScrollbarBg] = V(WithAlpha(bgDeepest, 130));
-	c[ImGuiCol_ScrollbarGrab] = V(border);
-	c[ImGuiCol_ScrollbarGrabHovered] = V(borderStrong);
-	c[ImGuiCol_ScrollbarGrabActive] = V(textDim);
+	c[ImGuiCol_ScrollbarBg] = V(WithAlpha(bgDeepest, 70));
+	c[ImGuiCol_ScrollbarGrab] = V(button);
+	c[ImGuiCol_ScrollbarGrabHovered] = V(buttonHover);
+	c[ImGuiCol_ScrollbarGrabActive] = V(buttonActive);
 
 	// active/focus signals - the only places the accent is allowed
 	c[ImGuiCol_CheckMark] = V(accent);
 	c[ImGuiCol_SliderGrab] = V(textMuted);	  // neutral at rest
-	c[ImGuiCol_SliderGrabActive] = V(accent); // amber only while dragging
+	c[ImGuiCol_SliderGrabActive] = V(accent); // orange only while dragging
 
 	c[ImGuiCol_Button] = V(button);
 	c[ImGuiCol_ButtonHovered] = V(buttonHover);
 	c[ImGuiCol_ButtonActive] = V(buttonActive); // neutral on purpose
 
-	// Header* drive Selectable/TreeNode/MenuItem: selection gets a muted amber
-	// wash, but hover stays gray so lists/menus do not flash accent constantly
-	c[ImGuiCol_Header] = V(WithAlpha(accent, 90));
+	// Header* drive Selectable/TreeNode/MenuItem. a picked row lifts to the selected-row
+	// tone, the same one a selected track takes, and a hovered one a step under it - the
+	// accent would turn every list and menu into a strip of orange
+	c[ImGuiCol_Header] = V(bgActive);
 	c[ImGuiCol_HeaderHovered] = V(bgHover);
-	c[ImGuiCol_HeaderActive] = V(WithAlpha(accent, 130));
+	c[ImGuiCol_HeaderActive] = V(bgActive);
 
 	c[ImGuiCol_Separator] = V(border);
 	c[ImGuiCol_SeparatorHovered] = V(borderStrong);
 	c[ImGuiCol_SeparatorActive] = V(accentMuted);
 
-	c[ImGuiCol_ResizeGrip] = V(WithAlpha(textDim, 60));
+	c[ImGuiCol_ResizeGrip] = T;
 	c[ImGuiCol_ResizeGripHovered] = V(WithAlpha(accent, 130));
 	c[ImGuiCol_ResizeGripActive] = V(WithAlpha(accent, 200));
 
 	c[ImGuiCol_InputTextCursor] = V(text);
 
-	c[ImGuiCol_Tab] = V(bgPanel);
+	// a tab at rest is only its caption; the open one is lifted a step and carries the
+	// orange line, the way the bottom panel's tabs do. it keeps that line when its window
+	// loses focus - which tab is open does not stop mattering when the pointer leaves
+	c[ImGuiCol_Tab] = T;
 	c[ImGuiCol_TabHovered] = V(bgHover);
 	c[ImGuiCol_TabSelected] = V(bgPanelAlt);
-	c[ImGuiCol_TabSelectedOverline] = V(accent); // thin amber line marks the active tab
-	c[ImGuiCol_TabDimmed] = V(bgPanel);
+	c[ImGuiCol_TabSelectedOverline] = V(accent);
+	c[ImGuiCol_TabDimmed] = T;
 	c[ImGuiCol_TabDimmedSelected] = V(bgPanelAlt);
-	c[ImGuiCol_TabDimmedSelectedOverline] = V(WithAlpha(accentMuted, 150));
+	c[ImGuiCol_TabDimmedSelectedOverline] = V(accent);
 
 	c[ImGuiCol_PlotLines] = V(textMuted);
 	c[ImGuiCol_PlotLinesHovered] = V(accent);
-	c[ImGuiCol_PlotHistogram] = V(textMuted); // knob value arcs stay neutral gray
+	c[ImGuiCol_PlotHistogram] = V(knobValue); // a dial's value arc, unless its panel colors it
 	c[ImGuiCol_PlotHistogramHovered] = V(accent);
 
 	c[ImGuiCol_TableHeaderBg] = V(bgHeader);
-	c[ImGuiCol_TableBorderStrong] = V(borderStrong);
-	c[ImGuiCol_TableBorderLight] = V(border);
+	c[ImGuiCol_TableBorderStrong] = V(border);
+	c[ImGuiCol_TableBorderLight] = V(divider);
 	c[ImGuiCol_TableRowBg] = T;
 	c[ImGuiCol_TableRowBgAlt] = V(WithAlpha(text, 8));
 
@@ -306,8 +388,8 @@ ImU32 Theme::SpectrogramColor(float t) const {
 }
 
 ImU32 Theme::TrackColor(int index) const {
-	// muted jewel tones picked to sit calmly on the dark gray without clashing
-	// with the amber accent
+	// muted jewel tones picked to sit calmly on the gray without clashing with the
+	// orange accent - the arrangement's only real color comes from these
 	static const ImU32 palette[] = {
 		IM_COL32(198, 120, 86, 255),  // terracotta
 		IM_COL32(210, 168, 84, 255),  // ochre

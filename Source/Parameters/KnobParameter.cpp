@@ -1,6 +1,7 @@
 #include "PrecompHeader.h"
 #include "KnobParameter.h"
 #include "Theme.h"
+#include <cmath>
 
 namespace {
 	float LinearToLog(float t, float min, float max) {
@@ -178,49 +179,49 @@ bool KnobParameter::DrawSized(float radius, float width, const char* label) {
 		float t = NormalizedFromValue();
 		float angle = ANGLE_MIN + (ANGLE_MAX - ANGLE_MIN) * t;
 
-		ImU32 colBackgroud = ImGui::GetColorU32(ImGuiCol_FrameBg);
-		ImU32 colText = ImGui::GetColorU32(ImGuiCol_Text);
+		// a dark groove the full sweep of the dial, the value arc laid into it, and a pointer
+		// from the hub out to the value. the arc takes whatever color its panel pushed as
+		// PlotHistogram (a rack macro's own), lifts under the pointer, and turns the accent
+		// while it is being dragged - or while it is the last touched parameter, which is
+		// what typed digits and Show Automation would act on
+		const Theme& th = Theme::Instance();
+		const ImU32 colTrack = ImGui::GetColorU32(th.knobTrack);
+		const ImU32 colText = ImGui::GetColorU32(ImGuiCol_Text);
+		ImU32 colArc = ImGui::GetColorU32(ImGuiCol_PlotHistogram);
+		if (isActive || IsSelected())
+			colArc = ImGui::GetColorU32(th.accent);
+		else if (isHovered)
+			colArc = ImGui::GetColorU32(Theme::Lerp(ImGui::GetColorU32(ImGuiCol_PlotHistogram), th.text, 0.5f));
 
-		ImVec4 arcColorVec = ImGui::GetStyle().Colors[ImGuiCol_PlotHistogram];
-		if (isActive || isHovered) {
-			arcColorVec.x = std::min(arcColorVec.x * 1.3f, 1.0f);
-			arcColorVec.y = std::min(arcColorVec.y * 1.3f, 1.0f);
-			arcColorVec.z = std::min(arcColorVec.z * 1.3f, 1.0f);
-			arcColorVec.w = 1.0f;
-		}
-		ImU32 colArc = ImGui::ColorConvertFloat4ToU32(arcColorVec);
-
-		// the last-touched parameter gets an accent ring so its automation target is obvious
-		if (IsSelected())
-			drawList->AddRect(pos, ImVec2(pos.x + totalWidth, pos.y + totalHeight), Theme::Instance().accent, ImGui::GetStyle().FrameRounding);
-
-		const float ringThickness = std::max(2.0f, radius * 0.17f);
-		drawList->PathArcTo(center, radius * 0.85f, ANGLE_MIN, ANGLE_MAX, 32);
-		drawList->PathStroke(colBackgroud, 0, ringThickness);
+		const float ringThickness = std::max(2.0f, std::floor(radius * 0.2f));
+		const float arcRadius = radius * 0.84f;
+		const int segments = std::max(16, (int)(radius * 1.6f));
+		drawList->PathArcTo(center, arcRadius, ANGLE_MIN, ANGLE_MAX, segments);
+		drawList->PathStroke(colTrack, 0, ringThickness);
 
 		// the arc runs from where this parameter fills from to where it is: the bottom of
 		// the range for a level, the zero point for a bipolar variant
 		const float tOrigin = FillOrigin();
 		if (std::abs(t - tOrigin) > 0.001f) {
 			const float angleOrigin = ANGLE_MIN + (ANGLE_MAX - ANGLE_MIN) * tOrigin;
-			drawList->PathArcTo(center, radius * 0.85f, std::min(angle, angleOrigin), std::max(angle, angleOrigin), 32);
+			drawList->PathArcTo(center, arcRadius, std::min(angle, angleOrigin), std::max(angle, angleOrigin), segments);
 			drawList->PathStroke(colArc, 0, ringThickness);
 		}
 
 		ImVec2 tickVector = ImVec2(cosf(angle), sinf(angle));
-		float arcRadius = radius * 0.85f;
-		float tickLen = arcRadius + 1.5f;
+		const float pointerStart = arcRadius * 0.15f;
+		const float pointerEnd = arcRadius + ringThickness * 0.5f;
 		drawList->AddLine(
-			ImVec2(center.x + tickVector.x, center.y + tickVector.y),
-			ImVec2(center.x + tickVector.x * tickLen, center.y + tickVector.y * tickLen),
-			colBackgroud, ringThickness);
+			ImVec2(center.x + tickVector.x * pointerStart, center.y + tickVector.y * pointerStart),
+			ImVec2(center.x + tickVector.x * pointerEnd, center.y + tickVector.y * pointerEnd),
+			colArc, std::max(1.5f, ringThickness * 0.65f));
 
+		// the name over the dial in the quiet tone, the value under it in the full one
 		ImVec2 labelPos = ImVec2(pos.x + (totalWidth - labelSize.x) * 0.5f, pos.y);
-		drawList->AddText(labelPos, colText, labelText);
+		drawList->AddText(labelPos, IsSelected() ? ImGui::GetColorU32(th.accent) : ImGui::GetColorU32(th.textMuted), labelText);
 
 		ImVec2 valPos = ImVec2(pos.x + (totalWidth - valSize.x) * 0.5f, pos.y + lineHeight + style.ItemInnerSpacing.y + (radius * 2) + style.ItemInnerSpacing.y);
-		ImU32 valTextCol = (isActive || isHovered) ? colArc : colText;
-		drawList->AddText(valPos, valTextCol, valBuffer);
+		drawList->AddText(valPos, colText, valBuffer);
 
 		changed |= HandleCommonInteractions();
 	}

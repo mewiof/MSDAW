@@ -245,7 +245,7 @@ void TimelineTrackView::RenderTracks(EditorContext& context, TimelineInteraction
 
 			// draw using helper, passing overrides for start, duration, and offset
 			TimelineClipRenderer::DrawClipContent(drawList, entry.clip,
-												  pMin, pMax, winPos, viewWidth, context, th.ghost,
+												  pMin, pMax, winPos, viewWidth, context, th.ghost, false,
 												  geom.start, geom.duration, geom.offset);
 		}
 	}

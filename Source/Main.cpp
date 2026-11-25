@@ -127,19 +127,9 @@ int main(int, char**) {
 	io.Fonts->SetFontLoader(ImGuiFreeType::GetFontLoader());
 	io.Fonts->FontLoaderFlags = ImGuiFreeTypeBuilderFlags_LightHinting;
 
-	float fontSize = 16.0f * main_scale;
-	ImFont* font = nullptr;
-	const char* fontPath = "C:\\Windows\\Fonts\\segoeui.ttf";
-	FILE* f = fopen(fontPath, "rb");
-	if (f) {
-		fclose(f);
-		font = io.Fonts->AddFontFromFileTTF(fontPath, fontSize);
-	} else {
-		io.Fonts->AddFontDefault();
-	}
-
-	// single source of truth: neutral dark-gray theme with a reserved amber accent
-	// owns ScaleAllSizes + rounding + every ImGuiCol_ entry (see Theme::ApplyImGuiStyle)
+	// single source of truth: the faces and their sizes, then ScaleAllSizes + rounding +
+	// every ImGuiCol_ entry (see Theme::LoadFonts and Theme::ApplyImGuiStyle)
+	Theme::Instance().LoadFonts(main_scale);
 	Theme::Instance().ApplyImGuiStyle(main_scale);
 
 	ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
@@ -159,6 +149,9 @@ int main(int, char**) {
 	void* hwnd = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
 	editor.SetNativeWindowHandle(hwnd);
 
+	constexpr Uint64 kForegroundFps = 60;
+	constexpr Uint64 kBackgroundFps = 20;
+
 	bool done = false;
 #ifdef __EMSCRIPTEN__
 	io.IniFilename = nullptr;
@@ -167,6 +160,7 @@ int main(int, char**) {
 	while (!done)
 #endif
 	{
+		const Uint64 frameStartNS = SDL_GetTicksNS();
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
 			ImGui_ImplSDL3_ProcessEvent(&event);
@@ -187,7 +181,7 @@ int main(int, char**) {
 		}
 
 		if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) {
-			SDL_Delay(10);
+			SDL_Delay(50);
 			continue;
 		}
 
@@ -202,10 +196,22 @@ int main(int, char**) {
 
 		ImGui::Render();
 		glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-		glClearColor(0.2f, 0.2f, 0.2f, 1.00f);
+		// whatever no window covers shows the chrome, not a color of the backend's own
+		const ImVec4 clearColor = ImGui::ColorConvertU32ToFloat4(Theme::Instance().bgChrome);
+		glClearColor(clearColor.x, clearColor.y, clearColor.z, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 		SDL_GL_SwapWindow(window);
+
+		// vsync alone doesn't bound the loop: drivers can force it off, an occluded window's
+		// swap returns at once, and a high-refresh display runs it at 144+ fps. cap it here,
+		// lower when the window isn't in front, so the UI thread doesn't pin a core
+		const SDL_WindowFlags flags = SDL_GetWindowFlags(window);
+		const bool background = !(flags & SDL_WINDOW_INPUT_FOCUS) || (flags & SDL_WINDOW_OCCLUDED);
+		const Uint64 framePeriodNS = SDL_NS_PER_SECOND / (background ? kBackgroundFps : kForegroundFps);
+		const Uint64 elapsedNS = SDL_GetTicksNS() - frameStartNS;
+		if (elapsedNS < framePeriodNS)
+			SDL_DelayPrecise(framePeriodNS - elapsedNS);
 	}
 #ifdef __EMSCRIPTEN__
 	EMSCRIPTEN_MAINLOOP_END;

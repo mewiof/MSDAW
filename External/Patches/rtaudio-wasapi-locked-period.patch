@@ -1,0 +1,73 @@
+diff --git a/RtAudio.cpp b/RtAudio.cpp
+--- a/RtAudio.cpp
++++ b/RtAudio.cpp
+@@ -5679,6 +5679,7 @@ void RtApiWasapi::wasapiThread()
+     if ( !captureClient ) {
+       ComPtr<IAudioClient3> captureAudioClient3 = nullptr;
+       captureAudioClient->QueryInterface( __uuidof( IAudioClient3 ), ( void** ) &captureAudioClient3 );
++      hr = E_FAIL;
+       if ( captureAudioClient3 && !loopbackEnabled )
+       {
+         UINT32 Ignore;
+@@ -5688,17 +5689,15 @@ void RtApiWasapi::wasapiThread()
+                                                              &Ignore,
+                                                              &MinPeriodInFrames,
+                                                              &Ignore );
+-        if ( FAILED( hr ) ) {
+-          errorText = "RtApiWasapi::wasapiThread: Unable to initialize capture audio client.";
+-          goto Exit;
+-        }
+-        
+-        hr = captureAudioClient3->InitializeSharedAudioStream( AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+-                                                               MinPeriodInFrames,
+-                                                               captureFormat,
+-                                                               NULL );
+-      }
+-      else
++        if ( SUCCEEDED( hr ) )
++          hr = captureAudioClient3->InitializeSharedAudioStream( AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
++                                                                 MinPeriodInFrames,
++                                                                 captureFormat,
++                                                                 NULL );
++      }
++      // the low-latency period is refused while another client has locked the engine
++      // period (AUDCLNT_E_ENGINE_PERIODICITY_LOCKED); the default period still works
++      if ( FAILED( hr ) )
+       {
+         hr = captureAudioClient->Initialize( AUDCLNT_SHAREMODE_SHARED,
+                                              loopbackEnabled ? AUDCLNT_STREAMFLAGS_LOOPBACK : AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+@@ -5790,6 +5789,7 @@ void RtApiWasapi::wasapiThread()
+     if ( !renderClient ) {
+       ComPtr<IAudioClient3> renderAudioClient3 = nullptr;
+       renderAudioClient->QueryInterface( __uuidof( IAudioClient3 ), ( void** ) &renderAudioClient3 );
++      hr = E_FAIL;
+       if ( renderAudioClient3 )
+       {
+         UINT32 Ignore;
+@@ -5799,17 +5799,15 @@ void RtApiWasapi::wasapiThread()
+                                                             &Ignore,
+                                                             &MinPeriodInFrames,
+                                                             &Ignore );
+-        if ( FAILED( hr ) ) {
+-          errorText = "RtApiWasapi::wasapiThread: Unable to initialize render audio client.";
+-          goto Exit;
+-        }
+-        
+-        hr = renderAudioClient3->InitializeSharedAudioStream( AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+-                                                              MinPeriodInFrames,
+-                                                              renderFormat,
+-                                                              NULL );
+-      }
+-      else
++        if ( SUCCEEDED( hr ) )
++          hr = renderAudioClient3->InitializeSharedAudioStream( AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
++                                                                MinPeriodInFrames,
++                                                                renderFormat,
++                                                                NULL );
++      }
++      // the low-latency period is refused while another client has locked the engine
++      // period (AUDCLNT_E_ENGINE_PERIODICITY_LOCKED); the default period still works
++      if ( FAILED( hr ) )
+       {
+         hr = renderAudioClient->Initialize( AUDCLNT_SHAREMODE_SHARED,
+                                             AUDCLNT_STREAMFLAGS_EVENTCALLBACK,

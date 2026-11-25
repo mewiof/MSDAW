@@ -5,6 +5,7 @@
 #include "Project.h"
 #include "Track.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include "Parameters/KnobParameter.h"
 #include "Parameters/SliderParameter.h"
 #include <algorithm>
@@ -425,7 +426,7 @@ bool AutoSidechainProcessor::RenderCustomUI(const ImVec2& size) {
 
 	// ---- header row: source | mode | listen ----
 	const float rowHeight = ImGui::GetFrameHeight();
-	const float listenWidth = ImGui::CalcTextSize("Listen").x + style.FramePadding.x * 2.0f;
+	const float listenWidth = rowHeight;
 	const float modeWidth = ImGui::CalcTextSize("Follow").x + style.FramePadding.x * 2.0f + rowHeight;
 	float sourceWidth = size.x - listenWidth - modeWidth - style.ItemSpacing.x * 2.0f;
 	sourceWidth = std::max(sourceWidth, 90.0f);
@@ -440,7 +441,7 @@ bool AutoSidechainProcessor::RenderCustomUI(const ImVec2& size) {
 		sourceLabel = (mSourceTrackName.empty() ? std::string("Unknown track") : mSourceTrackName) + " (missing)";
 
 	ImGui::SetNextItemWidth(sourceWidth);
-	if (ImGui::BeginCombo("##ScSource", sourceLabel.c_str())) {
+	if (Widgets::BeginCombo("##ScSource", sourceLabel.c_str())) {
 		if (ImGui::Selectable("No source", mSourceTrackId == 0))
 			SetSourceTrackId(0);
 		if (project) {
@@ -470,7 +471,7 @@ bool AutoSidechainProcessor::RenderCustomUI(const ImVec2& size) {
 
 	ImGui::SameLine();
 	ImGui::SetNextItemWidth(modeWidth);
-	if (ImGui::BeginCombo("##ScMode", kModeNames[mode], ImGuiComboFlags_NoArrowButton)) {
+	if (Widgets::BeginCombo("##ScMode", kModeNames[mode], ImGuiComboFlags_NoArrowButton)) {
 		for (int i = 0; i < kNumModes; ++i) {
 			if (ImGui::Selectable(kModeNames[i], i == mode)) {
 				const float oldValue = pMode->value;
@@ -488,17 +489,10 @@ bool AutoSidechainProcessor::RenderCustomUI(const ImVec2& size) {
 	}
 
 	ImGui::SameLine();
-	// the button flips mListen as it is drawn, so the pop has to be guarded by what the
-	// push saw - reading the member twice pops a color that was never pushed
-	const bool listening = mListen;
-	if (listening)
-		ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
-	if (ImGui::Button("Listen", ImVec2(listenWidth, 0.0f)))
+	// the reference product's sidechain listen button is a pair of headphones
+	if (Widgets::IconToggle("##Listen", Icon::Headphones, mListen, ImVec2(listenWidth, rowHeight), th.accent, Widgets::Frame::Boxed,
+							"Listen: monitor the filtered detector signal instead of this track"))
 		mListen = !mListen;
-	if (listening)
-		ImGui::PopStyleColor();
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Monitor the filtered detector signal instead of this track");
 
 	// ---- graph ----
 	// a knob row is label + knob + value; reserve it and give ALL the rest to the graph.
@@ -680,7 +674,7 @@ bool AutoSidechainProcessor::RenderCustomUI(const ImVec2& size) {
 		const char* toggleLabel = mShowScope ? "Shape" : "Scope";
 		const ImVec2 toggleSize = ImGui::CalcTextSize(toggleLabel);
 		ImGui::SetCursorScreenPos(ImVec2(graphEnd.x - toggleSize.x - style.FramePadding.x * 2.0f - 4.0f, graphPos.y + 3.0f));
-		if (ImGui::SmallButton(toggleLabel))
+		if (Widgets::TextToggle(toggleLabel, false, ImVec2(0.0f, ImGui::GetTextLineHeight() + style.FramePadding.y)))
 			mShowScope = !mShowScope;
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip(mShowScope ? "Edit the ducking shape" : "Watch the live reduction");
@@ -716,7 +710,7 @@ bool AutoSidechainProcessor::RenderCustomUI(const ImVec2& size) {
 		ImGui::TextUnformatted("Rate");
 		const int rateIndex = std::clamp((int)std::lround(pRate->value), 0, kNumRates - 1);
 		ImGui::SetNextItemWidth(ImGui::CalcTextSize("1 Bar").x + style.FramePadding.x * 2.0f + rowHeight);
-		if (ImGui::BeginCombo("##ScRate", kRateNames[rateIndex], ImGuiComboFlags_NoArrowButton)) {
+		if (Widgets::BeginCombo("##ScRate", kRateNames[rateIndex], ImGuiComboFlags_NoArrowButton)) {
 			for (int i = 0; i < kNumRates; ++i) {
 				if (ImGui::Selectable(kRateNames[i], i == rateIndex)) {
 					const float oldValue = pRate->value;
@@ -736,7 +730,8 @@ bool AutoSidechainProcessor::RenderCustomUI(const ImVec2& size) {
 	}
 
 	// everything the mode's knob row left out
-	if (ImGui::SmallButton("..."))
+	const float moreSize = ImGui::GetFrameHeight();
+	if (Widgets::IconButton("##ScMoreButton", Icon::More, ImVec2(moreSize, moreSize), Widgets::Frame::Boxed))
 		ImGui::OpenPopup("ScMore");
 	if (ImGui::IsItemHovered())
 		ImGui::SetTooltip("Detector filters and the rest of this mode's controls");

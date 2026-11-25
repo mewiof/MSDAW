@@ -2,6 +2,7 @@
 #include "TimelineRuler.h"
 #include "Project.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -13,9 +14,10 @@ void TimelineRuler::Render(EditorContext& context, TimelineInteractionState& int
 	Project* project = context.GetProject();
 	Transport* transport = project ? &project->GetTransport() : nullptr;
 
-	// draw ruler background
-	drawList->AddRectFilled(winPos, ImVec2(winPos.x + contentWidth, winPos.y + height), th.bgPanel);
-	drawList->AddLine(ImVec2(winPos.x, winPos.y + height), ImVec2(winPos.x + contentWidth, winPos.y + height), th.borderStrong);
+	// draw ruler background: a bar like the transport's, closed off from the lanes under
+	// it by the same dark grout that runs between them
+	drawList->AddRectFilled(winPos, ImVec2(winPos.x + contentWidth, winPos.y + height), th.bgHeader);
+	drawList->AddRectFilled(ImVec2(winPos.x, winPos.y + height - 1.0f), ImVec2(winPos.x + contentWidth, winPos.y + height), th.divider);
 
 	// calculate beat range visible
 	if (visibleWidth < 1.0f)
@@ -30,12 +32,14 @@ void TimelineRuler::Render(EditorContext& context, TimelineInteractionState& int
 	int endIdx = (int)ceil(endVis / grid);
 
 	// a bar's tick runs from beside its number down to the bottom edge, and the shorter
-	// ticks between bars take the lower quarter. all measured off the ruler's height and
-	// the text, so the numbers keep clear of the top edge at any scale
+	// ticks between bars take the lower quarter. the numbers are set in the caption face;
+	// all of it is measured off the ruler's height and that face, so the numbers keep
+	// clear of the top edge at any scale
 	const float scale = context.state.mainScale;
-	const float labelInset = 2.0f * scale;
+	Widgets::PushSmallFont();
+	const float labelInset = 3.0f * scale;
 	const float barTickTop = std::min(labelInset + ImGui::GetTextLineHeight() * 0.5f, height * 0.5f);
-	const float beatTickTop = height * 0.72f;
+	const float beatTickTop = height * 0.74f;
 
 	// loop to draw grid lines on ruler
 	for (int i = startIdx; i <= endIdx; ++i) {
@@ -50,25 +54,32 @@ void TimelineRuler::Render(EditorContext& context, TimelineInteractionState& int
 
 		bool isBar = std::abs(fmod(b + 0.001, 4.0)) < 0.002;
 
+		// ticks are a pixel wide and sit on whole pixels, so they stay crisp at any zoom
+		const float tickX = std::floor(x) + 0.5f;
 		if (isBar) {
-			drawList->AddLine(ImVec2(x, winPos.y + barTickTop), ImVec2(x, winPos.y + height), th.textMuted);
+			drawList->AddLine(ImVec2(tickX, winPos.y + barTickTop), ImVec2(tickX, winPos.y + height), th.textDim);
 			char buf[16];
 			snprintf(buf, sizeof(buf), "%d", (int)(b / 4) + 1);
-			drawList->AddText(ImVec2(x + 3.0f * scale, winPos.y + labelInset), th.textMuted, buf);
+			drawList->AddText(ImVec2(x + 4.0f * scale, winPos.y + labelInset), th.textMuted, buf);
 		} else {
-			drawList->AddLine(ImVec2(x, winPos.y + beatTickTop), ImVec2(x, winPos.y + height), th.textDim);
+			drawList->AddLine(ImVec2(tickX, winPos.y + beatTickTop), ImVec2(tickX, winPos.y + height), Theme::WithAlpha(th.textDim, 150));
 		}
 	}
+	ImGui::PopFont();
 
-	// loop/selection region (visuals)
+	// loop/selection region (visuals). a brace along the top edge over a light wash: gray
+	// while it is only a selection, the accent once the transport loops it
 	if (context.state.selectionEnd > context.state.selectionStart) {
 		float selX1 = winPos.x + (float)(context.state.selectionStart * context.state.pixelsPerBeat);
 		float selX2 = winPos.x + (float)(context.state.selectionEnd * context.state.pixelsPerBeat);
 
-		drawList->AddRectFilled(ImVec2(selX1, winPos.y), ImVec2(selX2, winPos.y + height), Theme::WithAlpha(th.marker, 90));
-		drawList->AddLine(ImVec2(selX1, winPos.y), ImVec2(selX2, winPos.y), th.marker, 3.0f);
-		drawList->AddLine(ImVec2(selX1, winPos.y), ImVec2(selX1, winPos.y + height), th.marker);
-		drawList->AddLine(ImVec2(selX2, winPos.y), ImVec2(selX2, winPos.y + height), th.marker);
+		const bool looping = transport && transport->IsLoopEnabled();
+		const ImU32 brace = looping ? th.accent : th.textMuted;
+		const float braceHeight = std::max(3.0f, std::floor(4.0f * scale));
+		drawList->AddRectFilled(ImVec2(selX1, winPos.y), ImVec2(selX2, winPos.y + height), looping ? th.accentTranslucent : th.selectionFill);
+		drawList->AddRectFilled(ImVec2(selX1, winPos.y), ImVec2(selX2, winPos.y + braceHeight), brace);
+		drawList->AddLine(ImVec2(std::floor(selX1) + 0.5f, winPos.y), ImVec2(std::floor(selX1) + 0.5f, winPos.y + height), brace);
+		drawList->AddLine(ImVec2(std::floor(selX2) + 0.5f, winPos.y), ImVec2(std::floor(selX2) + 0.5f, winPos.y + height), brace);
 	}
 
 	// ruler interaction

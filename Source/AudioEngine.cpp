@@ -42,38 +42,22 @@ bool AudioEngine::Init() {
 	mProject->Initialize();
 	mProject->PrepareToPlay(sampleRate);
 
-	try {
-		dac.openStream(&parameters, nullptr, RTAUDIO_FLOAT32, (unsigned int)sampleRate, &bufferFrames, &AudioCallbackWrapper, (void*)this);
-		isStreamOpen = true;
-	} catch (std::exception& e) {
-		std::cout << '\n'
-				  << e.what() << '\n';
+	// RtAudio 6 reports failures by return value and its error callback, never by throwing
+	if (dac.openStream(&parameters, nullptr, RTAUDIO_FLOAT32, (unsigned int)sampleRate, &bufferFrames, &AudioCallbackWrapper, (void*)this) != RTAUDIO_NO_ERROR)
 		return false;
-	}
+	isStreamOpen = true;
 
 	return true;
 }
 
 void AudioEngine::Start() {
-	if (isStreamOpen) {
-		try {
-			dac.startStream();
-		} catch (std::exception& e) {
-			std::cout << '\n'
-					  << e.what() << '\n';
-		}
-	}
+	if (isStreamOpen)
+		dac.startStream();
 }
 
 void AudioEngine::Stop() {
-	if (isStreamOpen && dac.isStreamRunning()) {
-		try {
-			dac.stopStream();
-		} catch (std::exception& e) {
-			std::cout << '\n'
-					  << e.what() << '\n';
-		}
-	}
+	if (isStreamOpen && dac.isStreamRunning())
+		dac.stopStream();
 }
 
 bool AudioEngine::IsStreamRunning() const {

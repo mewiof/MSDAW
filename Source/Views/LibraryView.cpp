@@ -2,8 +2,34 @@
 #include "LibraryView.h"
 #include "AppConfig.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include <algorithm>
 #include <cmath>
+
+namespace {
+
+	// one built-in device the library offers
+	struct InternalDevice {
+		const char* id;	  // the factory id a drop creates
+		const char* name; // what the list and the drag preview call it
+		const char* kind; // the line under the name in the drag preview
+		Icon icon;
+	};
+
+	// the modulator makes no sound at all: it drives other devices' parameters, so it is
+	// filed with the effects rather than under a category of its own. the rack arrives
+	// empty, and the rack view gives it its first chain
+	const InternalDevice kInternalDevices[] = {
+		{"BitCrusher", "Bit Crusher", "Effect", Icon::Device},
+		{"AutoSidechain", "Auto Sidechain", "Effect", Icon::Device},
+		{"EQEight", "EQ Eight", "Effect", Icon::Device},
+		{"Phaser", "Phaser", "Effect", Icon::Device},
+		{"Rack", "Audio Effect Rack", "Container", Icon::Rack},
+		{"Modulator", "Modulator", "LFO / Performer / Stepper", Icon::Knob},
+		{"Analyzer", "Analyzer", "Effect", Icon::Device},
+	};
+
+} // namespace
 
 void LibraryView::Render(const ImVec2& pos, float width, float height) {
 	AppConfig& config = AppConfig::Instance();
@@ -26,7 +52,7 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 		ImGui::Begin("Library", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
 		ImGui::PopStyleVar(2);
 
-		bool expand = ImGui::ArrowButton("##ExpandLibrary", ImGuiDir_Right);
+		bool expand = Widgets::IconButton("##ExpandLibrary", Icon::ChevronRight, ImVec2(arrowSize, arrowSize));
 		bool hovered = ImGui::IsItemHovered();
 
 		float restHeight = ImGui::GetContentRegionAvail().y;
@@ -94,113 +120,35 @@ void LibraryView::Render(const ImVec2& pos, float width, float height) {
 // ================================================================
 
 void LibraryView::RenderInternalDevices() {
-	const Theme& th = Theme::Instance();
 	AppConfig& config = AppConfig::Instance();
 
 	// the collapse handle rides the first section header rather than taking a row of
 	// its own - the library is already the narrowest column on screen
-	if (ImGui::ArrowButton("##CollapseLibrary", ImGuiDir_Left)) {
+	const float frameHeight = ImGui::GetFrameHeight();
+	if (Widgets::IconButton("##CollapseLibrary", Icon::ChevronLeft, ImVec2(frameHeight, frameHeight), Widgets::Frame::Ghost,
+							"Hide the library")) {
 		config.libraryCollapsed = true;
 		config.Save();
 	}
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Hide the library");
-	ImGui::SameLine();
-
-	ImGui::PushStyleColor(ImGuiCol_Text, th.textMuted);
-	ImGui::AlignTextToFramePadding();
-	ImGui::Text("INTERNAL");
+	ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+	Widgets::Caption("INTERNAL", Icon::Device);
 	ImGui::Separator();
-	ImGui::PopStyleColor();
 
 	// the list scrolls on its own under the header, the way the plugin list does, so the
 	// title and the collapse handle stay put however far down it is scrolled
 	ImGui::BeginChild("LibInternalList");
 
-	// bit crusher
-	ImGui::PushID("BitCrusher");
-	if (ImGui::Selectable("Bit Crusher")) {
+	for (const InternalDevice& device : kInternalDevices) {
+		ImGui::PushID(device.id);
+		Widgets::ListRow("##Device", device.icon, device.name, false);
+		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+			ImGui::SetDragDropPayload("INTERNAL_PLUGIN", device.id, strlen(device.id) + 1);
+			ImGui::TextUnformatted(device.name);
+			ImGui::TextDisabled("%s", device.kind);
+			ImGui::EndDragDropSource();
+		}
+		ImGui::PopID();
 	}
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "BitCrusher", strlen("BitCrusher") + 1);
-		ImGui::Text("Bit Crusher");
-		ImGui::TextDisabled("Effect");
-		ImGui::EndDragDropSource();
-	}
-	ImGui::PopID();
-
-	// auto sidechain
-	ImGui::PushID("AutoSidechain");
-	if (ImGui::Selectable("Auto Sidechain")) {
-	}
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "AutoSidechain", strlen("AutoSidechain") + 1);
-		ImGui::Text("Auto Sidechain");
-		ImGui::TextDisabled("Effect");
-		ImGui::EndDragDropSource();
-	}
-	ImGui::PopID();
-
-	// eq eight
-	ImGui::PushID("EQEight");
-	if (ImGui::Selectable("EQ Eight")) {
-	}
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "EQEight", strlen("EQEight") + 1);
-		ImGui::Text("EQ Eight");
-		ImGui::TextDisabled("Effect");
-		ImGui::EndDragDropSource();
-	}
-	ImGui::PopID();
-
-	// phaser
-	ImGui::PushID("Phaser");
-	if (ImGui::Selectable("Phaser")) {
-	}
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "Phaser", strlen("Phaser") + 1);
-		ImGui::Text("Phaser");
-		ImGui::TextDisabled("Effect");
-		ImGui::EndDragDropSource();
-	}
-	ImGui::PopID();
-
-	// audio effect rack. it arrives empty, and the rack view gives it its first chain
-	ImGui::PushID("Rack");
-	if (ImGui::Selectable("Audio Effect Rack")) {
-	}
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "Rack", strlen("Rack") + 1);
-		ImGui::Text("Audio Effect Rack");
-		ImGui::TextDisabled("Container");
-		ImGui::EndDragDropSource();
-	}
-	ImGui::PopID();
-
-	// modulator. it makes no sound at all: it drives other devices' parameters, so it
-	// is filed with the effects rather than under a category of its own
-	ImGui::PushID("Modulator");
-	if (ImGui::Selectable("Modulator")) {
-	}
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "Modulator", strlen("Modulator") + 1);
-		ImGui::Text("Modulator");
-		ImGui::TextDisabled("LFO / Performer / Stepper");
-		ImGui::EndDragDropSource();
-	}
-	ImGui::PopID();
-
-	// analyzer
-	ImGui::PushID("Analyzer");
-	if (ImGui::Selectable("Analyzer")) {
-	}
-	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-		ImGui::SetDragDropPayload("INTERNAL_PLUGIN", "Analyzer", strlen("Analyzer") + 1);
-		ImGui::Text("Analyzer");
-		ImGui::TextDisabled("Effect");
-		ImGui::EndDragDropSource();
-	}
-	ImGui::PopID();
 
 	ImGui::EndChild();
 }
@@ -210,13 +158,8 @@ void LibraryView::RenderInternalDevices() {
 // ================================================================
 
 void LibraryView::RenderPlugins() {
-	const Theme& th = Theme::Instance();
-
-	ImGui::PushStyleColor(ImGuiCol_Text, th.textMuted);
-	ImGui::AlignTextToFramePadding();
-	ImGui::Text("PLUGINS");
+	Widgets::Caption("PLUGINS", Icon::Plug);
 	ImGui::Separator();
-	ImGui::PopStyleColor();
 
 	const auto& plugins = mContext.pluginManager.GetKnownPlugins();
 
@@ -226,7 +169,7 @@ void LibraryView::RenderPlugins() {
 	// renders to the right of the box and spilled a clipped half-letter past the panel edge
 	// a placeholder hint keeps the box clean and inset by the window padding on both sides
 	ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-	if (ImGui::InputTextWithHint("##libSearch", "Search", filter.InputBuf, IM_ARRAYSIZE(filter.InputBuf)))
+	if (Widgets::SearchField("##libSearch", filter.InputBuf, IM_ARRAYSIZE(filter.InputBuf), "Search"))
 		filter.Build();
 
 	// declare how tall the list comes out BEFORE the child begins. imgui decides a
@@ -261,17 +204,10 @@ void LibraryView::RenderPlugins() {
 
 		ImGui::PushID(plugin.path.c_str());
 
-		// color code instruments vs effects
-		if (plugin.isSynth)
-			ImGui::PushStyleColor(ImGuiCol_Text, th.graphCurveCool); // instruments read cool
-		else
-			ImGui::PushStyleColor(ImGuiCol_Text, th.text);
-
-		std::string label = plugin.name + " (" + plugin.format + ")";
-		if (ImGui::Selectable(label.c_str())) {
-		}
-
-		ImGui::PopStyleColor();
+		// instruments and effects are told apart by their glyph, and the format rides
+		// the row's right edge in the caption size, out of the way of the name
+		Widgets::ListRow("##Plugin", plugin.isSynth ? Icon::Keyboard : Icon::Plug, plugin.name.c_str(), false, 0, 0,
+						 plugin.format.c_str());
 
 		// drag source for VST
 		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {

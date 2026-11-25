@@ -6,6 +6,7 @@
 #include "ProcessorFactory.h"
 #include "Analysis/Spectrum.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include <cmath>
 #include <complex>
 #include <cstdio>
@@ -1269,9 +1270,11 @@ void EQEightProcessor::DrawBandStrip(float width) {
 				ImGui::SetTooltip("Band %d is off", band + 1);
 		}
 
+		// a band that is on lights in the accent, as every other switch in the app does
 		const ImVec2 boxEnd(togglePos.x + boxSize, togglePos.y + boxSize);
-		drawList->AddRectFilled(togglePos, boxEnd, active ? th.graphCurveCool : th.inputBg, 2.0f);
-		drawList->AddRect(togglePos, boxEnd, th.border, 2.0f);
+		const float boxRounding = ImGui::GetStyle().FrameRounding;
+		drawList->AddRectFilled(togglePos, boxEnd, active ? th.accent : th.inputBg, boxRounding);
+		drawList->AddRect(togglePos, boxEnd, th.border, boxRounding);
 
 		ImGui::SetCursorScreenPos(ImVec2(boxEnd.x + 3.0f, togglePos.y));
 		char number[4];
@@ -1399,7 +1402,7 @@ void EQEightProcessor::DrawGlobals(float width, float height) {
 		nextRow("Mode");
 		ImGui::SetNextItemWidth(width);
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, (metrics.controlHeight - ImGui::GetTextLineHeight()) * 0.5f));
-		if (ImGui::BeginCombo("##EQMode", kChannelModeNames[(int)mode], ImGuiComboFlags_NoArrowButton)) {
+		if (Widgets::BeginCombo("##EQMode", kChannelModeNames[(int)mode], ImGuiComboFlags_NoArrowButton)) {
 			for (int candidate = 0; candidate < (int)EQChannelMode::Count; ++candidate) {
 				if (ImGui::Selectable(kChannelModeNames[candidate], candidate == (int)mode)) {
 					const float oldMode = pMode->value;
@@ -1429,11 +1432,10 @@ void EQEightProcessor::DrawGlobals(float width, float height) {
 			ImGui::PushID(set);
 			const bool selected = set == mEditSet;
 			const bool enabled = set == 0 || mode != EQChannelMode::Stereo;
-			ImGui::PushStyleColor(ImGuiCol_Button, selected && enabled ? th.accent : th.button);
-			ImGui::PushStyleColor(ImGuiCol_Text, selected && enabled ? th.textOnAccent : (enabled ? th.text : th.textDim));
-			if (ImGui::Button(kSetNames[(int)mode][set], ImVec2(halfWidth, metrics.controlHeight)) && enabled)
+			ImGui::BeginDisabled(!enabled);
+			if (Widgets::TextToggle(kSetNames[(int)mode][set], selected && enabled, ImVec2(halfWidth, metrics.controlHeight)) && enabled)
 				mEditSet = set;
-			ImGui::PopStyleColor(2);
+			ImGui::EndDisabled();
 			ImGui::PopID();
 		}
 		if (mode == EQChannelMode::Stereo && ImGui::IsItemHovered())
@@ -1444,14 +1446,11 @@ void EQEightProcessor::DrawGlobals(float width, float height) {
 	{
 		nextRow("Adapt. Q");
 		const bool adaptive = pAdaptQ->value > 0.5f;
-		ImGui::PushStyleColor(ImGuiCol_Button, adaptive ? th.accent : th.button);
-		ImGui::PushStyleColor(ImGuiCol_Text, adaptive ? th.textOnAccent : th.text);
-		if (ImGui::Button(adaptive ? "On" : "Off", ImVec2(width, metrics.controlHeight))) {
+		if (Widgets::TextToggle(adaptive ? "On##AdaptQ" : "Off##AdaptQ", adaptive, ImVec2(width, metrics.controlHeight))) {
 			const float oldValue = pAdaptQ->value;
 			pAdaptQ->value = adaptive ? 0.0f : 1.0f;
 			pAdaptQ->CommitEditImmediate(oldValue);
 		}
-		ImGui::PopStyleColor(2);
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Narrows a bell as it is boosted or cut, the way an analog EQ does");
 	}

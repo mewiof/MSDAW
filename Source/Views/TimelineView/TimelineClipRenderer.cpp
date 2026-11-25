@@ -7,6 +7,7 @@
 #include "Clips/MIDIClip.h"
 #include "Project.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include <algorithm>
 #include <cmath>
 #include <mutex>
@@ -387,22 +388,12 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 			ImU32 baseColor = clip->IsEnabled() ? t->GetColor() : Theme::Instance().clipDisabled;
 
 			// if dragging, the original clip stays in place but dimmed
-			if (drawDragging) {
+			if (drawDragging)
 				baseColor = Theme::WithAlpha(Theme::Instance().textDim, 60); // ghostly
-			} else if (!drawSelected) {
-				ImVec4 c = ImGui::ColorConvertU32ToFloat4(baseColor);
-				c.w = 0.8f;
-				baseColor = ImGui::ColorConvertFloat4ToU32(c);
-			} else {
-				ImVec4 c = ImGui::ColorConvertU32ToFloat4(baseColor);
-				c.x = std::min(1.0f, c.x * 1.2f);
-				c.y = std::min(1.0f, c.y * 1.2f);
-				c.z = std::min(1.0f, c.z * 1.2f);
-				baseColor = ImGui::ColorConvertFloat4ToU32(c);
-			}
 
-			// render using the clip's actual current data
-			DrawClipContent(drawList, clip, pMin, pMax, winPos, viewWidth, context, baseColor);
+			// render using the clip's actual current data. a selected clip lifts its strip
+			// and deepens the tint of its body
+			DrawClipContent(drawList, clip, pMin, pMax, winPos, viewWidth, context, baseColor, drawSelected && !drawDragging);
 
 			// selection outline, drawn over the content. every member of the selection
 			// gets the bright stroke; the focused one - the clip the piano roll and the
@@ -410,9 +401,9 @@ void TimelineClipRenderer::Render(EditorContext& context, TimelineInteractionSta
 			// gets the accent, so a block of twenty still says which one is being edited
 			if (drawSelected && !drawDragging) {
 				const Theme& th = Theme::Instance();
-				drawList->AddRect(pMin, pMax, th.selectionStroke, 0.0f, 0, 2.0f);
+				drawList->AddRect(pMin, pMax, th.selectionStroke, 0.0f, 0, 1.0f);
 				if (drawFocused && context.state.selectedClips.size() > 1)
-					drawList->AddRect(ImVec2(pMin.x + 2, pMin.y + 2), ImVec2(pMax.x - 2, pMax.y - 2), th.accent, 0.0f, 0, 2.0f);
+					drawList->AddRect(ImVec2(pMin.x + 1, pMin.y + 1), ImVec2(pMax.x - 1, pMax.y - 1), th.accent, 0.0f, 0, 1.0f);
 			}
 		}
 	}
@@ -424,6 +415,7 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 										   const ImVec2& winPos, float viewWidth,
 										   EditorContext& context,
 										   ImU32 baseColor,
+										   bool selected,
 										   double overrideStartBeat,
 										   double overrideDuration,
 										   double overrideOffset,
@@ -432,6 +424,7 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 
 	Project* project = context.GetProject();
 	const Theme& th = Theme::Instance();
+	const float scale = context.state.mainScale;
 	// the content of a deactivated clip recedes with its body: still readable, but
 	// clearly not part of what is playing. a ghost preview passes its own colors
 	bool enabled = clip->IsEnabled();
@@ -443,17 +436,39 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	// badge, because an edit made in the piano roll silently lands on every one of them
 	const bool linked = mIDIClip && mIDIClip->IsSequenceShared();
 
-	drawList->AddRectFilled(pMin, pMax, baseColor, 0.0f);
-	drawList->AddRect(pMin, pMax, linked ? th.clipLinked : th.clipBorder, 0.0f);
+	// a clip is a title strip in its track's color over a body that only tints the lane:
+	// the arrangement stays mostly gray, the color says whose clip it is, and the notes
+	// and waveform read on the darker body. a translucent base - a drag ghost, the faded
+	// copy behind an automation lane - is a reference rather than a clip to read, so it
+	// is drawn flat, with no strip
+	const bool opaque = ((baseColor >> IM_COL32_A_SHIFT) & 0xFF) == 0xFF;
+	const ImU32 stripColor = opaque && selected ? Theme::Lerp(baseColor, th.text, 0.22f) : baseColor;
+	const ImU32 bodyColor = opaque ? Theme::Lerp(th.bgLane, baseColor, selected ? th.clipBodyTintSelected : th.clipBodyTint)
+								   : baseColor;
+
+	// the strip holds the name in the caption face. on a lane too short for a strip and a
+	// body - a minimized track - the whole clip is the strip
+	Widgets::PushSmallStrongFont();
+	const float textPadding = std::floor(3.0f * scale);
+	const float lineHeight = ImGui::GetTextLineHeight();
+	const float stripHeight = std::floor(lineHeight + textPadding);
+	const bool hasStrip = opaque && (pMax.y - pMin.y) >= stripHeight * 2.0f;
+	const float bodyTop = hasStrip ? pMin.y + stripHeight : pMin.y;
+
+	drawList->AddRectFilled(pMin, pMax, (opaque && !hasStrip) ? stripColor : bodyColor, 0.0f);
+	if (hasStrip)
+		drawList->AddRectFilled(pMin, ImVec2(pMax.x, bodyTop), stripColor, 0.0f);
 	drawList->PushClipRect(pMin, pMax, true);
 
-	// a clip takes its track's color, and a light one - more so selected, which brightens
-	// it - left white names and notes unreadable. what is written on the clip picks
-	// whichever tone stands out from the body as it lands on the lane
-	const ImU32 body = Theme::Lerp(th.bgLane, Theme::WithAlpha(baseColor, 255),
-								   (float)((baseColor >> IM_COL32_A_SHIFT) & 0xFF) / 255.0f);
-	const ImU32 ink = Theme::ContrastingText(body, th.clipText, th.textOnAccent);
-	const float textPadding = 4.0f * context.state.mainScale;
+	// what is written on the clip picks whichever tone stands out from what it is written
+	// on: a track color can land anywhere from dark to light
+	const ImU32 nameGround = opaque ? stripColor : Theme::Lerp(th.bgLane, Theme::WithAlpha(baseColor, 255),
+															   (float)((baseColor >> IM_COL32_A_SHIFT) & 0xFF) / 255.0f);
+	const ImU32 ink = Theme::ContrastingText(nameGround, th.clipText, th.textOnAccent);
+
+	// the notes and the waveform take the track's color, lifted toward the text tone so
+	// they read on the body it tints
+	const ImU32 contentColor = opaque ? Theme::Lerp(baseColor, th.text, enabled ? 0.3f : 0.1f) : Theme::WithAlpha(th.text, 150);
 
 	// safe culling rect
 	ImVec2 clipRectMin = drawList->GetClipRectMin();
@@ -462,16 +477,18 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	double effectiveOffset = (overrideOffset >= 0.0) ? overrideOffset : clip->GetOffset();
 	double effectiveDuration = (overrideDuration >= 0.0) ? overrideDuration : clip->GetDuration();
 
+	// what the content is laid into: the body under the strip, inset a hair from its edges
+	const ImVec2 contentMin(pMin.x, bodyTop + (hasStrip ? 1.0f : 0.0f));
+	const ImVec2 contentMax(pMax.x, pMax.y - 1.0f);
+
 	if (audioClip) {
 		const auto& samples = audioClip->GetSamples();
 		if (!samples.empty()) {
 			int channels = audioClip->GetNumChannels();
 
-			ImU32 waveColor = customWaveColor != 0
-								  ? customWaveColor
-								  : ((channels == 2) ? th.waveBgMono : th.waveBgMid);
+			ImU32 waveColor = customWaveColor != 0 ? customWaveColor : Theme::WithAlpha(contentColor, 235);
 			if (!enabled && customWaveColor == 0)
-				waveColor = Theme::WithAlpha(waveColor, 70);
+				waveColor = Theme::WithAlpha(waveColor, 110);
 
 			double playbackRate = 1.0;
 			double projectSR = 48000.0;
@@ -501,7 +518,7 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 			double offsetOutputFrames = offsetSeconds * projectSR;
 			double offsetSourceFrames = offsetOutputFrames * playbackRate;
 
-			TimelineUtils::RenderWaveform(drawList, samples, channels, sourceFramesPerPixel, offsetSourceFrames, pMin, pMax, waveColor);
+			TimelineUtils::RenderWaveform(drawList, samples, channels, sourceFramesPerPixel, offsetSourceFrames, contentMin, contentMax, waveColor);
 		}
 	}
 
@@ -509,20 +526,16 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 		const auto& notes = mIDIClip->GetNotesEx();
 		float clipWidth = pMax.x - pMin.x;
 
-		ImU32 noteColor = customMIDIColor != 0
-							  ? customMIDIColor
-							  : Theme::WithAlpha(ink, 160);
+		ImU32 noteColor = customMIDIColor != 0 ? customMIDIColor : contentColor;
 		if (!enabled && customMIDIColor == 0)
-			noteColor = Theme::WithAlpha(noteColor, 70);
+			noteColor = Theme::WithAlpha(noteColor, 110);
 
-		// the kind tag sits in the bottom-left corner, a whole text line up from the edge,
-		// and only where the clip is tall enough to keep it clear of the name along the
-		// top - a minimized lane has room for the name alone. a faded reference copy (the
-		// automation lane's) recolors its notes, and the tag recedes with them
-		const float lineHeight = ImGui::GetTextLineHeight();
-		if (pMax.y - pMin.y >= lineHeight * 2.0f + textPadding * 3.0f)
-			drawList->AddText(ImVec2(clipRectMin.x + textPadding, pMax.y - lineHeight - textPadding),
-							  customMIDIColor != 0 ? customMIDIColor : Theme::WithAlpha(ink, 128), "MIDI");
+		// a note is a short bar placed by pitch over the body's height, a pixel or two
+		// thick depending on how much room the lane gives it
+		const float noteInset = std::floor(3.0f * scale);
+		const float noteTop = contentMin.y + noteInset;
+		const float noteBottom = contentMax.y - noteInset;
+		const float noteHalf = std::max(1.0f, std::floor(scale));
 
 		for (const auto& n : notes) {
 			// use effective offset for MIDI note culling/positioning
@@ -546,20 +559,23 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 			}
 
 			float tN = (float)n.noteNumber / 127.0f;
-			float center_y = (pMax.y - 5.0f) * (1.0f - tN) + (pMin.y + 5.0f) * tN;
-			drawList->AddRectFilled(ImVec2(nx, center_y - 1), ImVec2(nx + nw, center_y + 1), noteColor);
+			float centerY = std::floor(noteBottom * (1.0f - tN) + noteTop * tN);
+			drawList->AddRectFilled(ImVec2(nx, centerY - noteHalf), ImVec2(nx + std::max(nw - 1.0f, 1.0f), centerY + noteHalf), noteColor);
 		}
 	}
 
-	// the chain badge rides the top-right corner, out of the way of the name on the
-	// left and of the "MIDI" tag at the bottom
+	// the edge goes on last, over the content: dark, so two clips butted against each
+	// other still read as two - or the link color, for a clip sharing its notes
+	drawList->AddRect(pMin, pMax, linked ? th.clipLinked : th.clipBorder, 0.0f);
+
+	// the chain badge rides the strip's right end, out of the way of the name on the left
 	float badgeWidth = 0.0f;
 	if (linked) {
-		const float badgeHeight = std::min(ImGui::GetTextLineHeight() * 0.72f, (pMax.y - pMin.y) - 6.0f);
+		const float badgeHeight = std::min(lineHeight * 0.72f, stripHeight - 4.0f);
 		if (badgeHeight > 3.0f) {
 			badgeWidth = TimelineUtils::LinkBadgeWidth(badgeHeight);
-			TimelineUtils::DrawLinkBadge(drawList, ImVec2(pMax.x - badgeWidth - 3.0f, pMin.y + 3.0f), badgeHeight,
-										 enabled ? th.clipLinked : Theme::WithAlpha(th.clipLinked, 110));
+			TimelineUtils::DrawLinkBadge(drawList, ImVec2(pMax.x - badgeWidth - textPadding, pMin.y + (stripHeight - badgeHeight) * 0.5f),
+										 badgeHeight, enabled ? (hasStrip ? ink : th.clipLinked) : Theme::WithAlpha(th.clipLinked, 110));
 		}
 	}
 
@@ -571,7 +587,7 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	float textX = clipRectMin.x + textPadding;
 
 	// prevent text from sliding off the right side, and out from under the badge
-	float maxTextX = pMax.x - textSize.x - textPadding - (badgeWidth > 0.0f ? badgeWidth + 3.0f : 0.0f);
+	float maxTextX = pMax.x - textSize.x - textPadding - (badgeWidth > 0.0f ? badgeWidth + textPadding : 0.0f);
 	if (textX > maxTextX)
 		textX = maxTextX;
 
@@ -579,14 +595,15 @@ void TimelineClipRenderer::DrawClipContent(ImDrawList* drawList,
 	if (textX < pMin.x + textPadding)
 		textX = pMin.x + textPadding;
 
-	// the name sits on a plate of the clip's own body color, so a waveform or a run of
-	// notes passing under it never decides whether it can be read
-	if (clipName[0] != '\0') {
-		drawList->AddRectFilled(ImVec2(textX - textPadding * 0.5f, pMin.y + textPadding * 0.5f),
-								ImVec2(textX + textSize.x + textPadding * 0.5f, pMin.y + textPadding + textSize.y),
-								body, ImGui::GetStyle().FrameRounding);
+	// without a strip the name sits over the content, so it gets a plate of the clip's own
+	// color to stay readable whatever passes under it
+	const float textY = hasStrip ? pMin.y + std::floor((stripHeight - lineHeight) * 0.5f) : pMin.y + 1.0f;
+	if (!hasStrip && clipName[0] != '\0') {
+		drawList->AddRectFilled(ImVec2(textX - textPadding * 0.5f, textY), ImVec2(textX + textSize.x + textPadding * 0.5f, textY + textSize.y),
+								nameGround, ImGui::GetStyle().FrameRounding);
 	}
-	drawList->AddText(ImVec2(textX, pMin.y + textPadding), enabled ? ink : th.clipTextDim, clipName);
+	drawList->AddText(ImVec2(textX, textY), enabled ? ink : th.clipTextDim, clipName);
 
 	drawList->PopClipRect();
+	ImGui::PopFont();
 }

@@ -4,6 +4,7 @@
 #include "Clips/MIDIClip.h"
 #include "Project.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include "Undo/Actions.h"
 #include <cmath>
 #include <string>
@@ -189,16 +190,28 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 		return;
 	}
 
-	// basic info header
-	ImGui::Text("Clip: %s", clip->GetName().c_str());
+	// basic info header: the clip's glyph and name, its length in the quiet tone, and the
+	// switch that takes it out of playback
+	const Theme& th = Theme::Instance();
+	const float headerHeight = ImGui::GetFrameHeight();
+	{
+		const ImVec2 headerPos = ImGui::GetCursorScreenPos();
+		const float glyph = std::floor(ImGui::GetTextLineHeight() * 0.9f);
+		Icons::Draw(ImGui::GetWindowDrawList(), Icon::Clip, ImVec2(headerPos.x + glyph * 0.5f, headerPos.y + headerHeight * 0.5f), glyph, th.textMuted);
+		ImGui::Dummy(ImVec2(glyph, headerHeight));
+	}
 	ImGui::SameLine();
-	ImGui::TextDisabled("(%.2f beats)", clip->GetDuration());
+	ImGui::AlignTextToFramePadding();
+	Widgets::PushStrongFont();
+	ImGui::TextUnformatted(clip->GetName().c_str());
+	ImGui::PopFont();
+	ImGui::SameLine();
+	ImGui::TextDisabled("%.2f beats", clip->GetDuration());
 	ImGui::SameLine();
 
 	// activation toggle. the undo step snapshots the owning track, so it needs the
 	// selected track rather than the clip alone
-	bool clipEnabled = clip->IsEnabled();
-	if (ImGui::Checkbox("Active", &clipEnabled)) {
+	if (Widgets::TextToggle("Active", clip->IsEnabled(), ImVec2(0.0f, 0.0f), 0, "Deactivated clips stay put but do not play (D)")) {
 		Project* clipProject = mContext.GetProject();
 		std::shared_ptr<Track> ownerTrack = nullptr;
 		if (clipProject) {
@@ -211,13 +224,11 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 	}
 	ImGui::Separator();
 
-	// every section opens the same way: a muted title, the way the library heads its
+	// every section opens the same way: a caption, the way the library heads its
 	// sections, and a short gap before the controls under it
 	auto SectionHeading = [&](const char* title) {
-		ImGui::PushStyleColor(ImGuiCol_Text, Theme::Instance().textMuted);
-		ImGui::TextUnformatted(title);
-		ImGui::PopStyleColor();
-		ImGui::Dummy(ImVec2(0, 5 * mContext.state.mainScale));
+		Widgets::Caption(title);
+		ImGui::Dummy(ImVec2(0, 2 * mContext.state.mainScale));
 	};
 
 	auto ac = std::dynamic_pointer_cast<AudioClip>(clip);
@@ -274,10 +285,11 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 
 		// column 1: warping
 		{
-			SectionHeading("Warping");
+			SectionHeading("WARPING");
 
 			bool warping = ac->IsWarpingEnabled();
-			if (ImGui::Checkbox("Warp", &warping)) {
+			if (Widgets::TextToggle("Warp", warping, ImVec2(0.0f, 0.0f), 0, "Stretch the file to the project tempo")) {
+				warping = !warping;
 				AudioClipWarpState before = ac->CaptureWarpState();
 				locked([&]() {
 					ac->SetWarpingEnabled(warping);
@@ -294,8 +306,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 			// it points at, and putting it here keeps it in the same place whether or not
 			// the warp controls below have unfolded
 			ImGui::SameLine();
-			bool reversed = ac->IsReversed();
-			if (ImGui::Checkbox("Reverse", &reversed)) {
+			if (Widgets::TextToggle("Reverse", ac->IsReversed())) {
 				// its own undo step, not an AudioClipWarpAction: what changed is the
 				// sample buffer, which no warp snapshot carries. deliberately not routed
 				// through `locked` either - that one re-reads the clip's geometry from a
@@ -321,19 +332,25 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 				ImGui::TextUnformatted("Mode");
 				ImGui::SameLine(labelWidth);
 				ImGui::SetNextItemWidth(fieldWidth);
-				if (ImGui::Combo("##WarpMode", &currentMode, warpModes, IM_ARRAYSIZE(warpModes))) {
-					if (currentMode >= 0 && currentMode <= 5) {
-						AudioClipWarpState before = ac->CaptureWarpState();
-						locked([&]() { ac->SetWarpMode((WarpMode)currentMode); });
-						pushUndo(before, "Change warp mode");
+				int pickedMode = -1;
+				if (Widgets::BeginCombo("##WarpMode", warpModes[std::clamp(currentMode, 0, (int)IM_ARRAYSIZE(warpModes) - 1)])) {
+					for (int candidate = 0; candidate < (int)IM_ARRAYSIZE(warpModes); ++candidate) {
+						if (ImGui::Selectable(warpModes[candidate], candidate == currentMode))
+							pickedMode = candidate;
 					}
+					ImGui::EndCombo();
+				}
+				if (pickedMode >= 0 && pickedMode != currentMode) {
+					AudioClipWarpState before = ac->CaptureWarpState();
+					locked([&]() { ac->SetWarpMode((WarpMode)pickedMode); });
+					pushUndo(before, "Change warp mode");
 				}
 
 				field(mSegmentBpm, "Tempo the file was recorded at");
 
 				// half/double-time: the usual fix when the detected tempo is an octave off
 				ImGui::SameLine();
-				if (ImGui::SmallButton("/2")) {
+				if (Widgets::TextToggle(":2", false, ImVec2(0.0f, 0.0f), 0, "Halve the file's tempo")) {
 					AudioClipWarpState before = ac->CaptureWarpState();
 					locked([&]() {
 						ac->SetSegmentBpm(ac->GetSegmentBpm() * 0.5);
@@ -341,7 +358,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 					pushUndo(before, "Halve clip BPM");
 				}
 				ImGui::SameLine();
-				if (ImGui::SmallButton("x2")) {
+				if (Widgets::TextToggle("*2", false, ImVec2(0.0f, 0.0f), 0, "Double the file's tempo")) {
 					AudioClipWarpState before = ac->CaptureWarpState();
 					locked([&]() {
 						ac->SetSegmentBpm(ac->GetSegmentBpm() * 2.0);
@@ -377,7 +394,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 
 		// column 2: pitch
 		{
-			SectionHeading("Pitch / Transpose");
+			SectionHeading("PITCH / TRANSPOSE");
 
 			// Re-Pitch derives pitch from playback speed, so transpose is meaningless there
 			// (Ableton disables it too); grey the controls out while that mode is active
@@ -395,7 +412,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 			field(mTransposeCents, "Fine tuning, a hundredth of a semitone each");
 
 			// add a helper reset button
-			if (ImGui::Button("Reset Pitch")) {
+			if (Widgets::IconTextButton("Reset Pitch", Icon::Reset)) {
 				AudioClipWarpState before = ac->CaptureWarpState();
 				locked([&]() {
 					ac->SetTransposeSemitones(0.0);
@@ -410,7 +427,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 
 		// column 3: file info
 		{
-			SectionHeading("File Info");
+			SectionHeading("FILE INFO");
 			ImGui::Text("Sample Rate: %.0f Hz", ac->GetSampleRate());
 			ImGui::Text("Channels: %d", ac->GetNumChannels());
 			double durSec = 0.0;
@@ -423,7 +440,7 @@ void ClipView::Render(const ImVec2& pos, float width, float height) {
 		ImGui::Columns(1);
 	} else if (auto mc = std::dynamic_pointer_cast<MIDIClip>(clip)) {
 		// MIDI clip controls
-		SectionHeading("MIDI Properties");
+		SectionHeading("MIDI PROPERTIES");
 		ImGui::Text("Notes: %zu", mc->GetNotes().size());
 		// placeholder for MIDI specific tools
 		ImGui::TextDisabled("Use Piano Roll to edit notes.");

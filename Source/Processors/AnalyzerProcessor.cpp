@@ -3,6 +3,7 @@
 #include "Analysis/Spectrum.h"
 #include "ProcessorFactory.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -1372,7 +1373,6 @@ void AnalyzerProcessor::DrawScope(const ImVec2& pos, const ImVec2& size) {
 // ================================================================
 
 void AnalyzerProcessor::DrawControlRow(float width) {
-	const Theme& th = Theme::Instance();
 	ImGuiStyle& style = ImGui::GetStyle();
 
 	// Freeze and Reset are pinned to the right on every tab, so the two controls that
@@ -1387,7 +1387,7 @@ void AnalyzerProcessor::DrawControlRow(float width) {
 
 	auto Combo = [&](const char* id, const char* preview, const char* const* names, int count, int& value, const char* tooltip) {
 		ImGui::SetNextItemWidth(std::min(leftWidth * 0.3f, ComboWidth(names, count)));
-		if (ImGui::BeginCombo(id, preview, ImGuiComboFlags_HeightSmall)) {
+		if (Widgets::BeginCombo(id, preview, ImGuiComboFlags_HeightSmall)) {
 			for (int i = 0; i < count; ++i) {
 				if (ImGui::Selectable(names[i], i == value))
 					value = i;
@@ -1410,7 +1410,7 @@ void AnalyzerProcessor::DrawControlRow(float width) {
 		snprintf(tiltLabel, sizeof(tiltLabel), "%.1f dB/oct", mTiltDbPerOctave);
 		const char* widestTilt = "0.0 dB/oct";
 		ImGui::SetNextItemWidth(std::min(leftWidth * 0.32f, ComboWidth(&widestTilt, 1)));
-		if (ImGui::BeginCombo("##Tilt", tiltLabel, ImGuiComboFlags_HeightSmall)) {
+		if (Widgets::BeginCombo("##Tilt", tiltLabel, ImGuiComboFlags_HeightSmall)) {
 			const float tilts[] = {0.0f, 3.0f, 4.5f, 6.0f};
 			for (float tilt : tilts) {
 				char entry[32];
@@ -1427,9 +1427,8 @@ void AnalyzerProcessor::DrawControlRow(float width) {
 		}
 		ImGui::SameLine();
 
-		ImGui::Checkbox("Peak", &mShowPeakHold);
-		if (ImGui::IsItemHovered())
-			ImGui::SetTooltip("Hold the highest level each band has reached, falling slowly");
+		if (Widgets::TextToggle("Peak", mShowPeakHold, ImVec2(0.0f, 0.0f), 0, "Hold the highest level each band has reached, falling slowly"))
+			mShowPeakHold = !mShowPeakHold;
 		break;
 	}
 	case AnalyzerView::Spectrogram: {
@@ -1437,7 +1436,7 @@ void AnalyzerProcessor::DrawControlRow(float width) {
 		snprintf(floorLabel, sizeof(floorLabel), "Floor %.0f dB", mFloorDb);
 		const char* widestFloor = "Floor -120 dB";
 		ImGui::SetNextItemWidth(std::min(leftWidth * 0.36f, ComboWidth(&widestFloor, 1)));
-		if (ImGui::BeginCombo("##Floor", floorLabel, ImGuiComboFlags_HeightSmall)) {
+		if (Widgets::BeginCombo("##Floor", floorLabel, ImGuiComboFlags_HeightSmall)) {
 			const float floors[] = {-60.0f, -72.0f, -96.0f, -120.0f};
 			for (float value : floors) {
 				char entry[32];
@@ -1489,26 +1488,16 @@ void AnalyzerProcessor::DrawControlRow(float width) {
 	// the left, and never let a long tab row push them off the panel
 	ImGui::SetCursorScreenPos(ImVec2(rowStart.x + width - rightWidth, rowStart.y));
 
-	// the button flips mFrozen as it is drawn, so the pop is guarded by what the push saw
-	const bool frozen = mFrozen;
-	if (frozen)
-		ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
-	if (ImGui::Button("Freeze", ImVec2(freezeWidth, 0.0f)))
+	if (Widgets::TextToggle("Freeze", mFrozen, ImVec2(freezeWidth, 0.0f), 0,
+							"Hold the picture still so it can be read, or compared against another track"))
 		mFrozen = !mFrozen;
-	if (frozen)
-		ImGui::PopStyleColor();
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Hold the picture still so it can be read, or compared against another track");
 
 	ImGui::SameLine();
-	if (ImGui::Button("Reset", ImVec2(resetWidth, 0.0f)))
+	if (Widgets::TextToggle("Reset", false, ImVec2(resetWidth, 0.0f), 0, "Clear the held peaks, the integrated loudness and the sonogram"))
 		ResetMeasurements();
-	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("Clear the held peaks, the integrated loudness and the sonogram");
 }
 
 bool AnalyzerProcessor::RenderCustomUI(const ImVec2& size) {
-	const Theme& th = Theme::Instance();
 	ImGuiStyle& style = ImGui::GetStyle();
 
 	Refresh();
@@ -1525,16 +1514,8 @@ bool AnalyzerProcessor::RenderCustomUI(const ImVec2& size) {
 		if (view > 0)
 			ImGui::SameLine();
 
-		const bool active = mView == view;
-		if (active) {
-			ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, th.accentHover);
-			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
-		}
-		if (ImGui::Button(kViewNames[view], ImVec2(tabWidth, 0.0f)))
+		if (Widgets::TextToggle(kViewNames[view], mView == view, ImVec2(tabWidth, 0.0f)))
 			mView = view;
-		if (active)
-			ImGui::PopStyleColor(3);
 	}
 
 	// ---- body ----

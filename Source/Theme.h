@@ -1,18 +1,20 @@
 #pragma once
 #include "imgui.h"
 
-// the single source of truth for every color the DAW draws. before this, colors
-// were split between ImGui's built-in dark theme and ~150 ad-hoc IM_COL32 literals
-// scattered across the views, so nothing was consistent and nothing could be
+// the single source of truth for every color and typeface the DAW draws. before this,
+// colors were split between ImGui's built-in dark theme and ~150 ad-hoc IM_COL32
+// literals scattered across the views, so nothing was consistent and nothing could be
 // retimed. now every draw site reads a named field off Theme::Instance()
 //
 // it is a global singleton (like AppConfig) rather than living on EditorContext
 // because processor editors (AudioProcessor::RenderCustomUI) and Parameter::Draw
 // have no context reference. all reads happen on the UI thread, so no locking
 //
-// default look: neutral dark gray, Ableton-like, with a single amber/gold accent
-// used sparingly - accent appears only on selection, active toggles, focus, and
-// the value being touched, never on every knob/slider at rest
+// default look: exact neutral grays in the tonal order of the reference product's
+// mid-dark themes - dark chrome, darker bars, mid panels, lighter title strips and
+// near-black graph wells. color is reserved for state: one orange accent for what is
+// selected, active or being touched, plus the track toggles' own on-colors. a control
+// at rest is always gray
 class Theme {
 public:
 	static Theme& Instance();
@@ -22,21 +24,24 @@ public:
 	// ================================================================
 
 	ImU32 bgDeepest;		  // graph/plot interiors, meter wells
-	ImU32 inputBg;			  // recessed control backgrounds (slider tracks, text boxes)
-	ImU32 bgWindow;			  // main application window
-	ImU32 bgPanel;			  // track rows, ruler, ordinary panels
+	ImU32 bgChrome;			  // the menu bar and whatever shows between windows
+	ImU32 inputBg;			  // recessed control backgrounds (value boxes, text fields)
+	ImU32 bgWindow;			  // the dark ground devices and the arrangement's empty canvas sit on
+	ImU32 bgHeader;			  // bars and sticky strips: transport, tab strip, ruler, section heads
+	ImU32 bgPanel;			  // ordinary panels: library, clip view, track rows, floating windows
 	ImU32 bgPanelAlt;		  // raised surfaces: popups, group rows, the master row
-	ImU32 bgHeader;			  // sticky header strips
 	ImU32 bgHover;			  // hovered frame/row
 	ImU32 bgActive;			  // selected row (neutral, never the accent)
 	ImU32 bgDeviceEffect;	  // device rack slot: effect
 	ImU32 bgDeviceInstrument; // device rack slot: instrument
 	ImU32 bgDeviceRack;		  // a rack's own shell, around the panels it holds
 	ImU32 bgRackInner;		  // recessed ground the rack's macro / chain / device panels sit on
+	ImU32 deviceTitle;		  // the strip along a device's top that carries its name
+	ImU32 deviceTitleSelected; // ... while the device is part of the selection
 	ImU32 bgOverlay;		  // translucent dark box floating over the canvas
-	ImU32 bgLane;				  // timeline lane behind an ordinary track
-	ImU32 bgLaneSelected;		  // ... behind the selected track
-	ImU32 bgLaneGroup;			  // ... behind a group, which holds no clips of its own
+	ImU32 bgLane;			  // timeline lane behind an ordinary track
+	ImU32 bgLaneSelected;	  // ... behind the selected track
+	ImU32 bgLaneGroup;		  // ... behind a group, which holds no clips of its own
 
 	// ================================================================
 	// CONTROLS
@@ -47,31 +52,41 @@ public:
 	ImU32 button;
 	ImU32 buttonHover;
 	ImU32 buttonActive;		// pressed
+	ImU32 ghostHover;		// wash under an unboxed icon button the pointer is over
+	ImU32 ghostPress;		// ... while it is held
 	ImU32 valueFill;		// level fill behind a value box's number, dark enough that the number stays readable on it
-	ImU32 valueFillActive;	// ... while it is being dragged: amber, held just as dark
+	ImU32 valueFillActive;	// ... while it is being dragged: the accent's hue, held just as dark
+	ImU32 knobTrack;		// the full sweep of a dial, under its value arc
+	ImU32 knobValue;		// the value arc and pointer of a dial at rest
+
+	// the on-state of the three track toggles. each is its own color so a glance down
+	// the track list tells muted, soloed and automated tracks apart
+	ImU32 muteActive;
+	ImU32 soloActive;
+	ImU32 automationActive;
 
 	// ================================================================
 	// LINES & BORDERS
 	// ================================================================
 
-	ImU32 border;
-	ImU32 borderStrong;
-	ImU32 divider;	// near-black separator between rows/sections
-	ImU32 gridSub;	// subdivision grid line (faintest)
-	ImU32 gridBeat; // beat grid line
-	ImU32 gridBar;	// bar grid line (strongest)
+	ImU32 border;		// the dark groove around a control or a panel
+	ImU32 borderStrong; // a light rule that has to read over dark and mid grounds alike
+	ImU32 divider;		// near-black separator between rows/sections
+	ImU32 gridSub;		// subdivision grid line (faintest)
+	ImU32 gridBeat;		// beat grid line
+	ImU32 gridBar;		// bar grid line (strongest)
 
 	// ================================================================
 	// TEXT
 	// ================================================================
 
 	ImU32 text;			// primary
-	ImU32 textMuted;	// secondary labels
+	ImU32 textMuted;	// secondary labels, icons at rest
 	ImU32 textDim;		// hints, disabled
 	ImU32 textOnAccent; // dark text drawn on top of an accent fill
 
 	// ================================================================
-	// ACCENT - amber/gold, used sparingly
+	// ACCENT - orange, used sparingly
 	// ================================================================
 
 	ImU32 accent;
@@ -84,9 +99,9 @@ public:
 	// STATUS & SEMANTIC
 	// ================================================================
 
-	ImU32 playhead;		   // red
+	ImU32 playhead;		   // the line the transport is at
 	ImU32 recording;	   // red (armed/record)
-	ImU32 marker;		   // green insert/loop cursor
+	ImU32 marker;		   // the insert marker playback starts from
 	ImU32 selectionFill;   // translucent wash under a selection region
 	ImU32 selectionStroke; // bright outline around a selection
 	ImU32 dropLine;		   // active drag-drop insert indicator
@@ -121,9 +136,14 @@ public:
 	ImU32 clipBorder;
 	ImU32 clipDisabled; // body of a deactivated clip, in place of the track color
 	ImU32 clipLinked;	// chain badge + border of a clip whose notes another clip shares
-	ImU32 waveform;	  // default waveform stroke fallback
-	ImU32 waveBgMono; // dark backing behind a mono waveform
-	ImU32 waveBgMid;  // subtle green backing (mid/side view)
+	ImU32 waveform;	 // default waveform stroke fallback
+	ImU32 waveBgMid; // subtle green backing (mid/side view)
+
+	// how far a clip's body sinks from its track color toward the lane it sits on. the
+	// title strip carries the color at full strength; the body only tints the lane, so
+	// an arrangement full of clips stays mostly gray and its notes and waveforms read
+	float clipBodyTint;
+	float clipBodyTintSelected;
 
 	// ================================================================
 	// PIANO ROLL
@@ -152,6 +172,23 @@ public:
 	ImU32 automationPoint;
 	ImU32 automationPointSelected;
 	ImU32 automationGhost; // faint automation of neighboring lanes
+
+	// ================================================================
+	// TYPOGRAPHY
+	// ================================================================
+
+	// text is small and dense on purpose: a DAW shows hundreds of labels at once, and a
+	// face sized for reading prose makes every control look a size too big. names - a
+	// track, a device, a clip, a section - are set in the strong face, values and
+	// everything else in the regular one
+	ImFont* fontRegular = nullptr;
+	ImFont* fontStrong = nullptr;
+	float fontSize = 0.0f;		// body text in pixels, display scale included
+	float fontSizeSmall = 0.0f; // captions: ruler numbers, meter labels, badges
+
+	// loads both faces at the display scale and makes the regular one the default.
+	// called once, before the first frame
+	void LoadFonts(float scale);
 
 	// ================================================================
 	// STYLE + HELPERS

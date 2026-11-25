@@ -79,3 +79,43 @@ TEST(Theme, ValueFillLeavesTheNumberOnItReadable) {
 	EXPECT_GE(Theme::ContrastRatio(th.text, th.valueFill), 4.5f);
 	EXPECT_GE(Theme::ContrastRatio(th.text, th.valueFillActive), 4.5f);
 }
+
+// ================================================================
+// TOGGLES
+// ================================================================
+
+// an engaged toggle is a fill of its own color with its glyph written on it in whichever
+// ink reads there, and it has to be plainly not the resting button it was a click ago.
+// the floor for the glyph is the 3:1 a control's non-text parts are held to
+TEST(Theme, EngagedTogglesKeepTheirGlyphReadableAndStandApart) {
+	const Theme& th = Theme::Instance();
+	const ImU32 fills[] = {th.accent, th.muteActive, th.soloActive, th.automationActive};
+	for (ImU32 fill : fills) {
+		const ImU32 ink = Theme::ContrastingText(fill, th.text, th.textOnAccent);
+		EXPECT_GE(Theme::ContrastRatio(ink, fill), 3.0f);
+		EXPECT_GT(Theme::ContrastRatio(fill, th.button), 1.5f);
+	}
+}
+
+// ================================================================
+// NEUTRAL SURFACES
+// ================================================================
+
+// the surfaces and the text on them carry no hue of their own - exact grays - so the
+// only color on screen is color that means something: the accent, a track's color, a
+// toggle that is on, a meter going red
+TEST(Theme, SurfacesAndTextAreNeutralGray) {
+	const Theme& th = Theme::Instance();
+	const ImU32 neutrals[] = {th.bgDeepest, th.bgChrome, th.inputBg, th.bgWindow, th.bgHeader, th.bgPanel, th.bgPanelAlt,
+							  th.bgHover, th.bgActive, th.bgDeviceEffect, th.bgDeviceInstrument, th.bgDeviceRack, th.bgRackInner,
+							  th.deviceTitle, th.deviceTitleSelected, th.bgLane, th.bgLaneSelected, th.bgLaneGroup,
+							  th.button, th.buttonHover, th.buttonActive, th.border, th.divider,
+							  th.text, th.textMuted, th.textDim};
+	for (ImU32 color : neutrals) {
+		const int r = (int)((color >> IM_COL32_R_SHIFT) & 0xFF);
+		const int g = (int)((color >> IM_COL32_G_SHIFT) & 0xFF);
+		const int b = (int)((color >> IM_COL32_B_SHIFT) & 0xFF);
+		EXPECT_EQ(r, g);
+		EXPECT_EQ(g, b);
+	}
+}

@@ -2,6 +2,8 @@
 #include "PhaserProcessor.h"
 #include "ProcessorFactory.h"
 #include "Theme.h"
+#include "Widgets.h"
+#include "Icons.h"
 #include "Parameters/KnobParameter.h"
 #include "Parameters/SliderParameter.h"
 #include <algorithm>
@@ -115,7 +117,7 @@ namespace {
 	// ================================================================
 	// the reference product labels these controls with a waveform, a note head, a phi and
 	// a spin arrow. the app loads no glyph range past Latin-1, so they are drawn rather
-	// than typed
+	// than typed - the waveform here, the rest from the shared set in Icons
 
 	void DrawShapeGlyph(ImDrawList* drawList, const ImVec2& center, float width, float height, int shape, ImU32 color) {
 		const float halfWidth = width * 0.5f;
@@ -151,37 +153,6 @@ namespace {
 				drawList->AddLine(previous, point, color, thickness);
 			previous = point;
 		}
-	}
-
-	// an eighth note: head, stem and flag
-	void DrawNoteGlyph(ImDrawList* drawList, const ImVec2& center, float size, ImU32 color) {
-		const float head = size * 0.16f;
-		const ImVec2 headCenter(center.x - size * 0.12f, center.y + size * 0.22f);
-		drawList->AddCircleFilled(headCenter, head, color, 10);
-		drawList->AddLine(ImVec2(headCenter.x + head, headCenter.y),
-						  ImVec2(headCenter.x + head, center.y - size * 0.30f), color, 1.4f);
-		drawList->AddBezierQuadratic(ImVec2(headCenter.x + head, center.y - size * 0.30f),
-									 ImVec2(headCenter.x + size * 0.34f, center.y - size * 0.18f),
-									 ImVec2(headCenter.x + head + size * 0.06f, center.y + size * 0.02f),
-									 color, 1.4f, 0);
-	}
-
-	// phi: the stereo offset between the two LFOs
-	void DrawPhiGlyph(ImDrawList* drawList, const ImVec2& center, float size, ImU32 color) {
-		drawList->AddCircle(center, size * 0.24f, color, 12, 1.4f);
-		drawList->AddLine(ImVec2(center.x, center.y - size * 0.40f),
-						  ImVec2(center.x, center.y + size * 0.40f), color, 1.4f);
-	}
-
-	// an arrow chasing its own tail: the two LFOs running at different rates
-	void DrawSpinGlyph(ImDrawList* drawList, const ImVec2& center, float size, ImU32 color) {
-		const float radius = size * 0.30f;
-		drawList->PathArcTo(center, radius, kPi * 0.35f, kPi * 1.95f, 20);
-		drawList->PathStroke(color, 0, 1.4f);
-		const ImVec2 tip(center.x + radius * std::cos(kPi * 1.95f), center.y + radius * std::sin(kPi * 1.95f));
-		drawList->AddTriangleFilled(ImVec2(tip.x - size * 0.10f, tip.y - size * 0.04f),
-									ImVec2(tip.x + size * 0.06f, tip.y - size * 0.10f),
-									ImVec2(tip.x + size * 0.02f, tip.y + size * 0.08f), color);
 	}
 
 	// a small square button whose face the caller paints, and the rect it painted into
@@ -789,7 +760,7 @@ void PhaserProcessor::RenderLFOColumn(float width, float knobWidth, float height
 		drawList->AddText(ImVec2(origin.x, y), th.text, "Rate");
 		ImGui::SetCursorScreenPos(ImVec2(origin.x, y + (blockHeight - frameHeight) * 0.5f));
 		ImGui::SetNextItemWidth(knobWidth);
-		if (ImGui::BeginCombo("##PhaserDivision", kDivisionNames[division], ImGuiComboFlags_NoArrowButton)) {
+		if (Widgets::BeginCombo("##PhaserDivision", kDivisionNames[division], ImGuiComboFlags_NoArrowButton)) {
 			for (int candidate = 0; candidate < kNumDivisions; ++candidate) {
 				if (ImGui::Selectable(kDivisionNames[candidate], candidate == division))
 					SetChoice(pLFODivision, (float)candidate);
@@ -824,8 +795,8 @@ void PhaserProcessor::RenderLFOColumn(float width, float knobWidth, float height
 			SetChoice(pLFOSync, 1.0f);
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Lock the rate to the project tempo");
-		DrawNoteGlyph(drawList, ImVec2(buttonMin.x + iconWidth * 0.5f, buttonMin.y + switchHeight * 0.5f),
-					  switchHeight, synced ? th.textOnAccent : th.textMuted);
+		Icons::Draw(drawList, Icon::Note, ImVec2(buttonMin.x + iconWidth * 0.5f, buttonMin.y + switchHeight * 0.5f),
+					switchHeight, synced ? th.textOnAccent : th.textMuted);
 	}
 
 	// ---- the stereo pair ----
@@ -852,8 +823,8 @@ void PhaserProcessor::RenderLFOColumn(float width, float knobWidth, float height
 			SetChoice(pLFOStereo, (float)StereoPhase);
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Same rate on both channels, one offset from the other");
-		DrawPhiGlyph(drawList, ImVec2(buttonMin.x + iconWidth * 0.5f, buttonMin.y + switchHeight * 0.5f),
-					 switchHeight, spinning ? th.textMuted : th.textOnAccent);
+		Icons::Draw(drawList, Icon::Phi, ImVec2(buttonMin.x + iconWidth * 0.5f, buttonMin.y + switchHeight * 0.5f),
+					switchHeight, spinning ? th.textMuted : th.textOnAccent);
 
 		switchY += switchHeight + kRowGap;
 		ImGui::SetCursorScreenPos(ImVec2(iconX, switchY));
@@ -864,8 +835,8 @@ void PhaserProcessor::RenderLFOColumn(float width, float knobWidth, float height
 			SetChoice(pLFOStereo, (float)StereoSpin);
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip(synced ? "Free-running rates only" : "Detune the two channels' rates so they drift apart");
-		DrawSpinGlyph(drawList, ImVec2(buttonMin.x + iconWidth * 0.5f, buttonMin.y + switchHeight * 0.5f),
-					  switchHeight, spinning ? th.textOnAccent : th.textMuted);
+		Icons::Draw(drawList, Icon::Spin, ImVec2(buttonMin.x + iconWidth * 0.5f, buttonMin.y + switchHeight * 0.5f),
+					switchHeight, spinning ? th.textOnAccent : th.textMuted);
 		if (synced)
 			ImGui::EndDisabled();
 	}

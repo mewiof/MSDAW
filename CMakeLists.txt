@@ -39,6 +39,40 @@ file(GLOB IMGUI_SOURCE_FILES CONFIGURE_DEPENDS
 )
 
 add_subdirectory("${SUBMODULES_PATH}/rtaudio")
+
+# NOTE: RtAudio 6's WASAPI thread gives up on an endpoint whose engine period another
+# client has locked (AUDCLNT_E_ENGINE_PERIODICITY_LOCKED, FxSound does it), so the
+# stream opens, starts, and dies a moment later. The submodule stays pristine: a patched
+# copy of RtAudio.cpp in the build tree stands in for it in the target
+if(WIN32)
+	find_package(Git REQUIRED)
+	set(RTAUDIO_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/External/Patches/rtaudio-wasapi-locked-period.patch")
+	set(RTAUDIO_PATCH_WORK "${CMAKE_BINARY_DIR}/rtaudio-patch-work")
+	set(RTAUDIO_PATCHED_SOURCE "${CMAKE_BINARY_DIR}/rtaudio-patched/RtAudio.cpp")
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+		"${RTAUDIO_PATCH}" "${SUBMODULES_PATH}/rtaudio/RtAudio.cpp")
+
+	file(REMOVE_RECURSE "${RTAUDIO_PATCH_WORK}")
+	file(COPY "${SUBMODULES_PATH}/rtaudio/RtAudio.cpp" DESTINATION "${RTAUDIO_PATCH_WORK}")
+	# the ceiling keeps git from finding this repo around the build tree, so it applies
+	# the patch as a plain patch tool would instead of skipping paths outside the index
+	execute_process(
+		COMMAND "${CMAKE_COMMAND}" -E env "GIT_CEILING_DIRECTORIES=${CMAKE_BINARY_DIR}"
+			"${GIT_EXECUTABLE}" apply --ignore-whitespace "${RTAUDIO_PATCH}"
+		WORKING_DIRECTORY "${RTAUDIO_PATCH_WORK}"
+		RESULT_VARIABLE RTAUDIO_PATCH_RESULT
+		ERROR_VARIABLE RTAUDIO_PATCH_ERROR)
+	if(NOT RTAUDIO_PATCH_RESULT EQUAL 0)
+		message(FATAL_ERROR "RtAudio patch no longer applies; refresh or drop ${RTAUDIO_PATCH}\n${RTAUDIO_PATCH_ERROR}")
+	endif()
+	# only a changed result touches the copy, so a reconfigure does not rebuild rtaudio
+	file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/rtaudio-patched")
+	file(COPY_FILE "${RTAUDIO_PATCH_WORK}/RtAudio.cpp" "${RTAUDIO_PATCHED_SOURCE}" ONLY_IF_DIFFERENT)
+
+	get_target_property(RTAUDIO_TARGET_SOURCES rtaudio SOURCES)
+	list(TRANSFORM RTAUDIO_TARGET_SOURCES REPLACE "^RtAudio\\.cpp$" "${RTAUDIO_PATCHED_SOURCE}")
+	set_target_properties(rtaudio PROPERTIES SOURCES "${RTAUDIO_TARGET_SOURCES}")
+endif()
 add_subdirectory("${SUBMODULES_PATH}/freetype")
 add_library(Freetype::Freetype ALIAS freetype)
 

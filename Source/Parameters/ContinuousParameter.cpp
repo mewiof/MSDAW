@@ -115,24 +115,35 @@ bool ContinuousParameter::DrawCompact(float width, const char* valueFmt, bool dr
 		}
 
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
-		const Theme& th = Theme::Instance();
-		ImU32 bgColor = ImGui::GetColorU32(isHovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
-		drawList->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, ImGui::GetStyle().FrameRounding);
-		if (drawFill)
-			DrawLevelFill(drawList, pos, ImVec2(pos.x + size.x, pos.y + size.y), isActive);
-		drawList->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), IsSelected() ? th.accent : th.border, ImGui::GetStyle().FrameRounding);
-
-		char valText[32];
-		FormatValue(valText, sizeof(valText), valueFmt);
-		ImVec2 textSize = ImGui::CalcTextSize(valText);
-		ImVec2 textPos = ImVec2(pos.x + (size.x - textSize.x) * 0.5f, pos.y + (size.y - textSize.y) * 0.5f);
-		drawList->AddText(textPos, ImGui::GetColorU32(ImGuiCol_Text), valText);
+		DrawValueBox(drawList, pos, size, valueFmt, drawFill, isHovered, isActive);
 
 		changed |= HandleCommonInteractions();
 	}
 
 	ImGui::PopID();
 	return changed;
+}
+
+void ContinuousParameter::DrawValueBox(ImDrawList* drawList, const ImVec2& pos, const ImVec2& size, const char* valueFmt,
+									   bool drawFill, bool hovered, bool active) const {
+	// a recessed well with the number centered in it, the level fill (when asked for)
+	// under the number, and a dark groove for an edge. the last touched parameter - the
+	// one typed digits land on - is ringed in the accent instead
+	const Theme& th = Theme::Instance();
+	const float rounding = ImGui::GetStyle().FrameRounding;
+	const ImVec2 max(pos.x + size.x, pos.y + size.y);
+	drawList->AddRectFilled(pos, max, ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), rounding);
+	if (drawFill)
+		DrawLevelFill(drawList, pos, max, active);
+	drawList->AddRect(pos, max, ImGui::GetColorU32(IsSelected() ? th.accent : th.border), rounding);
+
+	char valText[32];
+	FormatValue(valText, sizeof(valText), valueFmt);
+	ImVec2 textSize = ImGui::CalcTextSize(valText);
+	ImVec2 textPos = ImVec2(pos.x + (size.x - textSize.x) * 0.5f, pos.y + (size.y - textSize.y) * 0.5f);
+	drawList->PushClipRect(pos, max, true);
+	drawList->AddText(textPos, ImGui::GetColorU32(ImGuiCol_Text), valText);
+	drawList->PopClipRect();
 }
 
 void ContinuousParameter::CheckTypingStart(ImGuiID currentID) {

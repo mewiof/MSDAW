@@ -5,7 +5,7 @@
 bool SliderParameter::Draw() {
 	bool changed = false;
 	ImGui::PushID(this);
-	ImGui::Text("%s", name.c_str());
+	ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(IsSelected() ? Theme::Instance().accent : Theme::Instance().textMuted), "%s", name.c_str());
 
 	ImGui::SetNextItemWidth(-1.0f);
 
@@ -54,23 +54,8 @@ bool SliderParameter::Draw() {
 			EndEditGesture(); // commit the drag as a single undo entry
 		}
 
-		ImDrawList* drawList = ImGui::GetWindowDrawList();
-		ImU32 bgColor = ImGui::GetColorU32(isHovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
-
-		drawList->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, ImGui::GetStyle().FrameRounding);
-		DrawLevelFill(drawList, pos, ImVec2(pos.x + size.x, pos.y + size.y), isActive);
-
-		// always outline the track so it reads as a distinct control, not a flat patch
-		// of panel. the last-touched parameter gets the accent ring instead, so its
-		// automation target stays obvious
-		const Theme& th = Theme::Instance();
-		drawList->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), IsSelected() ? th.accent : th.border, ImGui::GetStyle().FrameRounding);
-
-		char valText[32];
-		snprintf(valText, sizeof(valText), "%.2f", value);
-		ImVec2 textSize = ImGui::CalcTextSize(valText);
-		ImVec2 textPos = ImVec2(pos.x + (size.x - textSize.x) * 0.5f, pos.y + (size.y - textSize.y) * 0.5f);
-		drawList->AddText(textPos, ImGui::GetColorU32(ImGuiCol_Text), valText);
+		// the same face as a compact box, always with its level fill
+		DrawValueBox(ImGui::GetWindowDrawList(), pos, size, "%.2f", true, isHovered, isActive);
 
 		changed |= HandleCommonInteractions();
 	}

@@ -7,6 +7,7 @@
 #include "Processors/VST3Processor.h"
 #include "Undo/Actions.h"
 #include "Theme.h"
+#include "Widgets.h"
 #include "TimelineView/TrackLayout.h"
 #include <algorithm>
 #include <filesystem>
@@ -36,6 +37,13 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 
 	float txtH = ImGui::GetTextLineHeight();
 
+	// the row's controls are one size throughout: a toggle is a little wider than the
+	// text is tall, the proportion the reference product gives its track buttons
+	const float s = mContext.state.mainScale;
+	const float frmH = ImGui::GetFrameHeight();
+	const ImVec2 toggleSize(std::floor(txtH * 1.5f), std::floor(txtH * 1.15f));
+	const float toggleGap = std::floor(2.0f * s);
+
 	// draws a fold/collapse caret (down when expanded, right when collapsed) as an
 	// overlapping button; returns true on click
 	auto DrawCaret = [&](const char* id, float x, float y, float w, float h, bool open) -> bool {
@@ -43,35 +51,25 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		ImGui::SetNextItemAllowOverlap();
 		bool clicked = ImGui::InvisibleButton(id, ImVec2(w, h));
 		ImU32 col = ImGui::IsItemHovered() ? th.text : th.textMuted;
-		float cx = x + w * 0.5f;
-		float cy = y + h * 0.5f;
-		float r = h * 0.28f;
-		if (open)
-			drawList->AddTriangleFilled(ImVec2(cx - r, cy - r * 0.6f), ImVec2(cx + r, cy - r * 0.6f), ImVec2(cx, cy + r * 0.7f), col);
-		else
-			drawList->AddTriangleFilled(ImVec2(cx - r * 0.6f, cy - r), ImVec2(cx - r * 0.6f, cy + r), ImVec2(cx + r * 0.7f, cy), col);
+		Icons::Draw(drawList, open ? Icon::CaretDown : Icon::CaretRight, ImVec2(x + w * 0.5f, y + h * 0.5f), std::min(w, h), col);
 		return clicked;
 	};
 
-	// the M/S pair, drawn the same way on a full row and on a minimized one: a
-	// collapsed track still has to be silenceable without expanding it again
+	// the mute/solo pair, drawn the same way on a full row and on a minimized one: a
+	// collapsed track still has to be silenceable without expanding it again. a muted
+	// track's speaker is struck through as well as lit, so the state reads even where
+	// the color does not
 	auto DrawMuteSolo = [&](const std::shared_ptr<Track>& track) {
 		bool mute = track->GetMute();
-		if (mute) {
-			ImGui::PushStyleColor(ImGuiCol_Button, th.accent);
-			ImGui::PushStyleColor(ImGuiCol_Text, th.textOnAccent);
-		}
-		if (ImGui::SmallButton("M"))
+		if (Widgets::IconToggle("##Mute", mute ? Icon::SpeakerOff : Icon::Speaker, mute, toggleSize, th.muteActive,
+								Widgets::Frame::Boxed, mute ? "Unmute" : "Mute"))
 			track->SetMute(!mute);
-		if (mute)
-			ImGui::PopStyleColor(2);
 
-		ImGui::SameLine();
+		ImGui::SameLine(0.0f, toggleGap);
 
 		bool solo = track->GetSolo();
-		if (solo)
-			ImGui::PushStyleColor(ImGuiCol_Button, th.success);
-		if (ImGui::SmallButton("S")) {
+		if (Widgets::IconToggle("##Solo", Icon::Headphones, solo, toggleSize, th.soloActive, Widgets::Frame::Boxed,
+								"Solo (Ctrl+click to add to the soloed tracks)")) {
 			// ctrl adds this track to whatever is already soloed; a plain click is
 			// exclusive, and clicking the one soloed track clears the solo entirely
 			if (ImGui::GetIO().KeyCtrl) {
@@ -84,14 +82,19 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 					track->SetSolo(true);
 			}
 		}
-		if (solo)
-			ImGui::PopStyleColor();
+	};
+
+	// the automation lane's toggle, the third of the row's set
+	auto DrawAutomationToggle = [&](Track* t) {
+		bool showAuto = t->mShowAutomation;
+		if (Widgets::IconToggle("##Automation", Icon::Automation, showAuto, toggleSize, th.automationActive,
+								Widgets::Frame::Boxed, showAuto ? "Hide the automation lane" : "Show the automation lane"))
+			t->mShowAutomation = !showAuto;
 	};
 
 	// how wide that pair comes out, so a minimized row can reserve the space before
 	// deciding where its name has to stop
-	const float muteSoloWidth = ImGui::CalcTextSize("M").x + ImGui::CalcTextSize("S").x +
-								ImGui::GetStyle().FramePadding.x * 4.0f + ImGui::GetStyle().ItemSpacing.x;
+	const float muteSoloWidth = toggleSize.x * 2.0f + toggleGap;
 
 	auto LinToNorm = [](float val) -> float {
 		if (val <= 0.0001f)
@@ -105,10 +108,8 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 	// the master is laid out by the same code as the tracks above it, so its name, its
 	// buttons and its faders sit in the same columns rather than in a near-copy that
 	// drifts out of line with them
-	const float s = mContext.state.mainScale;
-	const float frmH = ImGui::GetFrameHeight();
-	const float meterW = 6 * s;
-	const float meterX = fixedPos.x + width - meterW - 4 * s;
+	const float meterW = std::floor(7.0f * s);
+	const float meterX = fixedPos.x + width - meterW - std::floor(5.0f * s);
 
 	// the name, the button row and the mixer row, top to bottom. the row's spare height
 	// is shared evenly above, between and below them, so the stack sits centered in the
@@ -119,37 +120,48 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		float yMixer;
 	};
 	auto LayoutBands = [&](float rowTop, float rowH) -> RowBands {
-		const float gap = std::max(rowH - txtH * 2.0f - frmH, 0.0f) * 0.25f;
-		return {rowTop + gap, rowTop + gap * 2.0f + txtH, rowTop + gap * 3.0f + txtH * 2.0f};
+		const float gap = std::max(rowH - txtH - toggleSize.y - frmH, 0.0f) * 0.25f;
+		return {std::floor(rowTop + gap), std::floor(rowTop + gap * 2.0f + txtH), std::floor(rowTop + gap * 3.0f + txtH + toggleSize.y)};
 	};
 
-	// volume + pan on one compact row: an inline label plus a single-height value box
-	// (with a level fill), sized to fill the span between the content column and the meter
+	// volume + pan on one compact row: a caption plus a single-height value box (with a
+	// level fill), sized to fill the span between the content column and the meter
 	auto DrawMixer = [&](Track* t, float contentX, float yMixer) {
 		const float mixerW = (meterX - 6 * s) - contentX;
 		const float mixerGap = 8 * s;
 		const float mixerHalfW = (mixerW - mixerGap) * 0.5f;
-		const float labelY = yMixer + (frmH - txtH) * 0.5f;
 
-		auto DrawLabeledParam = [&](const char* label, Parameter* p, float x) {
-			float labelW = ImGui::CalcTextSize(label).x;
-			float sliderW = std::max(mixerHalfW - labelW - 4 * s, 20 * s);
-			drawList->AddText(ImVec2(x, labelY), th.textMuted, label);
-			ImGui::SetCursorScreenPos(ImVec2(x + labelW + 4 * s, yMixer));
-			p->DrawCompact(sliderW, "%.2f", true);
+		auto DrawLabeledParam = [&](const char* label, Parameter* p, float x, const char* format) {
+			Widgets::PushSmallFont();
+			const ImVec2 labelSize = ImGui::CalcTextSize(label);
+			drawList->AddText(ImVec2(x, yMixer + (frmH - labelSize.y) * 0.5f), th.textMuted, label);
+			ImGui::PopFont();
+			float sliderW = std::max(mixerHalfW - labelSize.x - 4 * s, 20 * s);
+			ImGui::SetCursorScreenPos(ImVec2(x + labelSize.x + 4 * s, yMixer));
+			p->DrawCompact(sliderW, format, true);
 		};
 
-		DrawLabeledParam("Vol", t->GetVolumeParameter(), contentX);
-		DrawLabeledParam("Pan", t->GetPanParameter(), contentX + mixerHalfW + mixerGap);
+		DrawLabeledParam("VOL", t->GetVolumeParameter(), contentX, "%.1f dB");
+		DrawLabeledParam("PAN", t->GetPanParameter(), contentX + mixerHalfW + mixerGap, "%.2f");
 	};
 
-	// a stereo peak meter down the row's right edge
+	// a stereo peak meter down the row's right edge: two bars in a dark well, a hairline
+	// apart, each lit from the bottom along the meter's green-to-red ramp
 	auto DrawMeter = [&](Track* t, float meterTop, float meterH) {
 		float normL = LinToNorm(t->GetPeakL());
 		float normR = LinToNorm(t->GetPeakR());
-		drawList->AddRectFilled(ImVec2(meterX, meterTop), ImVec2(meterX + meterW, meterTop + meterH), th.meterBg);
-		drawList->AddRectFilled(ImVec2(meterX, meterTop + meterH - normL * meterH), ImVec2(meterX + meterW * 0.5f, meterTop + meterH), th.MeterColor(normL));
-		drawList->AddRectFilled(ImVec2(meterX + meterW * 0.5f, meterTop + meterH - normR * meterH), ImVec2(meterX + meterW, meterTop + meterH), th.MeterColor(normR));
+		const float barW = std::floor((meterW - 1.0f) * 0.5f);
+		const float meterBottom = meterTop + meterH;
+		drawList->AddRectFilled(ImVec2(meterX, meterTop), ImVec2(meterX + meterW, meterBottom), th.meterBg);
+		auto Bar = [&](float x, float norm) {
+			if (norm <= 0.0f)
+				return;
+			const float top = meterBottom - norm * meterH;
+			drawList->AddRectFilledMultiColor(ImVec2(x, top), ImVec2(x + barW, meterBottom), th.MeterColor(norm), th.MeterColor(norm),
+											  th.meterLow, th.meterLow);
+		};
+		Bar(meterX, normL);
+		Bar(meterX + meterW - barW, normR);
 	};
 
 	int trackToProcess = -1;
@@ -247,7 +259,10 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 			bgCol = isTrackSelected ? th.bgActive : th.bgPanelAlt; // groups read as slightly raised containers
 
 		drawList->AddRectFilled(ImVec2(fixedPos.x + indent, curY), ImVec2(fixedPos.x + width, curY + rowH), bgCol);
-		drawList->AddRectFilled(ImVec2(fixedPos.x + indent, curY), ImVec2(fixedPos.x + indent + 6 * s, curY + rowH), track->GetColor());
+		drawList->AddRectFilled(ImVec2(fixedPos.x + indent, curY), ImVec2(fixedPos.x + indent + std::floor(4.0f * s), curY + rowH), track->GetColor());
+		// a dark rule under every row, so the headers read as a stack the way the lanes beside
+		// them do
+		drawList->AddRectFilled(ImVec2(fixedPos.x + indent, curY + rowH - 1.0f), ImVec2(fixedPos.x + width, curY + rowH), th.divider);
 
 		if (ImGui::BeginDragDropSource()) {
 			TrackMovePayload payload;
@@ -372,10 +387,12 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 
 			float nameX = caretX + caretW + 2 * s;
 			ImGui::PushClipRect(ImVec2(nameX, curY), ImVec2(buttonsX - 4 * s, curY + rowH), true);
+			Widgets::PushStrongFont();
 			drawList->AddText(ImVec2(nameX, rowCenterY), th.text, track->GetName().c_str());
+			ImGui::PopFont();
 			ImGui::PopClipRect();
 
-			ImGui::SetCursorScreenPos(ImVec2(buttonsX, rowCenterY));
+			ImGui::SetCursorScreenPos(ImVec2(buttonsX, std::floor(curY + (rowH - toggleSize.y) * 0.5f)));
 			DrawMuteSolo(track);
 
 			// slim level meter on the right edge
@@ -392,8 +409,8 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		float contentX = fixedPos.x + indent + 22 * s; // right of the colour strip + caret column
 
 		// close button at the end of the name line, just left of the meter
-		float closeSz = 15 * s;
-		float closeX = meterX - closeSz - 6 * s;
+		float closeSz = std::floor(txtH * 1.05f);
+		float closeX = meterX - closeSz - 4 * s;
 		float closeY = yName + (txtH - closeSz) * 0.5f;
 
 		// fold/minimize caret in the reserved column left of the name
@@ -419,12 +436,19 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 				}
 			}
 		} else {
-			std::string dispName = track->GetName();
-			if (track->IsGroup())
-				dispName = "[G] " + dispName;
+			// a group says so with a folder glyph ahead of its name
+			float nameX = contentX;
+			if (track->IsGroup()) {
+				const float glyph = std::floor(txtH * 0.85f);
+				Icons::Draw(drawList, Icon::Folder, ImVec2(nameX + glyph * 0.5f, yName + txtH * 0.5f), glyph, th.textMuted);
+				nameX += glyph + 4 * s;
+			}
 			// clip the name to the space before the close button so it never overlaps it
-			ImGui::PushClipRect(ImVec2(contentX, yName), ImVec2(closeX - 4 * s, yName + txtH + 2 * s), true);
-			ImGui::Text("%s", dispName.c_str());
+			ImGui::PushClipRect(ImVec2(nameX, yName), ImVec2(closeX - 4 * s, yName + txtH + 2 * s), true);
+			ImGui::SetCursorScreenPos(ImVec2(nameX, yName));
+			Widgets::PushStrongFont();
+			ImGui::TextUnformatted(track->GetName().c_str());
+			ImGui::PopFont();
 			ImGui::PopClipRect();
 
 			if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
@@ -436,22 +460,14 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		ImGui::SetCursorScreenPos(ImVec2(contentX, bands.yButtons));
 
 		DrawMuteSolo(track);
-
-		ImGui::SameLine();
-
-		bool showAuto = track->mShowAutomation;
-		if (showAuto)
-			ImGui::PushStyleColor(ImGuiCol_Button, th.danger);
-		if (ImGui::SmallButton("A"))
-			track->mShowAutomation = !showAuto;
-		if (showAuto)
-			ImGui::PopStyleColor();
+		ImGui::SameLine(0.0f, toggleGap);
+		DrawAutomationToggle(track.get());
 
 		DrawMixer(track.get(), contentX, bands.yMixer);
 		DrawMeter(track.get(), curY + 4 * s, rowH - 8 * s);
 
 		ImGui::SetCursorScreenPos(ImVec2(closeX, closeY));
-		if (ImGui::Button("X", ImVec2(closeSz, closeSz))) {
+		if (Widgets::IconButton("##DeleteTrack", Icon::Close, ImVec2(closeSz, closeSz), Widgets::Frame::Ghost, "Delete track")) {
 			trackToProcess = (int)i;
 			action = Delete;
 		}
@@ -491,7 +507,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 	ImGui::PopClipRect();
 
 	drawList->AddRectFilled(ImVec2(fixedPos.x, stickyY), ImVec2(fixedPos.x + width, stickyY + headerHeight), th.bgHeader);
-	drawList->AddLine(ImVec2(fixedPos.x, stickyY + headerHeight), ImVec2(fixedPos.x + width, stickyY + headerHeight), th.borderStrong);
+	drawList->AddRectFilled(ImVec2(fixedPos.x, stickyY + headerHeight - 1.0f), ImVec2(fixedPos.x + width, stickyY + headerHeight), th.divider);
 
 	if (trackToProcess != -1) {
 		if (action == Delete) {
@@ -547,7 +563,7 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		bool isMasterSelected = (mContext.state.selectedTrackIndex == -1);
 		ImU32 bgCol = isMasterSelected ? th.bgActive : th.bgPanelAlt;
 		drawList->AddRectFilled(curPos, ImVec2(curPos.x + width, curPos.y + masterHeight), bgCol);
-		drawList->AddLine(curPos, ImVec2(curPos.x + width, curPos.y), th.borderStrong);
+		drawList->AddRectFilled(curPos, ImVec2(curPos.x + width, curPos.y + 1.0f), th.divider);
 
 		if (ImGui::BeginDragDropTarget()) {
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("VST_PLUGIN")) {
@@ -595,16 +611,14 @@ void TrackListView::Render(const ImVec2& fixedPos, float width, float height, fl
 		const float contentX = curPos.x + 22 * s;
 
 		ImGui::SetCursorScreenPos(ImVec2(contentX, bands.yName));
-		ImGui::Text("MASTER");
+		Widgets::PushStrongFont();
+		ImGui::TextUnformatted("Master");
+		ImGui::PopFont();
 
 		ImGui::SetCursorScreenPos(ImVec2(contentX, bands.yButtons));
-		bool showAuto = master->mShowAutomation;
-		if (showAuto)
-			ImGui::PushStyleColor(ImGuiCol_Button, th.danger);
-		if (ImGui::SmallButton("A##Master"))
-			master->mShowAutomation = !showAuto;
-		if (showAuto)
-			ImGui::PopStyleColor();
+		ImGui::PushID("Master");
+		DrawAutomationToggle(master.get());
+		ImGui::PopID();
 
 		DrawMixer(master.get(), contentX, bands.yMixer);
 		DrawMeter(master.get(), curPos.y + 4 * s, masterHeight - 8 * s);
